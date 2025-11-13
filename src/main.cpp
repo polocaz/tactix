@@ -3,6 +3,9 @@
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_opengl3.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <stdio.h>
 
 int main(int argc, char* argv[])
@@ -11,10 +14,28 @@ int main(int argc, char* argv[])
     (void)argc;
     (void)argv;
 
-
     // -------------------------
     // SDL2 Initialization
     // -------------------------
+
+    // Create console sink
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_level(spdlog::level::info);
+
+    // Create file sink
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("tactix.log", true);
+    file_sink->set_level(spdlog::level::debug);
+
+    // Combine sinks into one logger
+    spdlog::logger logger("multi_sink", {console_sink, file_sink});
+    logger.set_level(spdlog::level::debug);
+    logger.flush_on(spdlog::level::info);
+
+    // Set as default logger
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>(logger));
+
+    spdlog::info("Starting Tactix...");
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         printf("Error: %s\n", SDL_GetError());
         return -1;
@@ -101,6 +122,8 @@ int main(int argc, char* argv[])
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);
     SDL_Quit();
+
+    spdlog::info("Exiting Tactix");
 
     return 0;
 }

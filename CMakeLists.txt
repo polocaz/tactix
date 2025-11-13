@@ -62,6 +62,10 @@ target_include_directories(ImGui PUBLIC
 target_link_libraries(ImGui PUBLIC SDL2::SDL2)
 target_link_libraries(tactix PRIVATE ImGui)
 
+# --- spdlog ---
+add_subdirectory(third_party/spdlog)
+target_link_libraries(tactix PRIVATE spdlog::spdlog)
+
 # ==============================
 #  Platform Definitions
 # ==============================
