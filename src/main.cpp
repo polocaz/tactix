@@ -43,6 +43,9 @@ int main(int argc, char* argv[])
     SDL_GL_MakeCurrent(window, gl_context);
     SDL_GL_SetSwapInterval(1); // Enable vsync
 
+    // Enable cursor
+    SDL_ShowCursor(SDL_ENABLE);
+
     // -------------------------
     // ImGui Initialization
     // -------------------------
