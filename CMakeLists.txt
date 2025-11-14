@@ -87,9 +87,12 @@ else()
 endif()
 
 # ==============================
-#  Optional: Tracy Profiler
+# Optional: Tracy Profiler
 # ==============================
+option(ENABLE_PROFILING "Enable Tracy Profiler" OFF)
+
 if(ENABLE_PROFILING)
+    message(STATUS "Profiling enabled: Adding Tracy")
     add_subdirectory(third_party/tracy)
     target_link_libraries(tactix PRIVATE TracyClient)
     target_compile_definitions(tactix PRIVATE ENABLE_PROFILING)

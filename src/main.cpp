@@ -4,50 +4,27 @@
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_opengl3.h"
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <stdio.h>
+
+#if ENABLE_PROFILING
+    #include "tracy/Tracy.hpp"
+#endif
 
 int main(int argc, char* argv[])
 {
-    // Make compiler happy
-    (void)argc;
-    (void)argv;
-
-    // -------------------------
-    // SDL2 Initialization
-    // -------------------------
-
-    // Create console sink
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_level(spdlog::level::info);
-
-    // Create file sink
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("tactix.log", true);
-    file_sink->set_level(spdlog::level::debug);
-
-    // Combine sinks into one logger
-    spdlog::logger logger("multi_sink", {console_sink, file_sink});
-    logger.set_level(spdlog::level::debug);
-    logger.flush_on(spdlog::level::info);
-
-    // Set as default logger
-    spdlog::set_default_logger(std::make_shared<spdlog::logger>(logger));
+    (void)argc; (void)argv;
 
     spdlog::info("Starting Tactix...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
-        printf("Error: %s\n", SDL_GetError());
+        spdlog::error("Error initializing SDL: {}", SDL_GetError());
         return -1;
     }
 
-    // Set OpenGL attributes (version 3.3 core)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 
-    // Create SDL window
     SDL_Window* window = SDL_CreateWindow(
         "Tactix",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -56,35 +33,46 @@ int main(int argc, char* argv[])
     );
 
     if (!window) {
-        printf("Error creating SDL window: %s\n", SDL_GetError());
+        spdlog::error("Error creating SDL window: {}", SDL_GetError());
         return -1;
     }
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1); // Enable vsync
-
-    // Enable cursor
+    SDL_GL_SetSwapInterval(1);
     SDL_ShowCursor(SDL_ENABLE);
 
-    // -------------------------
-    // ImGui Initialization
-    // -------------------------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330 core");
-
     ImGui::StyleColorsDark();
 
-    // -------------------------
-    // Main Loop
-    // -------------------------
+    // Timing variables for FPS
+    float deltaTime = 0.0f;
+    float fps = 0.0f;
+    uint64_t lastCounter = SDL_GetPerformanceCounter();
+    const double freq = (double)SDL_GetPerformanceFrequency();
+
     bool running = true;
     while (running)
     {
+
+#if ENABLE_PROFILING
+        ZoneScoped; // Tracy macro: marks this scope for profiling
+#endif
+        // ---- FRAME TIMING ----
+        uint64_t now = SDL_GetPerformanceCounter();
+        deltaTime = (float)((double)(now - lastCounter) / freq);
+        lastCounter = now;
+
+        // Smooth FPS (Exponential moving average)
+        float currentFPS = 1.0f / deltaTime;
+        fps = fps * 0.9f + currentFPS * 0.1f;  // smoothing factor = 10%
+
+        // ---- EVENT HANDLING ----
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
@@ -92,17 +80,18 @@ int main(int argc, char* argv[])
                 running = false;
         }
 
-        // Start ImGui frame
+        // ---- IMGUI START FRAME ----
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // Example ImGui window
-        ImGui::Begin("Hello Tactix!");
-        ImGui::Text("This is a working SDL2 + ImGui setup.");
+        // ---- UI WINDOWS ----
+        ImGui::Begin("Tactix Debug");
+        ImGui::Text("FPS: %.1f", fps);
+        ImGui::Text("Frame Time: %.3f ms", deltaTime * 1000.0f);
         ImGui::End();
 
-        // Rendering
+        // ---- RENDER ----
         ImGui::Render();
         glViewport(0, 0, 1280, 720);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -112,9 +101,6 @@ int main(int argc, char* argv[])
         SDL_GL_SwapWindow(window);
     }
 
-    // -------------------------
-    // Cleanup
-    // -------------------------
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
@@ -124,7 +110,6 @@ int main(int argc, char* argv[])
     SDL_Quit();
 
     spdlog::info("Exiting Tactix");
-
     return 0;
 }
 

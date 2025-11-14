@@ -4,13 +4,13 @@
 **Goal:** Establish clean project structure and build system.
 
 **Tasks**
-- [ ] Create project directory and CMake setup
-- [ ] Add `.gitignore` for C++ / build artifacts
-- [ ] Add `/src`, `/include`, `/docs`, `/third_party` directories
-- [ ] Integrate SDL2 (or GLFW) + ImGui for windowing and UI
-- [ ] Add spdlog for logging
-- [ ] Add Tracy profiler (optional at this stage)
-- [ ] Build a blank window with frame counter
+- [x] Create project directory and CMake setup
+- [x] Add `.gitignore` for C++ / build artifacts
+- [x] Add `/src`, `/include`, `/docs`, `/third_party` directories
+- [x] Integrate SDL2 (or GLFW) + ImGui for windowing and UI
+- [x] Add spdlog for logging
+- [x] Add Tracy profiler (optional at this stage)
+- [x] Build a blank window with frame counter
 
 **Deliverable:**  
 Empty project builds and displays an FPS counter in a window.
