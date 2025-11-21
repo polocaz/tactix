@@ -1,11 +1,3 @@
-That’s *exactly* the right kind of idea — you’re thinking like a systems engineer **and** a simulation designer.
-
-Turning the project into a **nation-scale simulation** — a kind of *“Kenshi brain” but abstracted to dots and systems* — is a perfect evolution of the plan. You’ll still be tackling performance, AI, and systems design, but the scope becomes *strategic and scalable* instead of purely tactical.
-
-Let’s unpack both sides — **vision** and **technical approach** — and then decide whether to use an engine or go bare metal.
-
----
-
 ## ⚙️ Vision: “Macro-Kenshi / Nation Simulator”
 
 Imagine this as:

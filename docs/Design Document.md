@@ -1,258 +1,98 @@
-# Nation Simulator - Core Design Document
+# Tactix: Technical Design Document
 
-## Overview
-**Nation Simulator** is a large-scale, data-oriented simulation of autonomous agents, settlements, and regions.  
-The goal is to model the behavior and interactions of a living world at massive scale (tens of thousands of entities) with a focus on **performance, scalability, and system design**.
+## 1\. High-Level Architecture
 
-This project emphasizes:
-- Multi-threaded simulation loops
-- Data-oriented architecture (SoA/ECS hybrid)
-- Real-time profiling and metrics
-- Scalable world updates (region-based)
-- Minimal visualization (dots, heat-maps, debug overlays)
+Tactix is a high-performance, data-oriented simulation engine designed to handle 10,000+ autonomous agents with deterministic outcomes.
 
----
+The architecture decouples the **Simulation Layer** (Logic, Physics, AI) from the **Presentation Layer** (Rendering, UI).
 
-## Core Goals
-1. **Performance First:**  
-   Build the simulation to handle 10,000+ agents at interactive tick rates (10–30 ticks/sec).
+### 1.1 The "Heartbeat": Fixed Timestep Accumulator
 
-2. **Deterministic Systems:**  
-   The same initial world seed should produce consistent outcomes when run single-threaded.
+To ensure deterministic behavior (identical results on different hardware), the simulation advances in fixed discrete time steps ($\Delta t$), while the rendering occurs at the variable refresh rate of the monitor.
 
-3. **Modular Systems:**  
-   World, entity management, AI, and simulation logic should be independent subsystems with clear APIs.
+**The Algorithm:**
+We maintain an `accumulator` of real-world time.
 
-4. **Profilable and Measurable:**  
-   Every major update stage is instrumented for timing and statistics collection.
+1.  Add frame time to `accumulator`.
+2.  While `accumulator` $\ge$ `FIXED_DT` (e.g., 16.66ms):
+      * Step Simulation (`tick()`).
+      * Subtract `FIXED_DT` from `accumulator`.
+3.  Render State (interpolating based on remaining `accumulator` / `FIXED_DT` for smoothness).
 
-5. **Headless or Visual Modes:**  
-   Run either as a console/headless simulation for profiling or with a minimal SDL2/ImGui interface for visualization.
+## 2\. Data-Oriented Memory Layout
 
----
+Instead of traditional OOP objects, Tactix uses a **Structure of Arrays (SoA)** approach. This mimics the **L3 Market Data** structure, optimizing for CPU cache prefetching.
 
-## Core Systems
+### 2.1 The "Hot" Path (Dense Arrays)
 
-### 1. World
-Responsible for storing and updating spatial data and high-level regions.
-
-**Responsibilities:**
-- Manage map tiles or region grid
-- Store environmental and ownership data (terrain, resource, faction ID)
-- Provide spatial queries for entities (nearest region, neighbors)
-- Manage region-level update jobs
-
-**Data Example:**
-```cpp
-struct Region {
-    uint32_t id;
-    uint32_t factionId;
-    float food;
-    float population;
-    float resources;
-    bool active;
-};
-````
-
----
-
-### 2. Entity System
-
-Manages all individual agents (workers, caravans, soldiers, etc.).
-
-**Responsibilities:**
-
-* Store entities in SoA layout
-* Handle creation, destruction, and updates
-* Maintain spatial indices for nearby entity lookups
-* Expose entity iteration for system updates
-
-**Data Example:**
+Data accessed every single tick (Movement, Physics) is packed contiguously.
 
 ```cpp
-struct Entities {
-    std::vector<float> posX, posY;
-    std::vector<float> velX, velY;
-    std::vector<uint8_t> state;
-    std::vector<uint32_t> regionId;
+struct EntityHot {
+    // 32 bytes per entity (fits 2 entities per 64-byte cache line)
+    std::vector<float> posX;    // 4 bytes
+    std::vector<float> posY;    // 4 bytes
+    std::vector<float> velX;    // 4 bytes
+    std::vector<float> velY;    // 4 bytes
+    std::vector<uint32_t> id;   // 4 bytes
+    std::vector<uint16_t> regionId; // 2 bytes
+    std::vector<uint8_t> state;     // 1 byte
+    std::vector<uint8_t> flags;     // 1 byte (padding/alignment)
 };
 ```
 
----
+### 2.2 The "Cold" Path (Sparse/Lookup)
 
-### 3. Simulation Loop
-
-The central loop that drives updates across all systems.
-
-**Pipeline Example:**
-
-1. Input / world events
-2. AI / decision making
-3. Movement & physics integration
-4. Combat / interaction resolution
-5. World state updates
-6. Metrics & profiling output
-
-**Pseudocode:**
+Data accessed only during specific events (Rendering names, UI clicks, detailed inspection) is stored separately to avoid polluting the cache during the simulation loop.
 
 ```cpp
-while (running) {
-    PROFILE_SCOPE("SimulationTick");
-    simulation.tick();
-    renderer.draw();
-}
+struct EntityCold {
+    std::vector<std::string> name;
+    std::vector<Inventory> inventory;
+    std::vector<HistoryLog> history;
+};
 ```
 
-Each stage can enqueue jobs to a **Job System** for parallel processing.
+## 3\. Concurrency & Job System
 
----
+Mirroring **Action Chunking** in robotics, we break the simulation tick into parallelizable jobs.
 
-### 4. Job System
+### 3.1 The Frame Packet (Double Buffering)
 
-A lightweight task scheduler for running simulation work across multiple threads.
+To allow the Simulation to run at full speed without waiting for VSync, and to prevent the Renderer from reading half-updated data (tearing), we use a **State Snapshot** model.
 
-**Responsibilities:**
+1.  **Sim Thread:** Writes to `State_Back`.
+2.  **Sync Point:** At the end of a frame, `State_Back` is swapped or copied to `State_Front`.
+3.  **Render Thread:** Reads strictly from `State_Front`.
 
-* Maintain a fixed worker thread pool
-* Provide work-stealing queues or simple per-thread queues
-* Support submitting jobs (lambdas/functions)
-* Synchronize at frame barriers
+**Optimization:** Since copying 10k entities is heavy, we track `DirtyRegions`—only regions that changed are copied to the render state.
 
-**Example API:**
+## 4\. Simulation Pipeline (The "Tick")
 
-```cpp
-JobHandle submit(std::function<void()> job);
-void waitAll();
-```
+Every `FIXED_DT`, the system executes these stages strictly in order:
 
----
+1.  **Job: Spatial Hashing:** Rebuild/Update the grid lookup for where entities are.
+2.  **Job: AI Decision (Parallel):** Agents read the world state and decide `NextAction`.
+3.  **Job: Integration (Parallel):** Update `PosX += VelX * dt`.
+4.  **Job: Interaction Resolution:** Resolve collisions or combat (Requires thread-safe writes or specific "Conflict" phase).
+5.  **Metric Collection:** Push stats to Tracy/ImGui.
 
-### 5. Profiling & Metrics
-
-Real-time performance tracking and exportable data.
-
-**Responsibilities:**
-
-* Measure per-system timing (AI, movement, combat, etc.)
-* Track total tick time, active jobs, thread load
-* Integrate with external profiler (Tracy) for detailed analysis
-* Visualize simple metrics in ImGui
-
-**Example Metrics:**
-
-| Metric          | Description                        |
-| --------------- | ---------------------------------- |
-| Tick Time (ms)  | Total simulation time per frame    |
-| Entities        | Count of active agents             |
-| Active Regions  | Count of regions updated this tick |
-| CPU Utilization | Thread usage per frame             |
-
----
-
-### 6. Visualization Layer
-
-A minimal 2D renderer for debugging and presentation.
-
-**Responsibilities:**
-
-* Render entities as points or icons
-* Render region overlays (ownership, resources)
-* Display profiling overlays (tick time graph, entity count)
-* Provide pause/step controls for the simulation
-
-Optional: headless mode for profiling or batch simulation runs.
-
----
-
-## Data Flow
+## 5\. Updated Project Structure
 
 ```text
-World Initialization
-        ↓
-Entity & Region Setup
-        ↓
-Main Simulation Loop
-    ├── AI Decision Pass
-    ├── Movement Pass
-    ├── Interaction Pass
-    ├── World/Region Pass
-    ├── Metrics Collection
-        ↓
-Renderer / Output
-```
-
-Each subsystem operates independently but shares access to entity/region data via stable handles.
-
----
-
-## Performance Targets
-
-| Scenario    | Agents | Tick Rate | Target Time/Frame |
-| ----------- | ------ | --------- | ----------------- |
-| Baseline    | 1,000  | 30 TPS    | < 33ms            |
-| Mid-scale   | 5,000  | 20 TPS    | < 50ms            |
-| Large-scale | 10,000 | 10 TPS    | < 100ms           |
-
-Memory target: **< 1KB per agent**
-
----
-
-## Future Extensions
-
-Once the core loop is solid:
-
-* Add factions with AI goals (expand, trade, fight)
-* Add trade routes and economic simulation
-* Add combat outcomes and population changes
-* Implement serialization / save & load
-* Expand profiler to visualize per-system CPU breakdowns
-
----
-
-## Folder Structure (Proposed)
-
-```
 /src
-  main.cpp
-  World.h / .cpp
-  Entities.h / .cpp
-  Simulation.h / .cpp
-  JobSystem.h / .cpp
-  Profiler.h / .cpp
-  Renderer.h / .cpp
-/include
-  (public headers)
-/third_party
-  imgui/
-  sdl2/
-  tracy/
-  spdlog/
-/docs
-  DESIGN.md
-  TODO.md
+  main.cpp            // Entry point, Window creation, Accumulator loop
+  /Core
+    Simulation.cpp    // Manages the Fixed Update loop
+    JobSystem.cpp     // Worker thread pool
+    Logger.h          // spdlog wrapper
+  /Data
+    World.h           // Region grid data
+    EntityManager.h   // SoA Hot/Cold storage
+  /Systems
+    MovementSys.cpp   // Updates Position based on Velocity
+    AISys.cpp         // Updates State/Velocity based on Logic
+  /Render
+    Renderer.cpp      // SDL2/OpenGL draw calls
+    DebugUI.cpp       // ImGui layouts
 ```
-
----
-
-## Build & Run
-
-**Build:**
-
-```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-```
-
-**Run:**
-
-```bash
-./nation_sim
-```
-
-Optional flags:
-
-* `--headless`
-* `--world-size=512`
-* `--agents=10000`
-* `--ticks=10000`
