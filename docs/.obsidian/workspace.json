@@ -34,9 +34,21 @@
               "icon": "lucide-file",
               "title": "Roadmap"
             }
+          },
+          {
+            "id": "30942aceb94b2d5a",
+            "type": "leaf",
+            "state": {
+              "type": "release-notes",
+              "state": {
+                "currentVersion": "1.10.6"
+              },
+              "icon": "lucide-book-up",
+              "title": "Release Notes 1.10.6"
+            }
           }
         ],
-        "currentTab": 1
+        "currentTab": 2
       }
     ],
     "direction": "vertical"
@@ -199,7 +211,7 @@
       "bases:Create new base": false
     }
   },
-  "active": "4aa1574987766e86",
+  "active": "30942aceb94b2d5a",
   "lastOpenFiles": [
     "Design Document.md",
     "Roadmap.md",

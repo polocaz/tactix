@@ -1,100 +1,101 @@
 cmake_minimum_required(VERSION 3.20)
-project(Tactix LANGUAGES CXX)
+project(tactix LANGUAGES CXX)
 
-# ==============================
-#  Compiler & Build Settings
-# ==============================
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Output directories
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+include(FetchContent)
 
-# Options
-option(ENABLE_PROFILING "Enable Tracy Profiler" OFF)
-
-# ==============================
-#  Source Files
-# ==============================
-file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
-    ${CMAKE_SOURCE_DIR}/src/*.cpp
+# -------------------------------------------------------
+# 1. Fetch Raylib
+# -------------------------------------------------------
+FetchContent_Declare(
+    raylib
+    GIT_REPOSITORY https://github.com/raysan5/raylib.git
+    GIT_TAG master
 )
+FetchContent_MakeAvailable(raylib)
+
+# -------------------------------------------------------
+# 2. Fetch Dear ImGui (no CMakeLists, we add sources manually)
+# -------------------------------------------------------
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG docking
+)
+FetchContent_MakeAvailable(imgui)
+
+# -------------------------------------------------------
+# 3. Fetch rlImGui (also no CMakeLists)
+# -------------------------------------------------------
+FetchContent_Declare(
+    rlImGui
+    GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(rlImGui)
+
+# -------------------------------------------------------
+# 4. Fetch spdlog (proper CMake project)
+# -------------------------------------------------------
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.12.0
+)
+FetchContent_MakeAvailable(spdlog)
+
+# -------------------------------------------------------
+# Sources
+# -------------------------------------------------------
+file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
 add_executable(tactix ${PROJECT_SOURCES})
 
+# -------------------------------------------------------
+# ImGui sources (required)
+# -------------------------------------------------------
+target_sources(tactix PRIVATE
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+)
+
+# Optional ImGui backends (you can enable when needed)
+# target_sources(tactix PRIVATE
+#     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+#     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+# )
+
+target_include_directories(tactix PRIVATE ${imgui_SOURCE_DIR})
+
+# -------------------------------------------------------
+# rlImGui sources
+# -------------------------------------------------------
+target_sources(tactix PRIVATE
+    ${rlimgui_SOURCE_DIR}/rlImGui.cpp
+)
+target_include_directories(tactix PRIVATE ${rlimgui_SOURCE_DIR})
+
+# -------------------------------------------------------
+# Linking
+# -------------------------------------------------------
+target_link_libraries(tactix PRIVATE
+    raylib
+    spdlog::spdlog
+)
+
+# -------------------------------------------------------
+# Includes
+# -------------------------------------------------------
 target_include_directories(tactix PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${imgui_SOURCE_DIR}
+    ${rlimgui_SOURCE_DIR}
 )
 
-# ==============================
-#  Third-Party Libraries
-# ==============================
-
-# --- SDL2 (system install) ---
-find_package(SDL2 REQUIRED)
-target_link_libraries(tactix PRIVATE SDL2::SDL2)
-
-# --- OpenGL ---
-find_package(OpenGL REQUIRED)
-
-# Link OpenGL to your executable
-target_link_libraries(tactix PRIVATE OpenGL::GL)
-
-# --- ImGui ---
-add_library(ImGui STATIC
-    third_party/ImGui/imgui.cpp
-    third_party/ImGui/imgui_draw.cpp
-    third_party/ImGui/imgui_tables.cpp
-    third_party/ImGui/imgui_widgets.cpp
-    third_party/ImGui/backends/imgui_impl_sdl2.cpp
-    third_party/ImGui/backends/imgui_impl_opengl3.cpp
-)
-
-target_include_directories(ImGui PUBLIC
-    third_party/ImGui
-    third_party/ImGui/backends
-)
-
-# Link ImGui into main binary
-target_link_libraries(ImGui PUBLIC SDL2::SDL2)
-target_link_libraries(tactix PRIVATE ImGui)
-
-# --- spdlog ---
-add_subdirectory(third_party/spdlog)
-target_link_libraries(tactix PRIVATE spdlog::spdlog)
-
-# ==============================
-#  Platform Definitions
-# ==============================
-if(APPLE)
-    target_compile_definitions(tactix PRIVATE PLATFORM_MACOS)
-elseif(WIN32)
-    target_compile_definitions(tactix PRIVATE PLATFORM_WINDOWS)
-elseif(UNIX)
-    target_compile_definitions(tactix PRIVATE PLATFORM_LINUX)
-endif()
-
-# ==============================
-#  Compiler Warnings
-# ==============================
-if(MSVC)
-    target_compile_options(tactix PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(tactix PRIVATE -Wall -Wextra -Wpedantic -Werror)
-endif()
-
-# ==============================
-# Optional: Tracy Profiler
-# ==============================
-option(ENABLE_PROFILING "Enable Tracy Profiler" OFF)
-
-if(ENABLE_PROFILING)
-    message(STATUS "Profiling enabled: Adding Tracy")
-    add_subdirectory(third_party/tracy)
-    target_link_libraries(tactix PRIVATE TracyClient)
-    target_compile_definitions(tactix PRIVATE ENABLE_PROFILING)
-endif()
-
+# -------------------------------------------------------
+# Copy assets to build folder
+# -------------------------------------------------------
+file(COPY ${CMAKE_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR})

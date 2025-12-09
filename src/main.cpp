@@ -1,115 +1,60 @@
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_opengl.h>
+#include "raylib.h"
+#include "rlImGui.h"
 #include "imgui.h"
-#include "backends/imgui_impl_sdl2.h"
-#include "backends/imgui_impl_opengl3.h"
-#include <spdlog/spdlog.h>
+#include "spdlog/spdlog.h"
 
-#if ENABLE_PROFILING
-    #include "tracy/Tracy.hpp"
-#endif
+#include "Simulation.hpp"
 
-int main(int argc, char* argv[])
-{
-    (void)argc; (void)argv;
+int main() {
+    // 1. Setup Window
+    const int screenWidth = 1280;
+    const int screenHeight = 720;
+    
+    spdlog::info("Initializing Tactix Engine...");
+    InitWindow(screenWidth, screenHeight, "Tactix - Zombie Infection Sim");
+    SetTargetFPS(60);
 
-    spdlog::info("Starting Tactix...");
+    // 2. Setup ImGui (via rlImGui bridge)
+    rlImGuiSetup(true);
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
-        spdlog::error("Error initializing SDL: {}", SDL_GetError());
-        return -1;
-    }
+    Simulation sim(screenWidth, screenHeight);
+    size_t agentCount = 300;
+    sim.init(agentCount);
 
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    float speedMultiplier = 1.0f;
 
-    SDL_Window* window = SDL_CreateWindow(
-        "Tactix",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1280, 720,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
-    );
+    // --- Main Loop ---
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime() * speedMultiplier;
 
-    if (!window) {
-        spdlog::error("Error creating SDL window: {}", SDL_GetError());
-        return -1;
-    }
+        sim.update(dt);
 
-    SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, gl_context);
-    SDL_GL_SetSwapInterval(1);
-    SDL_ShowCursor(SDL_ENABLE);
+        // ----------- DRAW -----------
+        BeginDrawing();
+        ClearBackground(BLACK);
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+        sim.draw();
 
-    ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
-    ImGui_ImplOpenGL3_Init("#version 330 core");
-    ImGui::StyleColorsDark();
+        // ----------- IMGUI -----------
+        rlImGuiBegin();
 
-    // Timing variables for FPS
-    float deltaTime = 0.0f;
-    float fps = 0.0f;
-    uint64_t lastCounter = SDL_GetPerformanceCounter();
-    const double freq = (double)SDL_GetPerformanceFrequency();
-
-    bool running = true;
-    while (running)
-    {
-
-#if ENABLE_PROFILING
-        ZoneScoped; // Tracy macro: marks this scope for profiling
-#endif
-        // ---- FRAME TIMING ----
-        uint64_t now = SDL_GetPerformanceCounter();
-        deltaTime = (float)((double)(now - lastCounter) / freq);
-        lastCounter = now;
-
-        // Smooth FPS (Exponential moving average)
-        float currentFPS = 1.0f / deltaTime;
-        fps = fps * 0.9f + currentFPS * 0.1f;  // smoothing factor = 10%
-
-        // ---- EVENT HANDLING ----
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            ImGui_ImplSDL2_ProcessEvent(&event);
-            if (event.type == SDL_QUIT)
-                running = false;
-        }
-
-        // ---- IMGUI START FRAME ----
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        // ---- UI WINDOWS ----
-        ImGui::Begin("Tactix Debug");
-        ImGui::Text("FPS: %.1f", fps);
-        ImGui::Text("Frame Time: %.3f ms", deltaTime * 1000.0f);
+        ImGui::Begin("Phase 1 Controls");
+        ImGui::SliderFloat("Speed Multiplier", &speedMultiplier, 0.1f, 50.0f);
+        ImGui::Text("Agents: %zu", agentCount);
+        ImGui::Separator();
+        ImGui::Text("FPS: %d", GetFPS());
+        ImGui::Text("Frame Time: %.3f ms", GetFrameTime() * 1000.0f);
         ImGui::End();
 
-        // ---- RENDER ----
-        ImGui::Render();
-        glViewport(0, 0, 1280, 720);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        rlImGuiEnd();
 
-        SDL_GL_SwapWindow(window);
+        EndDrawing();
     }
 
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-
-    SDL_GL_DeleteContext(gl_context);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-
-    spdlog::info("Exiting Tactix");
+    // 3. Cleanup
+    rlImGuiShutdown();
+    CloseWindow();
+    
+    spdlog::info("Tactix Engine Shutdown Cleanly.");
     return 0;
 }
-
