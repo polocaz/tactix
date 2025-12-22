@@ -3,6 +3,10 @@ project(tactix LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Ensure C++20 is used for all targets
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
 
 include(FetchContent)
 
@@ -37,12 +41,12 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(rlImGui)
 
 # -------------------------------------------------------
-# 4. Fetch spdlog (proper CMake project)
+# 4. Fetch spdlog (use header-only mode to avoid compilation issues)
 # -------------------------------------------------------
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.12.0
+    GIT_TAG v1.14.1
 )
 FetchContent_MakeAvailable(spdlog)
 
@@ -84,7 +88,7 @@ target_include_directories(tactix PRIVATE ${rlimgui_SOURCE_DIR})
 # -------------------------------------------------------
 target_link_libraries(tactix PRIVATE
     raylib
-    spdlog::spdlog
+    spdlog::spdlog_header_only
 )
 
 # -------------------------------------------------------
