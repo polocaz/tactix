@@ -143,10 +143,10 @@ void Simulation::draw(float alpha) {
     if (debugGrid) {
         const float cellSize = 50.0f;
         for (int x = 0; x < screenWidth; x += static_cast<int>(cellSize)) {
-            DrawLine(x, 0, x, screenHeight, Color{40, 40, 50, 100});
+            DrawLine(x, 0, x, screenHeight, Color{80, 255, 100, 180});
         }
         for (int y = 0; y < screenHeight; y += static_cast<int>(cellSize)) {
-            DrawLine(0, y, screenWidth, y, Color{40, 40, 50, 100});
+            DrawLine(0, y, screenWidth, y, Color{80, 255, 100, 180});
         }
     }
     
