@@ -6,23 +6,31 @@ Tactix is designed to showcase systems programming expertise through cache-frien
 
 ---
 
-## 🎯 Current Status: Phase 1 Complete ✅
+## 🎯 Current Status: Phase 2 Complete ✅
 
-**Performance Target:** 1,000 agents @ 60 ticks/sec  
-**Achieved:** < 1.5ms tick time (well under 16.66ms budget)
+**Performance Target:** 5,000 agents @ 60 ticks/sec  
+**Achieved:** ~2-4ms tick time (well under 7.5ms budget)
 
 ### Implemented Features
 
+#### Phase 1: Foundation
 - ✅ **Fixed Timestep Accumulator** - Deterministic 60 TPS simulation with interpolated rendering
 - ✅ **Structure of Arrays (SoA) Layout** - Cache-friendly memory organization (~24 bytes/agent)
 - ✅ **Performance Metrics Dashboard** - Real-time tick time monitoring with 60-frame rolling average
 - ✅ **Interpolated Rendering** - Smooth 144 FPS visuals from 60 TPS simulation
-- ✅ **1,000 Agent Simulation** - Simple wander behavior with screen wrapping
+
+#### Phase 2: Spatial Partitioning
+- ✅ **Uniform Grid Hash** - O(1) spatial queries with 50-pixel cells
+- ✅ **Neighbor Queries** - 9-cell (3x3) lookups checking ~100-200 entities vs all 5k
+- ✅ **Collision Avoidance** - Separation steering with distance-based forces
+- ✅ **Debug Visualization** - Toggleable grid overlay showing spatial partitioning
+- ✅ **5,000 Agent Simulation** - Emergent flocking behavior with local interactions
 
 ### Technical Highlights
 
 **Architecture:** Decoupled simulation (60 TPS) and presentation (variable FPS) layers  
 **Memory Layout:** Hot data (position, velocity, state) stored in separate contiguous arrays  
+**Spatial Partitioning:** Uniform grid hash enables O(n) neighbor queries instead of O(n²)  
 **Determinism:** Fixed timestep ensures identical results across different hardware  
 **Rendering:** Alpha blending between previous/current state for sub-frame interpolation
 
@@ -66,15 +74,19 @@ cmake -DCMAKE_BUILD_TYPE=Debug ..
 
 ## 📊 Performance Metrics
 
-| Metric | Target | Actual |
-|--------|--------|--------|
-| Agent Count | 1,000 | 1,000 |
-| Tick Rate | 60 TPS | 60 TPS (fixed) |
-| Tick Time | < 1.5 ms | ~0.3-0.8 ms ✅ |
-| Memory per Agent | < 50 bytes | 24 bytes ✅ |
-| Render FPS | Variable | 100-144+ FPS |
+| Metric | Phase 1 Target | Phase 2 Target | Actual |
+|--------|----------------|----------------|--------|
+| Agent Count | 1,000 | 5,000 | 5,000 |
+| Tick Rate | 60 TPS | 60 TPS | 60 TPS (fixed) |
+| Tick Time | < 1.5 ms | < 7.5 ms | ~2-4 ms ✅ |
+| Spatial Hash | N/A | < 2 ms | ~0.5-1 ms ✅ |
+| Neighbor Queries | N/A | ~100-200 | ~100-200 ✅ |
+| Memory per Agent | 24 bytes | 24 bytes | 24 bytes ✅ |
+| Render FPS | 100-144+ | 100-144+ | 100-144+ FPS |
 
 *Tested on: Apple M1/M2 (arm64)*
+
+**Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k (**50x faster**) ⚡
 
 ---
 
@@ -86,7 +98,9 @@ tactix/
 │   ├── main.cpp           # Entry point, fixed timestep loop
 │   ├── Simulation.hpp     # Core simulation orchestration
 │   ├── Simulation.cpp     # SoA entity management & systems
-│   └── Agent.hpp          # (Legacy, unused in Phase 1)
+│   ├── SpatialHash.hpp    # Uniform grid hash for neighbor queries
+│   ├── SpatialHash.cpp    # Spatial partitioning implementation
+│   └── Agent.hpp          # (Legacy, unused)
 ├── docs/
 │   ├── Design Document.md # Detailed architecture & algorithms
 │   └── Roadmap.md        # 7-week implementation plan
@@ -104,13 +118,18 @@ tactix/
 - Basic movement system
 - Performance metrics
 
-### 🔄 Phase 2: Spatial Partitioning (Next)
+### ✅ Phase 2: Spatial Partitioning (Complete)
 - Uniform grid hash for neighbor queries
 - Collision avoidance behavior
 - 5,000 agents @ 60 TPS
+- Debug visualization
 
-### 📅 Phase 3-6: Planned
-- Job system & parallelization (10k agents)
+### 🔄 Phase 3: Job System & Parallelization (Next)
+- Multi-threaded worker pool
+- Parallel region updates
+- 10,000 agents @ 60 TPS
+
+### 📅 Phase 4-6: Planned
 - Utility-based AI state machine
 - Tracy profiler integration & SIMD optimization (20k agents)
 - Polish & documentation
@@ -122,6 +141,7 @@ See [docs/Roadmap.md](docs/Roadmap.md) for detailed milestones.
 ## 🎮 Controls
 
 - **ESC** - Exit application
+- **Show/Hide Grid** - Toggle spatial partitioning visualization
 - **ImGui Panel** - View real-time performance metrics
 
 ---

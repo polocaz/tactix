@@ -1,10 +1,15 @@
 #include "Simulation.hpp"
 #include <raylib.h>
 #include <cmath>
+#include <chrono>
 #include "spdlog/spdlog.h"
 
 Simulation::Simulation(int w, int h)
-    : screenWidth(w), screenHeight(h) {}
+    : screenWidth(w), screenHeight(h)
+    , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
+{
+    neighborBuffer.reserve(200);  // Pre-allocate for typical neighbor count
+}
 
 void Simulation::init(size_t count) {
     spdlog::info("Initializing {} agents with SoA layout", count);
@@ -28,6 +33,7 @@ void Simulation::init(size_t count) {
     size_t memoryPerEntity = sizeof(float) * 6;  // 4 floats hot + 2 floats prev
     float totalMB = (memoryPerEntity * count) / (1024.0f * 1024.0f);
     spdlog::info("Memory usage: {:.2f} MB ({} bytes/entity)", totalMB, memoryPerEntity);
+    spdlog::info("Spatial grid: {} cells", spatialHash.getCellCount());
 }
 
 void Simulation::tick(float dt) {
@@ -37,11 +43,75 @@ void Simulation::tick(float dt) {
         prevPosY[i] = entities.posY[i];
     }
     
-    // Update movement (SoA style - cache friendly, Design Doc §14.2)
-    updateMovement(dt);
+    // Rebuild spatial hash (Design Doc §5.3)
+    rebuildSpatialHash();
+    
+    // Update behaviors
+    updateSeparation(dt);  // Collision avoidance using spatial queries
+    updateMovement(dt);    // Apply velocities
     
     // Screen wrapping
     screenWrap();
+}
+
+void Simulation::rebuildSpatialHash() {
+    auto start = std::chrono::steady_clock::now();
+    
+    spatialHash.clear();
+    for (size_t i = 0; i < entities.count; i++) {
+        spatialHash.insert(static_cast<uint32_t>(i), entities.posX[i], entities.posY[i]);
+    }
+    
+    auto end = std::chrono::steady_clock::now();
+    lastSpatialHashTime = std::chrono::duration<float>(end - start).count() * 1000.0f;  // ms
+}
+
+void Simulation::updateSeparation(float dt) {
+    // Collision avoidance using spatial queries (Phase 2)
+    const float separationRadius = 20.0f;
+    const float separationStrength = 200.0f;
+    const float separationRadiusSq = separationRadius * separationRadius;
+    
+    for (size_t i = 0; i < entities.count; i++) {
+        float px = entities.posX[i];
+        float py = entities.posY[i];
+        
+        // Query nearby neighbors (Design Doc §5.4)
+        spatialHash.queryNeighbors(px, py, separationRadius, neighborBuffer);
+        
+        float steerX = 0.0f;
+        float steerY = 0.0f;
+        
+        // Calculate separation force from neighbors
+        for (uint32_t neighborIdx : neighborBuffer) {
+            if (neighborIdx == i) continue;  // Skip self
+            
+            float dx = px - entities.posX[neighborIdx];
+            float dy = py - entities.posY[neighborIdx];
+            float distSq = dx * dx + dy * dy;
+            
+            if (distSq < separationRadiusSq && distSq > 0.01f) {
+                float dist = std::sqrt(distSq);
+                // Stronger force when closer
+                float force = (separationRadius - dist) / separationRadius;
+                steerX += (dx / dist) * force;
+                steerY += (dy / dist) * force;
+            }
+        }
+        
+        // Apply separation steering
+        entities.velX[i] += steerX * separationStrength * dt;
+        entities.velY[i] += steerY * separationStrength * dt;
+        
+        // Limit velocity
+        const float maxSpeed = 150.0f;
+        float speedSq = entities.velX[i] * entities.velX[i] + entities.velY[i] * entities.velY[i];
+        if (speedSq > maxSpeed * maxSpeed) {
+            float speed = std::sqrt(speedSq);
+            entities.velX[i] = (entities.velX[i] / speed) * maxSpeed;
+            entities.velY[i] = (entities.velY[i] / speed) * maxSpeed;
+        }
+    }
 }
 
 void Simulation::updateMovement(float dt) {
@@ -64,7 +134,22 @@ void Simulation::screenWrap() {
     }
 }
 
+uint32_t Simulation::getMaxCellOccupancy() const {
+    return spatialHash.getMaxOccupancy();
+}
+
 void Simulation::draw(float alpha) {
+    // Debug: Draw grid
+    if (debugGrid) {
+        const float cellSize = 50.0f;
+        for (int x = 0; x < screenWidth; x += static_cast<int>(cellSize)) {
+            DrawLine(x, 0, x, screenHeight, Color{40, 40, 50, 100});
+        }
+        for (int y = 0; y < screenHeight; y += static_cast<int>(cellSize)) {
+            DrawLine(0, y, screenWidth, y, Color{40, 40, 50, 100});
+        }
+    }
+    
     // Interpolated rendering for smooth visuals (Design Doc §8.1)
     for (size_t i = 0; i < entities.count; i++) {
         float renderX = prevPosX[i] + (entities.posX[i] - prevPosX[i]) * alpha;

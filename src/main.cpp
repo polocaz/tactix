@@ -19,7 +19,7 @@ int main() {
     rlImGuiSetup(true);
 
     Simulation sim(screenWidth, screenHeight);
-    const size_t agentCount = 1000;  // Phase 1 target
+    const size_t agentCount = 5000;  // Phase 2 target
     sim.init(agentCount);
 
     // Fixed timestep accumulator (Design Doc §1.1)
@@ -70,7 +70,7 @@ int main() {
         // ----------- IMGUI -----------
         rlImGuiBegin();
 
-        ImGui::Begin("Tactix - Phase 1 Metrics");
+        ImGui::Begin("Tactix - Phase 2 Metrics");
         ImGui::Text("Agents: %zu", agentCount);
         ImGui::Separator();
         
@@ -93,14 +93,22 @@ int main() {
         ImGui::ProgressBar(avgTickTime / tickBudget, ImVec2(-1, 0), 
                           TextFormat("%.1f%% of budget", tickPercent));
         
-        if (avgTickTime < 1.5f) {
-            ImGui::TextColored(ImVec4(0, 1, 0, 1), "✓ Phase 1 Target: < 1.5ms");
+        if (avgTickTime < 7.5f) {
+            ImGui::TextColored(ImVec4(0, 1, 0, 1), "✓ Phase 2 Target: < 7.5ms");
         } else {
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), "✗ Exceeds Phase 1 target");
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), "✗ Exceeds Phase 2 target");
         }
         
         ImGui::Separator();
-        ImGui::PlotLines("Tick Time (ms)", tickTimes, 60, tickTimeIndex, nullptr, 0.0f, 3.0f, ImVec2(0, 80));
+        ImGui::Text("Spatial Hash: %.3f ms", sim.getLastSpatialHashTime());
+        ImGui::Text("Max Cell Occupancy: %u", sim.getMaxCellOccupancy());
+        
+        if (ImGui::Button(sim.isDebugGridEnabled() ? "Hide Grid" : "Show Grid")) {
+            sim.toggleDebugGrid();
+        }
+        
+        ImGui::Separator();
+        ImGui::PlotLines("Tick Time (ms)", tickTimes, 60, tickTimeIndex, nullptr, 0.0f, 10.0f, ImVec2(0, 80));
         
         ImGui::End();
 
