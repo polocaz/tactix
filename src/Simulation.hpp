@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "SpatialHash.hpp"
 #include "JobSystem.hpp"
+#include <raylib.h>
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct EntityHot {
@@ -10,6 +11,8 @@ struct EntityHot {
     std::vector<float> posY;
     std::vector<float> velX;
     std::vector<float> velY;
+    std::vector<float> dirX;  // Normalized direction for rendering
+    std::vector<float> dirY;
     std::vector<uint8_t> state;  // Future: entity state
     
     size_t count = 0;
@@ -19,6 +22,8 @@ struct EntityHot {
         posY.reserve(n);
         velX.reserve(n);
         velY.reserve(n);
+        dirX.reserve(n);
+        dirY.reserve(n);
         state.reserve(n);
     }
     
@@ -27,6 +32,15 @@ struct EntityHot {
         posY.push_back(py);
         velX.push_back(vx);
         velY.push_back(vy);
+        // Initial direction from velocity
+        float speed = std::sqrt(vx * vx + vy * vy);
+        if (speed > 0.01f) {
+            dirX.push_back(vx / speed);
+            dirY.push_back(vy / speed);
+        } else {
+            dirX.push_back(1.0f);  // Default facing right
+            dirY.push_back(0.0f);
+        }
         state.push_back(0);
         count++;
     }

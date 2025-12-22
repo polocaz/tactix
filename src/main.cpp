@@ -12,6 +12,10 @@ int main() {
     const int screenHeight = 720;
     
     spdlog::info("Initializing Tactix Engine...");
+    
+    // macOS Retina fix: Set config flags before window creation
+    SetConfigFlags(FLAG_WINDOW_HIGHDPI);
+    
     InitWindow(screenWidth, screenHeight, "Tactix - High-Performance Agent Simulation");
     SetTargetFPS(144);  // Render at high FPS, simulation runs at fixed 60 TPS
 

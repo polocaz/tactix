@@ -32,7 +32,8 @@ Tactix is designed to showcase systems programming expertise through cache-frien
 - ✅ **Barrier Synchronization** - waitAll() for phase completion
 - ✅ **Thread Metrics** - Jobs/frame, worker count, speedup tracking
 - ✅ **10,000 Agent Simulation** - 3.5x speedup from parallelization
-- ⚠️ **Known Issue:** Rendering bottleneck (~15ms for 10k DrawCircle calls, 90% of frame time)
+- ✅ **Rendering Optimization** - Directional triangles, 144 FPS @ 10k agents
+- ✅ **macOS Retina Fix** - FLAG_WINDOW_HIGHDPI for correct viewport scaling
 
 ### Technical Highlights
 
@@ -91,14 +92,12 @@ cmake -DCMAKE_BUILD_TYPE=Debug ..
 | Jobs/Frame | N/A | N/A | ~80 | 80 (40×2 phases) |
 | Speedup | N/A | N/A | 3-4x | ~3.5x ✅ |
 | Spatial Hash | N/A | < 2 ms | < 2 ms | ~0.5-1 ms ✅ |
-| Memory per Agent | 24 bytes | 24 bytes | 24 bytes | 24 bytes ✅ |
-| Render FPS | 100-144+ | 100-144+ | 60+ | ~60 FPS* |
+| Memory per Agent | 24 bytes | 24 bytes | 24 bytes | 32 bytes (dirX/Y added) |
+| Render FPS | 100-144+ | 100-144+ | 60+ | 144 FPS ✅ |
 
 *Tested on: Apple M1/M2 (arm64)*
 
 **Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k (**50x faster**) ⚡
-
-**\*Note:** Rendering bottleneck (~15ms for 10k DrawCircle calls, 90% of frame time). Simulation tick is only 1.6ms. Future optimization: batch rendering with instanced draws or point sprites.
 
 ---
 

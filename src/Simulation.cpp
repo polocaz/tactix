@@ -154,6 +154,14 @@ void Simulation::updateMovementChunk(size_t start, size_t end, float dt) {
     for (size_t i = start; i < end; i++) {
         entities.posX[i] += entities.velX[i] * dt;
         entities.posY[i] += entities.velY[i] * dt;
+        
+        // Update direction from velocity (for rendering)
+        float speed = std::sqrt(entities.velX[i] * entities.velX[i] + 
+                               entities.velY[i] * entities.velY[i]);
+        if (speed > 0.1f) {  // Only update if moving
+            entities.dirX[i] = entities.velX[i] / speed;
+            entities.dirY[i] = entities.velY[i] / speed;
+        }
     }
 }
 
@@ -185,11 +193,36 @@ void Simulation::draw(float alpha) {
         }
     }
     
-    // Interpolated rendering for smooth visuals (Design Doc §8.1)
+    // Interpolated rendering with directional triangles
+    // Triangles show movement direction - useful for AI visualization
+    const float agentSize = 4.0f;
     for (size_t i = 0; i < entities.count; i++) {
         float renderX = prevPosX[i] + (entities.posX[i] - prevPosX[i]) * alpha;
         float renderY = prevPosY[i] + (entities.posY[i] - prevPosY[i]) * alpha;
         
-        DrawCircle(static_cast<int>(renderX), static_cast<int>(renderY), 2.5f, RAYWHITE);
+        // Calculate triangle vertices pointing in direction of movement
+        float dx = entities.dirX[i];
+        float dy = entities.dirY[i];
+        
+        // Front vertex (pointing forward)
+        float frontX = renderX + dx * agentSize;
+        float frontY = renderY + dy * agentSize;
+        
+        // Perpendicular for base vertices
+        float perpX = -dy;
+        float perpY = dx;
+        
+        // Base vertices
+        float baseLeft_X = renderX - perpX * (agentSize * 0.4f);
+        float baseLeft_Y = renderY - perpY * (agentSize * 0.4f);
+        float baseRight_X = renderX + perpX * (agentSize * 0.4f);
+        float baseRight_Y = renderY + perpY * (agentSize * 0.4f);
+        
+        DrawTriangle(
+            Vector2{frontX, frontY},
+            Vector2{baseLeft_X, baseLeft_Y},
+            Vector2{baseRight_X, baseRight_Y},
+            RAYWHITE
+        );
     }
 }
