@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include "SpatialHash.hpp"
+#include "JobSystem.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct EntityHot {
@@ -44,6 +45,8 @@ public:
     uint32_t getMaxCellOccupancy() const;
     bool isDebugGridEnabled() const { return debugGrid; }
     void toggleDebugGrid() { debugGrid = !debugGrid; }
+    uint32_t getJobsExecuted() const { return jobSystem.getJobsExecuted(); }
+    uint32_t getWorkerCount() const { return jobSystem.getWorkerCount(); }
 
 private:
     int screenWidth;
@@ -59,6 +62,9 @@ private:
     SpatialHash spatialHash;
     float lastSpatialHashTime = 0.0f;
     
+    // Job system (Phase 3)
+    JobSystem jobSystem;
+    
     // Neighbor query temp buffer (reused to avoid allocations)
     mutable std::vector<uint32_t> neighborBuffer;
     
@@ -67,6 +73,8 @@ private:
 
     void updateMovement(float dt);
     void updateSeparation(float dt);  // Collision avoidance
+    void updateSeparationChunk(size_t start, size_t end, float dt);  // Parallel version
+    void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version
     void screenWrap();
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
 };

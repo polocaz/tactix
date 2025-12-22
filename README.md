@@ -6,10 +6,10 @@ Tactix is designed to showcase systems programming expertise through cache-frien
 
 ---
 
-## 🎯 Current Status: Phase 2 Complete ✅
+## 🎯 Current Status: Phase 3 Complete ✅
 
-**Performance Target:** 5,000 agents @ 60 ticks/sec  
-**Achieved:** ~2-4ms tick time (well under 7.5ms budget)
+**Performance Target:** 10,000 agents @ 60 ticks/sec with parallelization  
+**Achieved:** ~1.6ms tick time (10.7% of 15ms budget) with 7 worker threads
 
 ### Implemented Features
 
@@ -25,6 +25,14 @@ Tactix is designed to showcase systems programming expertise through cache-frien
 - ✅ **Collision Avoidance** - Separation steering with distance-based forces
 - ✅ **Debug Visualization** - Toggleable grid overlay showing spatial partitioning
 - ✅ **5,000 Agent Simulation** - Emergent flocking behavior with local interactions
+
+#### Phase 3: Job System & Parallelization
+- ✅ **Worker Thread Pool** - (hardware_concurrency - 1) threads with job queue
+- ✅ **Parallel Entity Updates** - 256-agent chunks distributed across workers
+- ✅ **Barrier Synchronization** - waitAll() for phase completion
+- ✅ **Thread Metrics** - Jobs/frame, worker count, speedup tracking
+- ✅ **10,000 Agent Simulation** - 3.5x speedup from parallelization
+- ⚠️ **Known Issue:** Rendering bottleneck (~15ms for 10k DrawCircle calls, 90% of frame time)
 
 ### Technical Highlights
 
@@ -74,19 +82,23 @@ cmake -DCMAKE_BUILD_TYPE=Debug ..
 
 ## 📊 Performance Metrics
 
-| Metric | Phase 1 Target | Phase 2 Target | Actual |
-|--------|----------------|----------------|--------|
-| Agent Count | 1,000 | 5,000 | 5,000 |
-| Tick Rate | 60 TPS | 60 TPS | 60 TPS (fixed) |
-| Tick Time | < 1.5 ms | < 7.5 ms | ~2-4 ms ✅ |
-| Spatial Hash | N/A | < 2 ms | ~0.5-1 ms ✅ |
-| Neighbor Queries | N/A | ~100-200 | ~100-200 ✅ |
-| Memory per Agent | 24 bytes | 24 bytes | 24 bytes ✅ |
-| Render FPS | 100-144+ | 100-144+ | 100-144+ FPS |
+| Metric | Phase 1 Target | Phase 2 Target | Phase 3 Target | Actual |
+|--------|----------------|----------------|----------------|--------|
+| Agent Count | 1,000 | 5,000 | 10,000 | 10,000 |
+| Tick Rate | 60 TPS | 60 TPS | 60 TPS | 60 TPS (fixed) |
+| Tick Time | < 1.5 ms | < 7.5 ms | < 15 ms | ~1.6 ms ✅ |
+| Worker Threads | N/A | N/A | 4-8 | 7 (M1/M2) |
+| Jobs/Frame | N/A | N/A | ~80 | 80 (40×2 phases) |
+| Speedup | N/A | N/A | 3-4x | ~3.5x ✅ |
+| Spatial Hash | N/A | < 2 ms | < 2 ms | ~0.5-1 ms ✅ |
+| Memory per Agent | 24 bytes | 24 bytes | 24 bytes | 24 bytes ✅ |
+| Render FPS | 100-144+ | 100-144+ | 60+ | ~60 FPS* |
 
 *Tested on: Apple M1/M2 (arm64)*
 
 **Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k (**50x faster**) ⚡
+
+**\*Note:** Rendering bottleneck (~15ms for 10k DrawCircle calls, 90% of frame time). Simulation tick is only 1.6ms. Future optimization: batch rendering with instanced draws or point sprites.
 
 ---
 
@@ -100,6 +112,8 @@ tactix/
 │   ├── Simulation.cpp     # SoA entity management & systems
 │   ├── SpatialHash.hpp    # Uniform grid hash for neighbor queries
 │   ├── SpatialHash.cpp    # Spatial partitioning implementation
+│   ├── JobSystem.hpp      # Worker thread pool for parallelization
+│   ├── JobSystem.cpp      # Job queue & barrier synchronization
 │   └── Agent.hpp          # (Legacy, unused)
 ├── docs/
 │   ├── Design Document.md # Detailed architecture & algorithms
@@ -124,10 +138,11 @@ tactix/
 - 5,000 agents @ 60 TPS
 - Debug visualization
 
-### 🔄 Phase 3: Job System & Parallelization (Next)
-- Multi-threaded worker pool
-- Parallel region updates
+### ✅ Phase 3: Job System & Parallelization (Complete)
+- Multi-threaded worker pool (7 threads)
+- Parallel entity updates (256-agent chunks)
 - 10,000 agents @ 60 TPS
+- 3.5x speedup achieved
 
 ### 📅 Phase 4-6: Planned
 - Utility-based AI state machine

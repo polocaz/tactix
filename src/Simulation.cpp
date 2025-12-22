@@ -46,7 +46,10 @@ void Simulation::tick(float dt) {
     // Rebuild spatial hash (Design Doc §5.3)
     rebuildSpatialHash();
     
-    // Update behaviors
+    // Reset job counter for metrics
+    jobSystem.resetJobCounter();
+    
+    // Update behaviors in parallel (Design Doc §6.2)
     updateSeparation(dt);  // Collision avoidance using spatial queries
     updateMovement(dt);    // Apply velocities
     
@@ -67,23 +70,41 @@ void Simulation::rebuildSpatialHash() {
 }
 
 void Simulation::updateSeparation(float dt) {
+    // Parallelize collision avoidance (Design Doc §6.2)
+    const size_t chunkSize = 256;  // Job granularity
+    
+    for (size_t start = 0; start < entities.count; start += chunkSize) {
+        size_t end = std::min(start + chunkSize, entities.count);
+        jobSystem.submit([this, start, end, dt]() {
+            updateSeparationChunk(start, end, dt);
+        });
+    }
+    
+    jobSystem.waitAll();  // Barrier (Design Doc §6.3)
+}
+
+void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
     // Collision avoidance using spatial queries (Phase 2)
     const float separationRadius = 20.0f;
     const float separationStrength = 200.0f;
     const float separationRadiusSq = separationRadius * separationRadius;
     
-    for (size_t i = 0; i < entities.count; i++) {
+    // Thread-local neighbor buffer
+    std::vector<uint32_t> localNeighbors;
+    localNeighbors.reserve(200);
+    
+    for (size_t i = start; i < end; i++) {
         float px = entities.posX[i];
         float py = entities.posY[i];
         
         // Query nearby neighbors (Design Doc §5.4)
-        spatialHash.queryNeighbors(px, py, separationRadius, neighborBuffer);
+        spatialHash.queryNeighbors(px, py, separationRadius, localNeighbors);
         
         float steerX = 0.0f;
         float steerY = 0.0f;
         
         // Calculate separation force from neighbors
-        for (uint32_t neighborIdx : neighborBuffer) {
+        for (uint32_t neighborIdx : localNeighbors) {
             if (neighborIdx == i) continue;  // Skip self
             
             float dx = px - entities.posX[neighborIdx];
@@ -115,8 +136,22 @@ void Simulation::updateSeparation(float dt) {
 }
 
 void Simulation::updateMovement(float dt) {
+    // Parallelize movement integration (Design Doc §6.2)
+    const size_t chunkSize = 256;
+    
+    for (size_t start = 0; start < entities.count; start += chunkSize) {
+        size_t end = std::min(start + chunkSize, entities.count);
+        jobSystem.submit([this, start, end, dt]() {
+            updateMovementChunk(start, end, dt);
+        });
+    }
+    
+    jobSystem.waitAll();  // Barrier
+}
+
+void Simulation::updateMovementChunk(size_t start, size_t end, float dt) {
     // SIMD-friendly: compiler auto-vectorizes this loop
-    for (size_t i = 0; i < entities.count; i++) {
+    for (size_t i = start; i < end; i++) {
         entities.posX[i] += entities.velX[i] * dt;
         entities.posY[i] += entities.velY[i] * dt;
     }
