@@ -53,6 +53,8 @@ public:
     Simulation(int screenWidth, int screenHeight);
 
     void init(size_t count);
+    void setAgentCount(size_t count);  // Dynamically adjust agent count
+    size_t getAgentCount() const { return entities.count; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
     void draw(float alpha);  // Interpolated rendering (Design Doc §8.1)
     

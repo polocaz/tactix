@@ -37,6 +37,40 @@ void Simulation::init(size_t count) {
     spdlog::info("Spatial grid: {} cells", spatialHash.getCellCount());
 }
 
+void Simulation::setAgentCount(size_t count) {
+    if (count == entities.count) return;
+    
+    if (count > entities.count) {
+        // Add more agents
+        size_t toAdd = count - entities.count;
+        for (size_t i = 0; i < toAdd; i++) {
+            float px = (float)GetRandomValue(0, screenWidth);
+            float py = (float)GetRandomValue(0, screenHeight);
+            float vx = (float)GetRandomValue(-100, 100);
+            float vy = (float)GetRandomValue(-100, 100);
+            
+            entities.spawn(px, py, vx, vy);
+            prevPosX.push_back(px);
+            prevPosY.push_back(py);
+        }
+        spdlog::info("Added {} agents (total: {})", toAdd, entities.count);
+    } else {
+        // Remove agents
+        size_t toRemove = entities.count - count;
+        entities.count = count;
+        entities.posX.resize(count);
+        entities.posY.resize(count);
+        entities.velX.resize(count);
+        entities.velY.resize(count);
+        entities.dirX.resize(count);
+        entities.dirY.resize(count);
+        entities.state.resize(count);
+        prevPosX.resize(count);
+        prevPosY.resize(count);
+        spdlog::info("Removed {} agents (total: {})", toRemove, entities.count);
+    }
+}
+
 void Simulation::tick(float dt) {
     // Store previous positions for interpolation
     for (size_t i = 0; i < entities.count; i++) {
@@ -205,9 +239,22 @@ void Simulation::draw(float alpha) {
     // Interpolated rendering with directional triangles
     // Triangles show movement direction - useful for AI visualization
     const float agentSize = 4.0f;
+    const float wrapThreshold = static_cast<float>(screenWidth) * 0.5f;  // Detect wrapping
+    
     for (size_t i = 0; i < entities.count; i++) {
-        float renderX = prevPosX[i] + (entities.posX[i] - prevPosX[i]) * alpha;
-        float renderY = prevPosY[i] + (entities.posY[i] - prevPosY[i]) * alpha;
+        // Check if agent wrapped this frame (large position delta)
+        float deltaX = std::abs(entities.posX[i] - prevPosX[i]);
+        float deltaY = std::abs(entities.posY[i] - prevPosY[i]);
+        
+        // If wrapped, don't interpolate (use current position to avoid stretching)
+        float renderX, renderY;
+        if (deltaX > wrapThreshold || deltaY > wrapThreshold) {
+            renderX = entities.posX[i];
+            renderY = entities.posY[i];
+        } else {
+            renderX = prevPosX[i] + (entities.posX[i] - prevPosX[i]) * alpha;
+            renderY = prevPosY[i] + (entities.posY[i] - prevPosY[i]) * alpha;
+        }
         
         // Calculate triangle vertices pointing in direction of movement
         float dx = entities.dirX[i];

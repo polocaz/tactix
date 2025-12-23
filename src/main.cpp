@@ -31,13 +31,14 @@ int main() {
     camera.zoom = 1.0f;
 
     Simulation sim(screenWidth, screenHeight);
-    const size_t agentCount = 10000;  // Phase 3 target
+    size_t agentCount = 2000;  // Start with fewer agents to focus on behavior
     sim.init(agentCount);
 
     // Fixed timestep accumulator (Design Doc §1.1)
     const float FIXED_DT = 1.0f / 60.0f;  // 60 ticks per second
     float accumulator = 0.0f;
     auto lastTime = std::chrono::steady_clock::now();
+    float timeScale = 1.0f;  // Time scaling: 0.25x to 4.0x
 
     // Metrics
     float tickTimes[60] = {0};  // Rolling window for tick time
@@ -84,11 +85,22 @@ int main() {
             camera.zoom = 1.0f;
         }
         
+        // Time scale keyboard controls
+        if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+            timeScale = std::max(0.125f, timeScale * 0.5f);
+        }
+        if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+            timeScale = std::min(4.0f, timeScale * 2.0f);
+        }
+        if (IsKeyPressed(KEY_BACKSPACE)) {
+            timeScale = 1.0f;  // Reset to normal speed
+        }
+        
         auto currentTime = std::chrono::steady_clock::now();
         float frameTime = std::chrono::duration<float>(currentTime - lastTime).count();
         lastTime = currentTime;
 
-        accumulator += frameTime;
+        accumulator += frameTime * timeScale;
 
         // Fixed timestep simulation loop
         while (accumulator >= FIXED_DT) {
@@ -119,18 +131,36 @@ int main() {
         EndMode2D();
         
         // Draw camera instructions (screen space)
-        DrawText("Mouse Wheel: Zoom | Right Click: Pan | Middle Click: Reset", 10, screenHeight - 25, 16, Color{200, 200, 200, 180});
+        DrawText("Mouse Wheel: Zoom | Right Click: Pan | Middle Click: Reset | [/]: Time Scale", 10, screenHeight - 25, 16, Color{200, 200, 200, 180});
 
         // ----------- IMGUI -----------
         rlImGuiBegin();
 
         ImGui::Begin("Tactix - Phase 3 Metrics");
-        ImGui::Text("Agents: %zu", agentCount);
+        
+        // Agent count control
+        int agentCountInt = static_cast<int>(agentCount);
+        if (ImGui::SliderInt("Agent Count", &agentCountInt, 100, 10000)) {
+            agentCount = static_cast<size_t>(agentCountInt);
+            sim.setAgentCount(agentCount);
+        }
+        ImGui::Text("Active Agents: %zu", sim.getAgentCount());
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());
         ImGui::Text("Simulation TPS: 60 (fixed)");
         ImGui::Text("Total Ticks: %d", tickCount);
+        
+        ImGui::Separator();
+        ImGui::Text("Time Scale: %.2fx", timeScale);
+        if (ImGui::SliderFloat("##TimeScale", &timeScale, 0.125f, 4.0f, "%.3fx")) {
+            // Clamp to powers of 2 when using slider for cleaner values
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset##TimeScale")) {
+            timeScale = 1.0f;
+        }
+        ImGui::Text("[ / ]: Slow/Speed | Backspace: Reset");
         ImGui::Separator();
         
         // Calculate averages
