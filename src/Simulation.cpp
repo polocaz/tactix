@@ -27,8 +27,8 @@ void Simulation::init(size_t count) {
     for (size_t i = 0; i < civilianCount; i++) {
         float px = (float)GetRandomValue(0, screenWidth);
         float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-50, 50);
-        float vy = (float)GetRandomValue(-50, 50);
+        float vx = (float)GetRandomValue(-20, 20);
+        float vy = (float)GetRandomValue(-20, 20);
         entities.spawn(px, py, vx, vy, AgentType::Civilian);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
@@ -38,8 +38,8 @@ void Simulation::init(size_t count) {
     for (size_t i = 0; i < zombieCount; i++) {
         float px = (float)GetRandomValue(0, screenWidth);
         float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-80, 80);
-        float vy = (float)GetRandomValue(-80, 80);
+        float vx = (float)GetRandomValue(-15, 15);
+        float vy = (float)GetRandomValue(-15, 15);
         entities.spawn(px, py, vx, vy, AgentType::Zombie);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
@@ -49,8 +49,8 @@ void Simulation::init(size_t count) {
     for (size_t i = 0; i < heroCount; i++) {
         float px = (float)GetRandomValue(0, screenWidth);
         float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-70, 70);
-        float vy = (float)GetRandomValue(-70, 70);
+        float vx = (float)GetRandomValue(-25, 25);
+        float vy = (float)GetRandomValue(-25, 25);
         entities.spawn(px, py, vx, vy, AgentType::Hero);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
@@ -78,8 +78,8 @@ void Simulation::setAgentCount(size_t count) {
         for (size_t i = 0; i < civiliansToAdd; i++) {
             float px = (float)GetRandomValue(0, screenWidth);
             float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-50, 50);
-            float vy = (float)GetRandomValue(-50, 50);
+            float vx = (float)GetRandomValue(-20, 20);
+            float vy = (float)GetRandomValue(-20, 20);
             entities.spawn(px, py, vx, vy, AgentType::Civilian);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
@@ -88,8 +88,8 @@ void Simulation::setAgentCount(size_t count) {
         for (size_t i = 0; i < zombiesToAdd; i++) {
             float px = (float)GetRandomValue(0, screenWidth);
             float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-80, 80);
-            float vy = (float)GetRandomValue(-80, 80);
+            float vx = (float)GetRandomValue(-15, 15);
+            float vy = (float)GetRandomValue(-15, 15);
             entities.spawn(px, py, vx, vy, AgentType::Zombie);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
@@ -98,8 +98,8 @@ void Simulation::setAgentCount(size_t count) {
         for (size_t i = 0; i < heroesToAdd; i++) {
             float px = (float)GetRandomValue(0, screenWidth);
             float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-70, 70);
-            float vy = (float)GetRandomValue(-70, 70);
+            float vx = (float)GetRandomValue(-25, 25);
+            float vy = (float)GetRandomValue(-25, 25);
             entities.spawn(px, py, vx, vy, AgentType::Hero);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
@@ -312,8 +312,8 @@ void Simulation::updateBehaviors(float dt) {
 
 void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
     const float seekRadius = 150.0f;  // Detection range
-    const float seekStrength = 100.0f;
-    const float fleeStrength = 150.0f;
+    const float searchDuration = 3.0f;  // Seconds to search last known location
+    const float wanderStrength = 20.0f;
     
     // Thread-local neighbor buffer
     std::vector<uint32_t> localNeighbors;
@@ -321,19 +321,26 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
     
     for (size_t i = start; i < end; i++) {
         AgentType myType = entities.type[i];
+        AgentState myState = entities.state[i];
         float px = entities.posX[i];
         float py = entities.posY[i];
         
         // Query nearby agents
         spatialHash.queryNeighbors(px, py, seekRadius, localNeighbors);
         
-        float steerX = 0.0f;
-        float steerY = 0.0f;
+        float desiredDirX = 0.0f;
+        float desiredDirY = 0.0f;
         int targetCount = 0;
+        bool targetFound = false;
         
-        // Different behaviors based on agent type
+        // Target speeds for each agent type
+        float targetSpeed = 60.0f;  // Base civilian speed
+        if (myType == AgentType::Zombie) targetSpeed = 55.0f;    // Zombies slightly slower but relentless
+        else if (myType == AgentType::Hero) targetSpeed = 75.0f;  // Heroes fastest
+        
+        // Different behaviors based on agent type and state
         if (myType == AgentType::Civilian) {
-            // Flee from zombies
+            // Check for nearby zombies
             for (uint32_t neighborIdx : localNeighbors) {
                 if (entities.type[neighborIdx] == AgentType::Zombie) {
                     float dx = px - entities.posX[neighborIdx];
@@ -342,21 +349,43 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                     
                     if (distSq > 0.01f) {
                         float dist = std::sqrt(distSq);
-                        float force = 1.0f - (dist / seekRadius);  // Stronger when closer
-                        steerX += (dx / dist) * force;
-                        steerY += (dy / dist) * force;
+                        float force = 1.0f - (dist / seekRadius);
+                        desiredDirX += (dx / dist) * force;
+                        desiredDirY += (dy / dist) * force;
                         targetCount++;
+                        targetFound = true;
+                        
+                        // Update memory
+                        entities.lastSeenX[i] = entities.posX[neighborIdx];
+                        entities.lastSeenY[i] = entities.posY[neighborIdx];
                     }
                 }
             }
             
-            if (targetCount > 0) {
-                entities.velX[i] += steerX * fleeStrength * dt;
-                entities.velY[i] += steerY * fleeStrength * dt;
+            if (targetFound) {
+                // Flee at panic speed
+                entities.state[i] = AgentState::Fleeing;
+                targetSpeed = 65.0f;  // Panic boost
+            } else if (myState == AgentState::Fleeing) {
+                entities.state[i] = AgentState::Searching;
+                entities.searchTimer[i] = searchDuration;
+            }
+            
+            if (myState == AgentState::Searching) {
+                entities.searchTimer[i] -= dt;
+                desiredDirX = px - entities.lastSeenX[i];
+                desiredDirY = py - entities.lastSeenY[i];
+                targetCount = 1;
+                targetSpeed = 50.0f;
+                
+                if (entities.searchTimer[i] <= 0) {
+                    entities.state[i] = AgentState::Idle;
+                }
             }
             
         } else if (myType == AgentType::Zombie) {
-            // Seek civilians and heroes (prioritize civilians)
+            // Seek civilians and heroes
+            float closestDistSq = seekRadius * seekRadius;
             for (uint32_t neighborIdx : localNeighbors) {
                 AgentType neighborType = entities.type[neighborIdx];
                 if (neighborType == AgentType::Civilian || neighborType == AgentType::Hero) {
@@ -364,23 +393,49 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                     float dy = entities.posY[neighborIdx] - py;
                     float distSq = dx * dx + dy * dy;
                     
-                    if (distSq > 0.01f) {
+                    if (distSq > 0.01f && distSq < closestDistSq) {
                         float dist = std::sqrt(distSq);
                         float force = 1.0f - (dist / seekRadius);
-                        steerX += (dx / dist) * force;
-                        steerY += (dy / dist) * force;
+                        desiredDirX += (dx / dist) * force;
+                        desiredDirY += (dy / dist) * force;
                         targetCount++;
+                        targetFound = true;
+                        
+                        // Update memory
+                        entities.lastSeenX[i] = entities.posX[neighborIdx];
+                        entities.lastSeenY[i] = entities.posY[neighborIdx];
+                        closestDistSq = distSq;
+                        
+                        // Lunge when close
+                        if (dist < 30.0f) {
+                            targetSpeed = 65.0f;  // Sprint!
+                        }
                     }
                 }
             }
             
-            if (targetCount > 0) {
-                entities.velX[i] += steerX * seekStrength * dt;
-                entities.velY[i] += steerY * seekStrength * dt;
+            if (targetFound) {
+                entities.state[i] = AgentState::Pursuing;
+            } else if (myState == AgentState::Pursuing) {
+                entities.state[i] = AgentState::Searching;
+                entities.searchTimer[i] = searchDuration * 2.0f;
+            }
+            
+            if (myState == AgentState::Searching) {
+                entities.searchTimer[i] -= dt;
+                desiredDirX = entities.lastSeenX[i] - px;
+                desiredDirY = entities.lastSeenY[i] - py;
+                float dist = std::sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY + 0.01f);
+                targetCount = 1;
+                targetSpeed = 45.0f;
+                
+                if (dist < 5.0f || entities.searchTimer[i] <= 0) {
+                    entities.state[i] = AgentState::Patrol;
+                }
             }
             
         } else if (myType == AgentType::Hero) {
-            // Seek zombies
+            // Seek zombies aggressively
             for (uint32_t neighborIdx : localNeighbors) {
                 if (entities.type[neighborIdx] == AgentType::Zombie) {
                     float dx = entities.posX[neighborIdx] - px;
@@ -390,26 +445,84 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                     if (distSq > 0.01f) {
                         float dist = std::sqrt(distSq);
                         float force = 1.0f - (dist / seekRadius);
-                        steerX += (dx / dist) * force;
-                        steerY += (dy / dist) * force;
+                        desiredDirX += (dx / dist) * force;
+                        desiredDirY += (dy / dist) * force;
                         targetCount++;
+                        targetFound = true;
+                        
+                        // Update memory
+                        entities.lastSeenX[i] = entities.posX[neighborIdx];
+                        entities.lastSeenY[i] = entities.posY[neighborIdx];
                     }
                 }
             }
             
-            if (targetCount > 0) {
-                entities.velX[i] += steerX * seekStrength * dt;
-                entities.velY[i] += steerY * seekStrength * dt;
+            if (targetFound) {
+                entities.state[i] = AgentState::Pursuing;
+                targetSpeed = 80.0f;  // Sprint toward zombies
+            } else if (myState == AgentState::Pursuing) {
+                entities.state[i] = AgentState::Searching;
+                entities.searchTimer[i] = searchDuration * 1.5f;
+            }
+            
+            if (myState == AgentState::Searching) {
+                entities.searchTimer[i] -= dt;
+                desiredDirX = entities.lastSeenX[i] - px;
+                desiredDirY = entities.lastSeenY[i] - py;
+                float dist = std::sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY + 0.01f);
+                targetCount = 1;
+                targetSpeed = 65.0f;
+                
+                if (dist < 5.0f || entities.searchTimer[i] <= 0) {
+                    entities.state[i] = AgentState::Patrol;
+                }
             }
         }
         
-        // Limit velocity based on agent type
-        float maxSpeed = 100.0f;
-        if (myType == AgentType::Zombie) maxSpeed = 80.0f;    // Zombies slower
-        else if (myType == AgentType::Hero) maxSpeed = 120.0f; // Heroes faster
-        else if (myType == AgentType::Civilian) maxSpeed = 90.0f;
+        // Patrol behavior - pick random destinations and walk toward them
+        if (entities.state[i] == AgentState::Patrol) {
+            float dx = entities.patrolTargetX[i] - px;
+            float dy = entities.patrolTargetY[i] - py;
+            float distSq = dx * dx + dy * dy;
+            
+            // Reached patrol point or need new one
+            if (distSq < 25.0f || distSq > 1e8f) {
+                entities.patrolTargetX[i] = (float)GetRandomValue(50, 1850);
+                entities.patrolTargetY[i] = (float)GetRandomValue(50, 1030);
+                dx = entities.patrolTargetX[i] - px;
+                dy = entities.patrolTargetY[i] - py;
+                distSq = dx * dx + dy * dy;
+            }
+            
+            if (distSq > 0.1f) {
+                float dist = std::sqrt(distSq);
+                desiredDirX = dx / dist;
+                desiredDirY = dy / dist;
+                targetCount = 1;
+                targetSpeed *= 0.4f;  // Slow wandering (24/22/30 for civilian/zombie/hero)
+            }
+        }
         
+        // Apply steering - direct velocity setting for instant direction changes
+        if (targetCount > 0) {
+            // Normalize desired direction
+            float dirLength = std::sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY + 0.001f);
+            desiredDirX /= dirLength;
+            desiredDirY /= dirLength;
+            
+            // Directly set velocity (instant response)
+            entities.velX[i] = desiredDirX * targetSpeed;
+            entities.velY[i] = desiredDirY * targetSpeed;
+            
+        } else {
+            // Idle or no target - gradually slow down
+            entities.velX[i] *= 0.9f;
+            entities.velY[i] *= 0.9f;
+        }
+        
+        // Clamp to max speed
         float speedSq = entities.velX[i] * entities.velX[i] + entities.velY[i] * entities.velY[i];
+        float maxSpeed = targetSpeed * 1.1f;
         if (speedSq > maxSpeed * maxSpeed) {
             float speed = std::sqrt(speedSq);
             entities.velX[i] = (entities.velX[i] / speed) * maxSpeed;
@@ -423,13 +536,21 @@ void Simulation::updateInfections() {
     const float infectionRadiusSq = infectionRadius * infectionRadius;
     
     std::vector<size_t> zombiesToKill;  // Track zombies to remove
+    std::vector<uint32_t> localNeighbors;
+    localNeighbors.reserve(200);
     
+    // Use spatial hash to avoid O(n²) - much more efficient!
     for (size_t i = 0; i < entities.count; i++) {
         AgentType myType = entities.type[i];
         
         if (myType == AgentType::Zombie) {
-            // Check for collisions with civilians and heroes
-            for (size_t j = 0; j < entities.count; j++) {
+            float px = entities.posX[i];
+            float py = entities.posY[i];
+            
+            // Query only nearby agents (O(k) instead of O(n))
+            spatialHash.queryNeighbors(px, py, infectionRadius, localNeighbors);
+            
+            for (uint32_t j : localNeighbors) {
                 if (i == j) continue;
                 
                 AgentType otherType = entities.type[j];
@@ -444,18 +565,19 @@ void Simulation::updateInfections() {
                         // Civilian becomes zombie
                         entities.type[j] = AgentType::Zombie;
                         entities.health[j] = 0;
-                        spdlog::debug("Civilian {} infected!", j);
+                        // Reverse velocity to show disorientation
+                        entities.velX[j] = -entities.velX[j] * 0.5f;
+                        entities.velY[j] = -entities.velY[j] * 0.5f;
                     } else if (otherType == AgentType::Hero) {
                         // Hero kills zombie
                         if (entities.health[j] > 0) {
                             entities.health[j]--;
                             zombiesToKill.push_back(i);  // Mark zombie for removal
-                            spdlog::debug("Hero {} killed zombie {}! Health remaining: {}", j, i, entities.health[j]);
                             
                             if (entities.health[j] == 0) {
-                                // Hero becomes zombie after 5 kills
+                                // Hero becomes zombie after 5 kills (exhaustion)
                                 entities.type[j] = AgentType::Zombie;
-                                spdlog::info("Hero {} turned into zombie after 5 kills!", j);
+                                spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", j);
                             }
                             break;  // Zombie is dead, stop checking
                         }
