@@ -183,6 +183,14 @@ uint32_t Simulation::getMaxCellOccupancy() const {
 }
 
 void Simulation::draw(float alpha) {
+    // Draw simulation world boundary
+    const float borderThickness = 3.0f;
+    DrawRectangleLinesEx(
+        Rectangle{0, 0, static_cast<float>(screenWidth), static_cast<float>(screenHeight)},
+        borderThickness,
+        Color{100, 150, 255, 255}
+    );
+    
     // Debug: Draw grid
     if (debugGrid) {
         const float cellSize = 50.0f;

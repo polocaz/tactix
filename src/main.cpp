@@ -23,6 +23,13 @@ int main() {
     // 2. Setup ImGui (via rlImGui bridge)
     rlImGuiSetup(true);
 
+    // 3. Setup Camera for zoom/pan
+    Camera2D camera = { 0 };
+    camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+    camera.offset = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+    camera.rotation = 0.0f;
+    camera.zoom = 1.0f;
+
     Simulation sim(screenWidth, screenHeight);
     const size_t agentCount = 10000;  // Phase 3 target
     sim.init(agentCount);
@@ -47,6 +54,35 @@ int main() {
     // --- Main Loop ---
     while (!WindowShouldClose()) {
         auto frameStart = std::chrono::steady_clock::now();
+        
+        // Camera controls (before ImGui captures input)
+        float wheel = GetMouseWheelMove();
+        if (wheel != 0) {
+            // Zoom towards mouse position
+            Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
+            camera.offset = GetMousePosition();
+            camera.target = mouseWorldPos;
+            
+            // Smooth zoom
+            float zoomIncrement = 0.125f;
+            camera.zoom += wheel * zoomIncrement;
+            camera.zoom = std::max(0.125f, std::min(camera.zoom, 8.0f));
+        }
+        
+        // Pan with right mouse button
+        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+            Vector2 delta = GetMouseDelta();
+            delta.x *= -1.0f / camera.zoom;
+            delta.y *= -1.0f / camera.zoom;
+            camera.target.x += delta.x;
+            camera.target.y += delta.y;
+        }
+        
+        // Reset camera with middle mouse button
+        if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+            camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+            camera.zoom = 1.0f;
+        }
         
         auto currentTime = std::chrono::steady_clock::now();
         float frameTime = std::chrono::duration<float>(currentTime - lastTime).count();
@@ -77,7 +113,13 @@ int main() {
         BeginDrawing();
         ClearBackground(Color{15, 15, 20, 255});
 
+        // Apply camera transform
+        BeginMode2D(camera);
         sim.draw(alpha);
+        EndMode2D();
+        
+        // Draw camera instructions (screen space)
+        DrawText("Mouse Wheel: Zoom | Right Click: Pan | Middle Click: Reset", 10, screenHeight - 25, 16, Color{200, 200, 200, 180});
 
         // ----------- IMGUI -----------
         rlImGuiBegin();
@@ -130,6 +172,10 @@ int main() {
         ImGui::Text("Spatial Hash: %.3f ms", sim.getLastSpatialHashTime());
         ImGui::Text("Max Cell Occupancy: %u", sim.getMaxCellOccupancy());
         
+        ImGui::Separator();
+        ImGui::Text("Camera Zoom: %.2fx", camera.zoom);
+        ImGui::Text("Camera Target: (%.0f, %.0f)", camera.target.x, camera.target.y);
+        
         if (ImGui::Button(sim.isDebugGridEnabled() ? "Hide Grid" : "Show Grid")) {
             sim.toggleDebugGrid();
         }
@@ -155,7 +201,7 @@ int main() {
         timeIndex = (timeIndex + 1) % 60;
     }
 
-    // 3. Cleanup
+    // 4. Cleanup
     rlImGuiShutdown();
     CloseWindow();
     
