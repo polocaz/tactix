@@ -313,9 +313,152 @@ dirtyRegions.reset();
 
 ---
 
-## 9\. Performance Budgets & Targets
+## 9\. Melee Combat System
 
-### 9.1 Per-Tick Budget (16.66ms @ 60 ticks/sec)
+The combat system creates engaging, visually interesting encounters with emergent tactical formations.
+
+### 9.1 Combat States
+
+```cpp
+enum class AgentState : uint8_t {
+    Idle        = 0,
+    Patrol      = 1,
+    Fleeing     = 2,
+    Pursuing    = 3,
+    Searching   = 4,
+    Dead        = 5,    // Corpse waiting to reanimate
+    Fighting    = 6,    // Locked in melee struggle
+    Bitten      = 7     // Infected, dying slowly
+};
+```
+
+### 9.2 Combat Engagement Flow
+
+**Phase 1: Initiation**
+- When zombie catches human (< 15px), both enter `Fighting` state
+- Agents lock onto each other via `combatTarget` field
+- Combat duration: 2-4 seconds (random)
+- Both agents orbit their midpoint with random jitter
+
+**Phase 2: Struggle Visuals**
+```cpp
+// Calculate wiggle movement (simulates wrestling)
+float midX = (agentX + targetX) / 2.0f;
+float midY = (agentY + targetY) / 2.0f;
+float angle = combatTimer * 3.0f;  // Rotate during struggle
+float jitterX = sin(angle) * 5.0f + randomNoise(-2, 2);
+float jitterY = cos(angle) * 5.0f + randomNoise(-2, 2);
+
+// Orbit around midpoint
+agentX = midX + cos(angle) * 8.0f + jitterX;
+agentY = midY + sin(angle) * 8.0f + jitterY;
+```
+
+**Phase 3: Resolution (when timer expires)**
+
+**Civilian vs Zombie:**
+| Outcome | Base Chance | With 1 Ally | With 2+ Allies | Result |
+|---------|-------------|-------------|----------------|--------|
+| Kill Zombie | 20% | 35% | 50% | Civilian wins, zombie dies |
+| Bitten & Escape | 35% | 40% | 35% | Breaks free but infected |
+| Killed | 45% | 25% | 15% | Dies → corpse → reanimates in 3-8s |
+
+**Group Combat Bonus:**
+```cpp
+int nearbyAllies = countAlliesInRadius(pos, 50.0f);
+float survivalBonus = std::min(0.3f, nearbyAllies * 0.15f);
+float killChance = 0.20f + survivalBonus;
+```
+
+**Hero vs Zombie:**
+- **Win:** 80% (kills zombie instantly)
+- **Damage:** 20% (hero loses 1 health, zombie takes 1 damage)
+- Combat duration: 1-2 seconds (heroes are trained fighters)
+
+### 9.3 Bitten State Mechanics
+
+When civilian escapes but is bitten:
+```cpp
+entities.state[i] = AgentState::Bitten;
+entities.infectionTimer[i] = 5.0f + random(0, 10.0f);  // 5-15 seconds to death
+entities.infectionProgress[i] = 0.0f;
+```
+
+**Visual Progression:**
+```cpp
+// Color shifts from white → yellow → green as infection progresses
+float progress = 1.0f - (infectionTimer / maxInfectionTime);
+Color agentColor = lerp(
+    Color{220, 220, 220, 255},  // Healthy white
+    Color{150, 200, 100, 255},  // Sickly green
+    progress
+);
+```
+
+**Behavior:**
+- Can still flee and move (desperate escape)
+- Movement speed reduces: 40 → 30 → 20 as infection progresses
+- Eventually collapses → Dead state → reanimates as zombie
+
+### 9.4 Emergent Formation Tactics
+
+The group combat bonus naturally encourages tactical clustering:
+
+**Lone Civilian:**
+- 45% death rate → high motivation to find others
+- Flee toward nearest group of humans
+
+**Small Group (2-3):**
+- 25% death rate → safer but not invincible
+- Natural defensive clustering emerges
+
+**Large Group (4+):**
+- 15% death rate → "safety in numbers"
+- Zombies struggle to break through
+- Resembles medieval shield wall formations
+
+**Implementation:**
+```cpp
+// Civilians adjust flee direction toward allies
+if (fleeStrategy == FleeToGroup) {
+    Vector2 groupCenter = calculateNearbyHumansCentroid(pos, 100.0f);
+    fleeDir = lerp(fleeDir, normalize(groupCenter - pos), 0.4f);
+}
+```
+
+### 9.5 Corpse Mechanics
+
+**Death → Corpse:**
+- Agent enters `Dead` state
+- Velocity → 0, rendered as dark red circle
+- `reanimationTimer = 3.0 + random(0, 5.0)`
+
+**Corpse Feeding (Zombie Health Regen):**
+- Injured zombies (health < 3) seek corpses
+- Feed range: 20px
+- Consume corpse → +1 health
+- Creates resource competition among zombies
+
+**Reanimation:**
+```cpp
+if (state == Dead && type == Civilian) {
+    reanimationTimer -= dt;
+    if (reanimationTimer <= 0.0f) {
+        type = Zombie;
+        state = Patrol;
+        health = 3;
+        // Twitch animation: small random velocity
+        velX = random(-20, 20);
+        velY = random(-20, 20);
+    }
+}
+```
+
+---
+
+## 10\. Performance Budgets & Targets
+
+### 10.1 Per-Tick Budget (16.66ms @ 60 ticks/sec)
 
 | Stage                  | Budget  | Per Agent |
 |------------------------|---------|-----------|
@@ -328,7 +471,7 @@ dirtyRegions.reset();
 
 **Buffer:** 1.66 ms reserved for frame-to-frame variance.
 
-### 9.2 Memory Budget
+### 10.2 Memory Budget
 
 | Component              | Size per Entity | Total (10k) |
 |------------------------|-----------------|-------------|
@@ -340,7 +483,7 @@ dirtyRegions.reset();
 
 **L3 Cache Target:** Keep hot data under 4 MB to fit in typical L3 cache (6-8 MB on modern CPUs).
 
-### 9.3 Scalability Targets
+### 10.3 Scalability Targets
 
 | Agent Count | Tick Time | Frames/sec | Throughput       |
 |-------------|-----------|------------|------------------|
@@ -353,7 +496,7 @@ dirtyRegions.reset();
 
 ---
 
-## 10\. Instrumentation & Profiling Strategy
+## 11\. Instrumentation & Profiling Strategy
 
 ### 10.1 Tracy Integration
 
@@ -411,7 +554,7 @@ TEST(PerformanceRegression, TickTime_10k_Agents) {
 
 ---
 
-## 11\. Implementation Phases
+## 12\. Implementation Phases
 
 ### Phase 1: Single-Threaded Baseline (Week 1)
 - Implement EntityManager with SoA layout
@@ -451,7 +594,7 @@ TEST(PerformanceRegression, TickTime_10k_Agents) {
 
 ---
 
-## 12\. Risk Mitigation
+## 13\. Risk Mitigation
 
 | Risk                          | Impact | Mitigation Strategy                              |
 |-------------------------------|--------|--------------------------------------------------|
@@ -463,7 +606,7 @@ TEST(PerformanceRegression, TickTime_10k_Agents) {
 
 ---
 
-## 13\. Updated Project Structure
+## 14\. Updated Project Structure
 
 ```text
 /src
@@ -492,7 +635,7 @@ TEST(PerformanceRegression, TickTime_10k_Agents) {
 
 ---
 
-## 14\. Code Examples
+## 15\. Code Examples
 
 ### 14.1 Main Loop with Fixed Timestep
 
@@ -575,7 +718,7 @@ void AISystem::update(EntityManager& entities, JobSystem& jobs) {
 
 ---
 
-## 15\. Success Metrics
+## 16\. Success Metrics
 
 This project is **complete** when:
 
