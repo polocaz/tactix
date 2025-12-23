@@ -20,7 +20,8 @@ enum class AgentState : uint8_t {
     Patrol = 1,    // Wandering to random destinations
     Fleeing = 2,   // Running away from threat
     Pursuing = 3,  // Chasing target
-    Searching = 4  // Looking for last known target location
+    Searching = 4, // Looking for last known target location
+    Dead = 5       // Corpse waiting to reanimate
 };
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
@@ -45,6 +46,8 @@ struct EntityHot {
     std::vector<float> aimTimer;  // Hero aiming delay before shot
     std::vector<uint8_t> fleeStrategy;  // Civilian: 0=panic, 1=seek_hero
     std::vector<uint8_t> heroType;  // Hero: 0=defender, 1=hunter
+    std::vector<float> reanimationTimer;  // Time until corpse reanimates as zombie
+    std::vector<float> meleeAttackCooldown;  // Zombie melee attack cooldown
     
     size_t count = 0;
     
@@ -90,6 +93,8 @@ struct EntityHot {
         aimTimer.push_back(0.0f);
         fleeStrategy.push_back(0);  // Default panic flee
         heroType.push_back(agentType == AgentType::Hero ? GetRandomValue(0, 1) : 0);  // 50% hunter, 50% defender
+        reanimationTimer.push_back(0.0f);
+        meleeAttackCooldown.push_back(0.0f);
         count++;
     }
 };

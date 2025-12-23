@@ -31,7 +31,7 @@ int main() {
     camera.zoom = 1.0f;
 
     Simulation sim(screenWidth, screenHeight);
-    size_t agentCount = 100;  // Start with fewer agents to focus on behavior
+    size_t agentCount = 100;
     sim.init(agentCount);
 
     // Fixed timestep accumulator (Design Doc §1.1)
