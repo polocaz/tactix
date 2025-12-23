@@ -41,6 +41,10 @@ struct EntityHot {
     std::vector<float> searchTimer;  // Time spent searching
     std::vector<float> patrolTargetX;  // Patrol destination
     std::vector<float> patrolTargetY;
+    std::vector<float> shootCooldown;  // Hero shooting cooldown
+    std::vector<float> aimTimer;  // Hero aiming delay before shot
+    std::vector<uint8_t> fleeStrategy;  // Civilian: 0=panic, 1=seek_hero
+    std::vector<uint8_t> heroType;  // Hero: 0=defender, 1=hunter
     
     size_t count = 0;
     
@@ -82,6 +86,10 @@ struct EntityHot {
         // Random initial patrol target
         patrolTargetX.push_back((float)GetRandomValue(50, 1850));
         patrolTargetY.push_back((float)GetRandomValue(50, 1030));
+        shootCooldown.push_back(0.0f);
+        aimTimer.push_back(0.0f);
+        fleeStrategy.push_back(0);  // Default panic flee
+        heroType.push_back(agentType == AgentType::Hero ? GetRandomValue(0, 1) : 0);  // 50% hunter, 50% defender
         count++;
     }
 };
@@ -131,6 +139,20 @@ private:
     
     // Debug visualization
     bool debugGrid = false;
+    
+    // Gunshot tracking (heroes attract zombies when shooting)
+    struct Gunshot {
+        float x, y;
+        float lifetime;  // Decays over time
+    };
+    std::vector<Gunshot> recentGunshots;
+    
+    // Visual gunshot lines (for rendering)
+    struct GunshotLine {
+        float fromX, fromY, toX, toY;
+        float lifetime;
+    };
+    std::vector<GunshotLine> gunshotLines;
 
     void updateMovement(float dt);
     void updateSeparation(float dt);  // Collision avoidance

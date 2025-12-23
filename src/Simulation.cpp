@@ -130,6 +130,116 @@ void Simulation::tick(float dt) {
         prevPosY[i] = entities.posY[i];
     }
     
+    // Update gunshot lifetimes and remove expired ones
+    for (auto it = recentGunshots.begin(); it != recentGunshots.end();) {
+        it->lifetime -= dt;
+        if (it->lifetime <= 0.0f) {
+            it = recentGunshots.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    // Update gunshot line visuals (fade quickly)
+    for (auto it = gunshotLines.begin(); it != gunshotLines.end();) {
+        it->lifetime -= dt;
+        if (it->lifetime <= 0.0f) {
+            it = gunshotLines.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    // Process ranged kills from heroes (collect from behavior chunk)
+    std::vector<size_t> zombiesToKill;
+    for (size_t i = 0; i < entities.count; i++) {
+        if (entities.type[i] == AgentType::Hero && 
+            entities.state[i] == AgentState::Pursuing &&
+            entities.shootCooldown[i] > 1.45f) {  // Just shot (cooldown near max)
+            
+            // Decode shooter and target from lastSeen hack
+            size_t shooterIdx = (size_t)entities.lastSeenX[i];
+            size_t targetIdx = (size_t)entities.lastSeenY[i];
+            
+            if (shooterIdx < entities.count && targetIdx < entities.count &&
+                entities.type[targetIdx] == AgentType::Zombie) {
+                
+                float heroX = entities.posX[shooterIdx];
+                float heroY = entities.posY[shooterIdx];
+                float zombieX = entities.posX[targetIdx];
+                float zombieY = entities.posY[targetIdx];
+                
+                // Create gunshot sound marker
+                recentGunshots.push_back({heroX, heroY, 3.0f});
+                
+                // Create visual line
+                gunshotLines.push_back({heroX, heroY, zombieX, zombieY, 0.15f});
+                
+                // Kill the zombie
+                zombiesToKill.push_back(targetIdx);
+                
+                // Decrement hero health
+                if (entities.health[shooterIdx] > 0) {
+                    entities.health[shooterIdx]--;
+                    if (entities.health[shooterIdx] == 0) {
+                        entities.type[shooterIdx] = AgentType::Zombie;
+                        spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", shooterIdx);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Remove killed zombies
+    std::sort(zombiesToKill.begin(), zombiesToKill.end(), std::greater<size_t>());
+    for (size_t idx : zombiesToKill) {
+        // Remove by swapping with last and popping
+        if (idx < entities.count - 1) {
+            size_t last = entities.count - 1;
+            entities.posX[idx] = entities.posX[last];
+            entities.posY[idx] = entities.posY[last];
+            entities.velX[idx] = entities.velX[last];
+            entities.velY[idx] = entities.velY[last];
+            entities.dirX[idx] = entities.dirX[last];
+            entities.dirY[idx] = entities.dirY[last];
+            entities.type[idx] = entities.type[last];
+            entities.state[idx] = entities.state[last];
+            entities.health[idx] = entities.health[last];
+            entities.lastSeenX[idx] = entities.lastSeenX[last];
+            entities.lastSeenY[idx] = entities.lastSeenY[last];
+            entities.searchTimer[idx] = entities.searchTimer[last];
+            entities.patrolTargetX[idx] = entities.patrolTargetX[last];
+            entities.patrolTargetY[idx] = entities.patrolTargetY[last];
+            entities.shootCooldown[idx] = entities.shootCooldown[last];
+            entities.aimTimer[idx] = entities.aimTimer[last];
+            entities.fleeStrategy[idx] = entities.fleeStrategy[last];
+            entities.heroType[idx] = entities.heroType[last];
+            prevPosX[idx] = prevPosX[last];
+            prevPosY[idx] = prevPosY[last];
+        }
+        entities.posX.pop_back();
+        entities.posY.pop_back();
+        entities.velX.pop_back();
+        entities.velY.pop_back();
+        entities.dirX.pop_back();
+        entities.dirY.pop_back();
+        entities.type.pop_back();
+        entities.state.pop_back();
+        entities.health.pop_back();
+        entities.lastSeenX.pop_back();
+        entities.lastSeenY.pop_back();
+        entities.searchTimer.pop_back();
+        entities.patrolTargetX.pop_back();
+        entities.patrolTargetY.pop_back();
+        entities.shootCooldown.pop_back();
+        entities.aimTimer.pop_back();
+        entities.fleeStrategy.pop_back();
+        entities.heroType.pop_back();
+        prevPosX.pop_back();
+        prevPosY.pop_back();
+        entities.count--;
+    }
+    
     // Rebuild spatial hash (Design Doc §5.3)
     rebuildSpatialHash();
     
@@ -340,7 +450,10 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
         
         // Different behaviors based on agent type and state
         if (myType == AgentType::Civilian) {
-            // Check for nearby zombies
+            // Check for nearby zombies and heroes
+            float nearestHeroDist = 1e9f;
+            float nearestHeroX = 0.0f, nearestHeroY = 0.0f;
+            
             for (uint32_t neighborIdx : localNeighbors) {
                 if (entities.type[neighborIdx] == AgentType::Zombie) {
                     float dx = px - entities.posX[neighborIdx];
@@ -359,11 +472,36 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                         entities.lastSeenX[i] = entities.posX[neighborIdx];
                         entities.lastSeenY[i] = entities.posY[neighborIdx];
                     }
+                } else if (entities.type[neighborIdx] == AgentType::Hero) {
+                    // Track nearest hero for flee-to-protection behavior
+                    float dx = entities.posX[neighborIdx] - px;
+                    float dy = entities.posY[neighborIdx] - py;
+                    float distSq = dx * dx + dy * dy;
+                    if (distSq < nearestHeroDist) {
+                        nearestHeroDist = distSq;
+                        nearestHeroX = entities.posX[neighborIdx];
+                        nearestHeroY = entities.posY[neighborIdx];
+                    }
                 }
             }
             
             if (targetFound) {
-                // Flee at panic speed
+                // Choose flee strategy on first detection (sticky decision)
+                if (myState != AgentState::Fleeing) {
+                    entities.fleeStrategy[i] = (GetRandomValue(0, 100) < 30) ? 1 : 0;
+                }
+                
+                bool seekProtection = (entities.fleeStrategy[i] == 1) && nearestHeroDist < 1e8f;
+                
+                if (seekProtection) {
+                    // Flee toward nearest hero for protection
+                    float dx = nearestHeroX - px;
+                    float dy = nearestHeroY - py;
+                    float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                    desiredDirX = dx / dist;
+                    desiredDirY = dy / dist;
+                }
+                
                 entities.state[i] = AgentState::Fleeing;
                 targetSpeed = 65.0f;  // Panic boost
             } else if (myState == AgentState::Fleeing) {
@@ -386,6 +524,24 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
         } else if (myType == AgentType::Zombie) {
             // Seek civilians and heroes
             float closestDistSq = seekRadius * seekRadius;
+            float cohesionX = 0.0f, cohesionY = 0.0f;
+            int zombieCount = 0;
+            
+            // Check for recent gunshots (attracts zombies!)
+            const float gunshotAttractionRadius = 300.0f;
+            for (const auto& gunshot : recentGunshots) {
+                float dx = gunshot.x - px;
+                float dy = gunshot.y - py;
+                float distSq = dx * dx + dy * dy;
+                if (distSq < gunshotAttractionRadius * gunshotAttractionRadius) {
+                    float dist = std::sqrt(distSq + 0.01f);
+                    float force = 0.5f * (1.0f - dist / gunshotAttractionRadius);
+                    desiredDirX += (dx / dist) * force;
+                    desiredDirY += (dy / dist) * force;
+                    targetCount++;
+                }
+            }
+            
             for (uint32_t neighborIdx : localNeighbors) {
                 AgentType neighborType = entities.type[neighborIdx];
                 if (neighborType == AgentType::Civilian || neighborType == AgentType::Hero) {
@@ -411,6 +567,11 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                             targetSpeed = 65.0f;  // Sprint!
                         }
                     }
+                } else if (neighborType == AgentType::Zombie) {
+                    // Horde behavior - track zombie positions for cohesion
+                    cohesionX += entities.posX[neighborIdx];
+                    cohesionY += entities.posY[neighborIdx];
+                    zombieCount++;
                 }
             }
             
@@ -421,12 +582,30 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 entities.searchTimer[i] = searchDuration * 2.0f;
             }
             
+            if (myState == AgentState::Searching || myState == AgentState::Patrol) {
+                // Form hordes when not actively pursuing
+                if (zombieCount > 0 && !targetFound) {
+                    cohesionX /= zombieCount;
+                    cohesionY /= zombieCount;
+                    float dx = cohesionX - px;
+                    float dy = cohesionY - py;
+                    float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                    if (dist > 10.0f) {  // Don't cluster too tightly
+                        desiredDirX += (dx / dist) * 0.3f;  // Weak cohesion
+                        desiredDirY += (dy / dist) * 0.3f;
+                        targetCount++;
+                    }
+                }
+            }
+            
             if (myState == AgentState::Searching) {
                 entities.searchTimer[i] -= dt;
-                desiredDirX = entities.lastSeenX[i] - px;
-                desiredDirY = entities.lastSeenY[i] - py;
-                float dist = std::sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY + 0.01f);
-                targetCount = 1;
+                float dx = entities.lastSeenX[i] - px;
+                float dy = entities.lastSeenY[i] - py;
+                float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                desiredDirX += dx / dist;
+                desiredDirY += dy / dist;
+                targetCount = targetCount > 0 ? targetCount : 1;
                 targetSpeed = 45.0f;
                 
                 if (dist < 5.0f || entities.searchTimer[i] <= 0) {
@@ -435,7 +614,20 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
             }
             
         } else if (myType == AgentType::Hero) {
+            // Update shoot cooldown and aim timer
+            if (entities.shootCooldown[i] > 0.0f) {
+                entities.shootCooldown[i] -= dt;
+            }
+            if (entities.aimTimer[i] > 0.0f) {
+                entities.aimTimer[i] -= dt;
+            }
+            
             // Seek zombies aggressively
+            float squadX = 0.0f, squadY = 0.0f;
+            int heroCount = 0;
+            float closestZombieDist = 1e9f;
+            uint32_t closestZombieIdx = UINT32_MAX;
+            
             for (uint32_t neighborIdx : localNeighbors) {
                 if (entities.type[neighborIdx] == AgentType::Zombie) {
                     float dx = entities.posX[neighborIdx] - px;
@@ -450,16 +642,75 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                         targetCount++;
                         targetFound = true;
                         
+                        if (dist < closestZombieDist) {
+                            closestZombieDist = dist;
+                            closestZombieIdx = neighborIdx;
+                        }
+                        
                         // Update memory
                         entities.lastSeenX[i] = entities.posX[neighborIdx];
                         entities.lastSeenY[i] = entities.posY[neighborIdx];
                     }
+                } else if (entities.type[neighborIdx] == AgentType::Hero) {
+                    // Squad coordination - track hero positions
+                    squadX += entities.posX[neighborIdx];
+                    squadY += entities.posY[neighborIdx];
+                    heroCount++;
                 }
             }
             
             if (targetFound) {
                 entities.state[i] = AgentState::Pursuing;
-                targetSpeed = 80.0f;  // Sprint toward zombies
+                
+                bool isHunter = entities.heroType[i] == 1;
+                
+                if (isHunter) {
+                    // Hunters: chase down zombies aggressively
+                    targetSpeed = 80.0f;
+                } else {
+                    // Defenders: maintain distance, kite backwards
+                    if (closestZombieDist < 70.0f) {
+                        // Too close - back away while shooting
+                        desiredDirX = -desiredDirX;  // Reverse direction
+                        desiredDirY = -desiredDirY;
+                        targetSpeed = 70.0f;  // Back up speed
+                    } else {
+                        // Good distance - hold position (slow movement)
+                        targetSpeed = 20.0f;
+                    }
+                }
+                
+                // Shoot when aim timer completes (check this FIRST before resetting timer)
+                bool justShot = false;
+                if (entities.aimTimer[i] <= 0.0f && entities.aimTimer[i] > -10.0f &&  // Timer just expired
+                    entities.shootCooldown[i] <= 0.0f && 
+                    closestZombieDist < 100.0f && closestZombieIdx != UINT32_MAX) {
+                    entities.shootCooldown[i] = 1.5f;  // 1.5 second cooldown
+                    entities.aimTimer[i] = -100.0f;  // Mark as shot (prevent retriggering)
+                    // Store shoot info for main thread to process
+                    entities.lastSeenX[i] = (float)i;  // Store shooter index
+                    entities.lastSeenY[i] = (float)closestZombieIdx;  // Store target index
+                    justShot = true;
+                }
+                
+                // Start aiming if we have a target and no aim timer (but didn't just shoot)
+                if (!justShot && closestZombieDist < 100.0f && entities.aimTimer[i] <= 0.0f && entities.shootCooldown[i] <= 0.0f) {
+                    // Variable aim delay: 0.3-0.6 seconds
+                    entities.aimTimer[i] = 0.3f + ((float)GetRandomValue(0, 300) / 1000.0f);
+                }
+                
+                // Squad cohesion when pursuing (only for defenders)
+                if (!isHunter && heroCount > 0) {
+                    squadX /= heroCount;
+                    squadY /= heroCount;
+                    float dx = squadX - px;
+                    float dy = squadY - py;
+                    float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                    if (dist > 15.0f) {  // Stay somewhat close to squad
+                        desiredDirX += (dx / dist) * 0.3f;  // Stronger coordination for defenders
+                        desiredDirY += (dy / dist) * 0.3f;
+                    }
+                }
             } else if (myState == AgentState::Pursuing) {
                 entities.state[i] = AgentState::Searching;
                 entities.searchTimer[i] = searchDuration * 1.5f;
@@ -694,6 +945,19 @@ void Simulation::draw(float alpha) {
             Vector2{baseLeft_X, baseLeft_Y},
             Vector2{baseRight_X, baseRight_Y},
             agentColor
+        );
+    }
+    
+    // Draw gunshot lines (visualize shooting)
+    for (const auto& line : gunshotLines) {
+        // Fade based on lifetime (0.15s total)
+        float alpha_val = line.lifetime / 0.15f;
+        uint8_t alpha_byte = static_cast<uint8_t>(alpha_val * 255.0f);
+        DrawLineEx(
+            Vector2{line.fromX, line.fromY},
+            Vector2{line.toX, line.toY},
+            0.8f,  // Thin line
+            Color{255, 255, 0, alpha_byte}  // Bright yellow, fading
         );
     }
 }
