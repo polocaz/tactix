@@ -7,6 +7,13 @@
 #include "JobSystem.hpp"
 #include <raylib.h>
 
+// Agent types for zombie simulation
+enum class AgentType : uint8_t {
+    Civilian = 0,
+    Zombie = 1,
+    Hero = 2
+};
+
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct EntityHot {
     std::vector<float> posX;
@@ -15,7 +22,8 @@ struct EntityHot {
     std::vector<float> velY;
     std::vector<float> dirX;  // Normalized direction for rendering
     std::vector<float> dirY;
-    std::vector<uint8_t> state;  // Future: entity state
+    std::vector<AgentType> type;  // Agent type
+    std::vector<uint8_t> health;  // Hero health (kills remaining), unused for others
     
     size_t count = 0;
     
@@ -26,10 +34,11 @@ struct EntityHot {
         velY.reserve(n);
         dirX.reserve(n);
         dirY.reserve(n);
-        state.reserve(n);
+        type.reserve(n);
+        health.reserve(n);
     }
     
-    void spawn(float px, float py, float vx, float vy) {
+    void spawn(float px, float py, float vx, float vy, AgentType agentType) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
@@ -43,7 +52,8 @@ struct EntityHot {
             dirX.push_back(1.0f);  // Default facing right
             dirY.push_back(0.0f);
         }
-        state.push_back(0);
+        type.push_back(agentType);
+        health.push_back(agentType == AgentType::Hero ? 5 : 0);  // Heroes start with 5 kills
         count++;
     }
 };
@@ -65,6 +75,11 @@ public:
     void toggleDebugGrid() { debugGrid = !debugGrid; }
     uint32_t getJobsExecuted() const { return jobSystem.getJobsExecuted(); }
     uint32_t getWorkerCount() const { return jobSystem.getWorkerCount(); }
+    
+    // Agent type counts
+    size_t getCivilianCount() const;
+    size_t getZombieCount() const;
+    size_t getHeroCount() const;
 
 private:
     int screenWidth;
@@ -91,8 +106,11 @@ private:
 
     void updateMovement(float dt);
     void updateSeparation(float dt);  // Collision avoidance
+    void updateBehaviors(float dt);   // Seek/flee/combat behaviors
+    void updateInfections();          // Handle zombie infections
     void updateSeparationChunk(size_t start, size_t end, float dt);  // Parallel version
     void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version
+    void updateBehaviorsChunk(size_t start, size_t end, float dt);   // Parallel version
     void screenWrap();
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
 };

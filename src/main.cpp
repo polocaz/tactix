@@ -31,14 +31,14 @@ int main() {
     camera.zoom = 1.0f;
 
     Simulation sim(screenWidth, screenHeight);
-    size_t agentCount = 2000;  // Start with fewer agents to focus on behavior
+    size_t agentCount = 100;  // Start with fewer agents to focus on behavior
     sim.init(agentCount);
 
     // Fixed timestep accumulator (Design Doc §1.1)
     const float FIXED_DT = 1.0f / 60.0f;  // 60 ticks per second
     float accumulator = 0.0f;
     auto lastTime = std::chrono::steady_clock::now();
-    float timeScale = 1.0f;  // Time scaling: 0.25x to 4.0x
+    float timeScale = 0.5f;  // Time scaling: start at half speed to observe infection dynamics
 
     // Metrics
     float tickTimes[60] = {0};  // Rolling window for tick time
@@ -136,15 +136,28 @@ int main() {
         // ----------- IMGUI -----------
         rlImGuiBegin();
 
-        ImGui::Begin("Tactix - Phase 3 Metrics");
+        ImGui::Begin("Tactix - Zombie Simulation");
         
         // Agent count control
         int agentCountInt = static_cast<int>(agentCount);
-        if (ImGui::SliderInt("Agent Count", &agentCountInt, 100, 10000)) {
+        if (ImGui::SliderInt("Total Agents", &agentCountInt, 100, 10000)) {
             agentCount = static_cast<size_t>(agentCountInt);
             sim.setAgentCount(agentCount);
         }
         ImGui::Text("Active Agents: %zu", sim.getAgentCount());
+        
+        // Population breakdown
+        ImGui::Separator();
+        ImGui::Text("Population Breakdown:");
+        size_t civilianCount = sim.getCivilianCount();
+        size_t zombieCount = sim.getZombieCount();
+        size_t heroCount = sim.getHeroCount();
+        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "  Civilians: %zu (%.1f%%)", 
+                          civilianCount, (civilianCount / (float)sim.getAgentCount()) * 100.0f);
+        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "  Zombies: %zu (%.1f%%)", 
+                          zombieCount, (zombieCount / (float)sim.getAgentCount()) * 100.0f);
+        ImGui::TextColored(ImVec4(0.2f, 0.4f, 0.9f, 1.0f), "  Heroes: %zu (%.1f%%)", 
+                          heroCount, (heroCount / (float)sim.getAgentCount()) * 100.0f);
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());
