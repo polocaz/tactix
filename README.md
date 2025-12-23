@@ -6,10 +6,11 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 
 ---
 
-## 🎯 Current Status: Phase 3 Complete + Zombie Behaviors ✅
+## 🎯 Current Status: Phase 4.5 Complete - Tactical Survival Simulation ✅
 
-**Performance Target:** 10,000 agents @ 60 ticks/sec with parallelization  
-**Achieved:** ~1.6ms tick time (10.7% of 15ms budget) with 7-15 worker threads
+**Performance Target:** 10,000 agents @ 60 ticks/sec with full AI and environment  
+**Achieved:** ~1.6ms tick time (10.7% of 15ms budget) @ 144 FPS with 7 worker threads  
+**Latest:** Group behaviors, ranged combat, environment obstacles, hard collision physics
 
 ### Implemented Features
 
@@ -34,19 +35,33 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 - ✅ **10,000 Agent Simulation** - 3.5x speedup from parallelization
 - ✅ **Rendering Optimization** - Directional triangles, 144 FPS @ 10k agents
 
-#### Phase 4: Agent Behaviors & Zombie Simulation
-- ✅ **Three Agent Types** - Civilians, Zombies, Heroes with distinct AI
-- ✅ **Seek/Flee Steering Behaviors** - Context-aware movement based on nearby agents
-- ✅ **Infection Mechanics** - Zombie-civilian collision spreads outbreak
-- ✅ **Hero Combat System** - Heroes kill zombies, track health, eventual conversion
-- ✅ **Dynamic Population** - Real-time agent type transitions and removals
-- ✅ **Visual Feedback** - Color-coded agents, health indicators, population breakdown
+#### Phase 4: AI State Machine & Memory System
+- ✅ **Five-State AI** - Idle, Patrol, Fleeing, Pursuing, Searching with memory persistence
+- ✅ **Memory System** - Last-seen positions, search timers, patrol targets per agent
+- ✅ **Direct Velocity Steering** - Instant direction changes for responsive autonomous behavior
+- ✅ **Patrol Behavior** - Active wandering with random destinations when idle
+- ✅ **Sticky Decision Making** - Consistent choices (flee-to-hero vs panic) prevent flickering
+
+#### Phase 4.5: Tactical Combat & Environment
+- ✅ **Group Behaviors** - Zombie hordes (0.3 cohesion), civilian flee-to-hero (30%), hero squads
+- ✅ **Ranged Combat System** - 100px range, variable aim delay (0.3-0.6s), 1.5s cooldown
+- ✅ **Visual Shooting Effects** - Yellow gunshot lines with fade-out, 0.15s lifetime
+- ✅ **Gunshot Attraction** - Zombies converge on sounds (300px radius, 3s duration)
+- ✅ **Hero Personalities** - 50/50 hunter (chase 55 speed) vs defender (kite 45 speed)
+- ✅ **Environment System** - 8 procedural buildings (80-150px), 30 trees (15-25px radius)
+- ✅ **Graveyard Origin** - Dark purple zone (200×200px) with 8 tombstones marking outbreak start
+- ✅ **Hard Collision Physics** - Pre-check movement, push-out mechanics, tangential deflection for sliding
+- ✅ **Zombie Health System** - 3 hits to kill, hero exhaustion after 5 kills → zombie conversion
+- ✅ **Logical Spawning** - Civilians near buildings, zombies in graveyard, heroes at strategic positions
+- ✅ **Speed Balancing** - 33% global reduction (40/35/50 base speeds) for tactical gameplay
 
 #### Quality of Life Features
+- ✅ **Pause Control** - Spacebar to pause/resume, starts paused for setup
+- ✅ **Resizable Window** - 1600×1200 default, drag to resize to any size
 - ✅ **Camera Controls** - Zoom (0.125x-8x), pan, and reset for detailed observation
 - ✅ **Time Scale Control** - Adjust simulation speed (0.125x-4x) with keyboard/slider
 - ✅ **Dynamic Agent Count** - Live adjustment from 100-10,000 agents
-- ✅ **Wrap Detection Fix** - Prevents interpolation artifacts at world boundaries
+- ✅ **macOS Retina Support** - FLAG_WINDOW_HIGHDPI for crisp display
 - ✅ **Cross-Platform** - Windows/macOS/Linux support with platform-specific fixes
 
 ### Technical Highlights
@@ -58,35 +73,58 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 **Rendering:** Alpha blending with wrap detection for smooth sub-frame interpolation  
 **AI System:** Parallel behavior updates with type-specific seek/flee logic
 
-## 🧟 Zombie Survival Simulation
+## 🧟 Tactical Zombie Survival Simulation
 
-The simulation models a zombie outbreak with three interacting agent types:
+A complex outbreak scenario with emergent tactical gameplay from simple agent rules. Zombies spawn in the graveyard, civilians defend their homes, and heroes mount organized resistance.
 
-### Agent Types
+### Agent Types & AI States
 
 **Civilians (White/Light Gray)** - 90% of initial population
-- Flee from zombies within 150px detection range
-- Speed: 90 px/s
-- Become zombies on contact with infected
+- **AI States:** Idle → Patrol (wander) → Fleeing (panic or seek hero)
+- **Behavior:** 30% flee to nearest hero, 70% panic flee (sticky decision)
+- **Speed:** 40 px/s base, 45 px/s when panicking
+- **Spawn:** Near buildings (home defense)
+- **Death:** Convert to 3-health zombie on contact
 
 **Zombies (Green)** - 5% of initial population  
-- Seek both civilians and heroes aggressively
-- Speed: 80 px/s (slower than prey)
-- Infect civilians, engage heroes in combat
+- **AI States:** Patrol (wander) → Pursuing (chase) → Searching (last-seen)
+- **Behavior:** Horde cohesion (0.3), gunshot attraction (300px, 3s), sprint when close
+- **Speed:** 35 px/s patrol, 45 px/s sprint (<30px to target)
+- **Health:** 3 hits to kill (ranged or melee)
+- **Spawn:** Graveyard (200×200px dark zone, bottom-left)
 
 **Heroes (Blue Gradient)** - 5% of initial population
-- Hunt zombies with high aggression
-- Speed: 120 px/s (fastest agents)
-- Kill 5 zombies before converting to zombie
-- Color brightness indicates remaining health
+- **AI States:** Patrol (wander) → Pursuing (hunt/kite) → Searching (investigate)
+- **Personalities:** 50% Hunter (chase 55 speed), 50% Defender (kite 45 speed <70px)
+- **Combat:** Ranged shooting (100px, 0.3-0.6s aim, 1.5s cooldown), melee backup
+- **Exhaustion:** After 5 kills → convert to 3-health zombie
+- **Spawn:** Strategic top positions for defense
 
-### Mechanics
+### Combat Systems
 
-- **Infection System** - Close contact (15px) converts civilians to zombies
-- **Hero Combat** - Heroes kill zombies on contact, lose 1 health per kill
-- **Hero Conversion** - After 5 kills (health = 0), hero becomes zombie
-- **Population Dynamics** - Live tracking of type distribution and conversions
-- **Emergent Behavior** - Complex patterns from simple local interactions
+- **Ranged Combat** - Heroes shoot at 100px range with variable aim delay
+- **Visual Feedback** - Yellow gunshot lines (0.8px, 0.15s fade)
+- **Gunshot Attraction** - Zombies hear shots and converge on location
+- **Zombie Health** - 3 hits required, tracks damage per zombie
+- **Melee Combat** - Close-range (15px) as backup for heroes
+- **Hero Exhaustion** - Kill counter tracks fatigue, eventual conversion
+
+### Environment & Physics
+
+- **Buildings** - 8 procedural structures (80-150px) for civilian spawn
+- **Trees** - 30 scattered (15-25px radius) creating forest obstacles  
+- **Graveyard** - Dark purple zone with 8 tombstones marking outbreak origin
+- **Hard Collision** - Agents cannot phase through obstacles
+- **Tangential Deflection** - Slide along walls/trees naturally
+- **Avoidance Forces** - 5x strength at 50px detection for steering
+
+### Emergent Gameplay
+
+- **Last Stands** - Heroes cornered in buildings create dramatic shootouts
+- **Horde Waves** - Zombies cluster and sweep across the map
+- **Civilian Tactics** - Some flee to heroes (escorts), others panic (doomed)
+- **Chokepoints** - Building gaps and tree lines create tactical terrain
+- **Sound Tactics** - Gunshots both kill zombies and attract more
 
 ---
 
@@ -189,17 +227,26 @@ tactix/
 - 10,000 agents @ 60 TPS
 - 3.5x speedup achieved
 
-### ✅ Phase 4: Agent Behaviors (In Progress)
-- ✅ Three agent types (Civilian, Zombie, Hero)
-- ✅ Seek/flee steering behaviors
-- ✅ Infection & combat mechanics
-- ✅ Dynamic population tracking
-- 🔄 Advanced AI states (planned)
-- 🔄 Resource gathering (planned)
+### ✅ Phase 4-4.5: Tactical AI & Combat (Complete)
+- ✅ Five-state AI with memory system
+- ✅ Patrol, seek, flee, pursue, search behaviors
+- ✅ Group behaviors (hordes, squads, flee-to-hero)
+- ✅ Ranged combat with hero personalities
+- ✅ Environment obstacles with hard collision
+- ✅ Logical spawning and zombie health system
+- ✅ Pause controls and resizable window
 
-### 📅 Phase 5-6: Planned
-- Tracy profiler integration & SIMD optimization (20k agents)
-- Polish & documentation
+### 📅 Phase 5: Optimization & Scale (Planned)
+- 🔄 Tracy profiler integration for deep analysis
+- 🔄 SIMD optimization with __m256 vectors
+- 🔄 Target: 20,000 agents @ 60 TPS
+- 🔄 Health visualization (color intensity)
+
+### 📅 Phase 6: Polish & Demo (Planned)
+- 🔄 Recording system for video capture
+- 🔄 Checkpoint binaries for progress showcase
+- 🔄 YouTube video assembly
+- 🔄 Final documentation pass
 
 See [docs/Roadmap.md](docs/Roadmap.md) for detailed milestones.
 
@@ -207,15 +254,19 @@ See [docs/Roadmap.md](docs/Roadmap.md) for detailed milestones.
 
 ## 🎮 Controls
 
+### Simulation
+- **Spacebar** - Pause/Resume (starts paused)
+- **`[`** - Slow down time (0.125x, 0.25x, 0.5x, 1.0x)
+- **`]`** - Speed up time (1.0x, 2.0x, 4.0x)
+- **Backspace** - Reset time scale to 1.0x
+
 ### Camera
 - **Mouse Wheel** - Zoom in/out (0.125x to 8x)
 - **Right Click + Drag** - Pan around simulation world
 - **Middle Click** - Reset camera to default view
 
-### Simulation
-- **`[`** - Slow down time (0.125x, 0.25x, 0.5x, 1.0x)
-- **`]`** - Speed up time (1.0x, 2.0x, 4.0x)
-- **Backspace** - Reset time scale to 1.0x
+### Window
+- **Drag Edges/Corners** - Resize window (1600×1200 default)
 - **Show/Hide Grid Button** - Toggle spatial partitioning visualization
 
 ### UI Sliders

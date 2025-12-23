@@ -79,7 +79,7 @@ struct EntityHot {
         }
         type.push_back(agentType);
         state.push_back(AgentState::Patrol);  // Start patrolling
-        health.push_back(agentType == AgentType::Hero ? 5 : 0);  // Heroes start with 5 kills
+        health.push_back(agentType == AgentType::Hero ? 5 : (agentType == AgentType::Zombie ? 3 : 0));  // Heroes 5, Zombies 3, Civilians 0
         lastSeenX.push_back(0.0f);
         lastSeenY.push_back(0.0f);
         searchTimer.push_back(0.0f);
@@ -112,6 +112,11 @@ public:
     uint32_t getJobsExecuted() const { return jobSystem.getJobsExecuted(); }
     uint32_t getWorkerCount() const { return jobSystem.getWorkerCount(); }
     
+    // Pause control
+    bool isPaused() const { return paused; }
+    void togglePause() { paused = !paused; }
+    void setPaused(bool p) { paused = p; }
+    
     // Agent type counts
     size_t getCivilianCount() const;
     size_t getZombieCount() const;
@@ -139,6 +144,7 @@ private:
     
     // Debug visualization
     bool debugGrid = false;
+    bool paused = true;  // Start paused
     
     // Gunshot tracking (heroes attract zombies when shooting)
     struct Gunshot {
@@ -153,6 +159,21 @@ private:
         float lifetime;
     };
     std::vector<GunshotLine> gunshotLines;
+    
+    // Static obstacles for environment
+    struct Building {
+        float x, y, width, height;
+    };
+    struct Tree {
+        float x, y, radius;
+    };
+    std::vector<Building> buildings;
+    std::vector<Tree> trees;
+    
+    // Graveyard zone
+    struct { float x, y, width, height; } graveyard = {50, 0, 200, 0};  // Set in init
+    
+    void generateObstacles();  // Procedural obstacle generation
 
     void updateMovement(float dt);
     void updateSeparation(float dt);  // Collision avoidance

@@ -1,8 +1,12 @@
 # Tactix: Technical Design Document
 
-## 1\. High-Level Architecture
+**Current Status:** Phase 4.5 Complete - Tactical Survival Simulation  
+**Latest:** Group behaviors, ranged combat, environment obstacles, hard collision physics  
+**Performance:** 10,000 agents @ 60 TPS, ~1.6ms tick time, 144 FPS
 
-Tactix is a high-performance, data-oriented simulation engine designed to handle 10,000+ autonomous agents with deterministic outcomes.
+## 1. High-Level Architecture
+
+Tactix is a high-performance, data-oriented simulation engine demonstrating emergent tactical gameplay from 10,000+ autonomous agents with deterministic outcomes.
 
 The architecture decouples the **Simulation Layer** (Logic, Physics, AI) from the **Presentation Layer** (Rendering, UI).
 

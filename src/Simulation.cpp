@@ -23,34 +23,43 @@ void Simulation::init(size_t count) {
     size_t zombieCount = static_cast<size_t>(count * 0.05f);
     size_t heroCount = count - civilianCount - zombieCount;
 
-    // Spawn civilians
+    // Spawn civilians near buildings (residential areas)
     for (size_t i = 0; i < civilianCount; i++) {
-        float px = (float)GetRandomValue(0, screenWidth);
-        float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-20, 20);
-        float vy = (float)GetRandomValue(-20, 20);
+        float px, py;
+        if (i < buildings.size() && !buildings.empty()) {
+            // Spawn near a building
+            const auto& building = buildings[i % buildings.size()];
+            px = building.x + building.width / 2.0f + (float)GetRandomValue(-60, 60);
+            py = building.y + building.height / 2.0f + (float)GetRandomValue(-60, 60);
+        } else {
+            px = (float)GetRandomValue(0, screenWidth);
+            py = (float)GetRandomValue(0, screenHeight);
+        }
+        float vx = (float)GetRandomValue(-10, 10);
+        float vy = (float)GetRandomValue(-10, 10);
         entities.spawn(px, py, vx, vy, AgentType::Civilian);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
     
-    // Spawn zombies
+    // Spawn zombies at graveyard (bottom-left area)
     for (size_t i = 0; i < zombieCount; i++) {
-        float px = (float)GetRandomValue(0, screenWidth);
-        float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-15, 15);
-        float vy = (float)GetRandomValue(-15, 15);
+        float px = (float)GetRandomValue(50, 250);  // Graveyard zone
+        float py = (float)GetRandomValue(screenHeight - 250, screenHeight - 50);
+        float vx = (float)GetRandomValue(-8, 8);
+        float vy = (float)GetRandomValue(-8, 8);
         entities.spawn(px, py, vx, vy, AgentType::Zombie);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
     
-    // Spawn heroes
+    // Spawn heroes spread out (strategic positions)
     for (size_t i = 0; i < heroCount; i++) {
-        float px = (float)GetRandomValue(0, screenWidth);
-        float py = (float)GetRandomValue(0, screenHeight);
-        float vx = (float)GetRandomValue(-25, 25);
-        float vy = (float)GetRandomValue(-25, 25);
+        // Spread heroes around perimeter
+        float px = (float)GetRandomValue(screenWidth / 3, screenWidth * 2 / 3);
+        float py = (float)GetRandomValue(50, 200);  // Top area
+        float vx = (float)GetRandomValue(-12, 12);
+        float vy = (float)GetRandomValue(-12, 12);
         entities.spawn(px, py, vx, vy, AgentType::Hero);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
@@ -63,6 +72,38 @@ void Simulation::init(size_t count) {
     spdlog::info("Spatial grid: {} cells", spatialHash.getCellCount());
     spdlog::info("Population - Civilians: {}, Zombies: {}, Heroes: {}", 
                  civilianCount, zombieCount, heroCount);
+    
+    // Generate environment obstacles
+    generateObstacles();
+    
+    // Set graveyard bounds
+    graveyard.x = 50;
+    graveyard.y = screenHeight - 250;
+    graveyard.width = 200;
+    graveyard.height = 200;
+}
+
+void Simulation::generateObstacles() {
+    // City blocks (buildings)
+    const int blockCount = 8;
+    for (int i = 0; i < blockCount; i++) {
+        float x = (float)GetRandomValue(100, screenWidth - 200);
+        float y = (float)GetRandomValue(100, screenHeight - 200);
+        float w = (float)GetRandomValue(80, 150);
+        float h = (float)GetRandomValue(80, 150);
+        buildings.push_back({x, y, w, h});
+    }
+    
+    // Scattered trees
+    const int treeCount = 30;
+    for (int i = 0; i < treeCount; i++) {
+        float x = (float)GetRandomValue(50, screenWidth - 50);
+        float y = (float)GetRandomValue(50, screenHeight - 50);
+        float r = (float)GetRandomValue(15, 25);
+        trees.push_back({x, y, r});
+    }
+    
+    spdlog::info("Generated {} buildings and {} trees", buildings.size(), trees.size());
 }
 
 void Simulation::setAgentCount(size_t count) {
@@ -124,6 +165,8 @@ void Simulation::setAgentCount(size_t count) {
 }
 
 void Simulation::tick(float dt) {
+    if (paused) return;  // Skip tick if paused
+    
     // Store previous positions for interpolation
     for (size_t i = 0; i < entities.count; i++) {
         prevPosX[i] = entities.posX[i];
@@ -175,14 +218,21 @@ void Simulation::tick(float dt) {
                 // Create visual line
                 gunshotLines.push_back({heroX, heroY, zombieX, zombieY, 0.15f});
                 
-                // Kill the zombie
-                zombiesToKill.push_back(targetIdx);
+                // Damage the zombie (takes 3 hits to kill)
+                if (entities.health[targetIdx] > 0) {
+                    entities.health[targetIdx]--;
+                    if (entities.health[targetIdx] == 0) {
+                        // Zombie dies after 3 hits
+                        zombiesToKill.push_back(targetIdx);
+                    }
+                }
                 
-                // Decrement hero health
+                // Decrement hero health (tracks kills)
                 if (entities.health[shooterIdx] > 0) {
                     entities.health[shooterIdx]--;
                     if (entities.health[shooterIdx] == 0) {
                         entities.type[shooterIdx] = AgentType::Zombie;
+                        entities.health[shooterIdx] = 3;  // New zombie has 3 health
                         spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", shooterIdx);
                     }
                 }
@@ -321,6 +371,52 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
             }
         }
         
+        // Obstacle avoidance - buildings (rectangles)
+        for (const auto& building : buildings) {
+            // Find closest point on rectangle to agent
+            float closestX = std::max(building.x, std::min(px, building.x + building.width));
+            float closestY = std::max(building.y, std::min(py, building.y + building.height));
+            
+            float dx = px - closestX;
+            float dy = py - closestY;
+            float distSq = dx * dx + dy * dy;
+            
+            const float obstacleAvoidDist = 50.0f;  // Start avoiding earlier
+            if (distSq < obstacleAvoidDist * obstacleAvoidDist) {
+                if (distSq < 0.01f) {
+                    // Inside obstacle - push out strongly in any direction
+                    steerX += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    steerY += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                } else {
+                    float dist = std::sqrt(distSq);
+                    float force = (obstacleAvoidDist - dist) / obstacleAvoidDist;
+                    steerX += (dx / dist) * force * 5.0f;  // Much stronger avoidance
+                    steerY += (dy / dist) * force * 5.0f;
+                }
+            }
+        }
+        
+        // Obstacle avoidance - trees (circles)
+        for (const auto& tree : trees) {
+            float dx = px - tree.x;
+            float dy = py - tree.y;
+            float distSq = dx * dx + dy * dy;
+            float avoidRadius = tree.radius + 20.0f;  // Extra buffer
+            
+            if (distSq < avoidRadius * avoidRadius) {
+                if (distSq < 0.01f) {
+                    // Inside obstacle - push out strongly
+                    steerX += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    steerY += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                } else {
+                    float dist = std::sqrt(distSq);
+                    float force = (avoidRadius - dist) / avoidRadius;
+                    steerX += (dx / dist) * force * 5.0f;
+                    steerY += (dy / dist) * force * 5.0f;
+                }
+            }
+        }
+        
         // Apply separation steering
         entities.velX[i] += steerX * separationStrength * dt;
         entities.velY[i] += steerY * separationStrength * dt;
@@ -353,8 +449,63 @@ void Simulation::updateMovement(float dt) {
 void Simulation::updateMovementChunk(size_t start, size_t end, float dt) {
     // SIMD-friendly: compiler auto-vectorizes this loop
     for (size_t i = start; i < end; i++) {
-        entities.posX[i] += entities.velX[i] * dt;
-        entities.posY[i] += entities.velY[i] * dt;
+        float newX = entities.posX[i] + entities.velX[i] * dt;
+        float newY = entities.posY[i] + entities.velY[i] * dt;
+        
+        // Check collision with buildings
+        bool blocked = false;
+        for (const auto& building : buildings) {
+            if (newX > building.x - 5 && newX < building.x + building.width + 5 &&
+                newY > building.y - 5 && newY < building.y + building.height + 5) {
+                // Inside or very close to building - block movement
+                blocked = true;
+                // Find which side we hit
+                float centerX = building.x + building.width / 2.0f;
+                float centerY = building.y + building.height / 2.0f;
+                float dx = entities.posX[i] - centerX;
+                float dy = entities.posY[i] - centerY;
+                
+                // Push out and deflect velocity
+                if (std::abs(dx) > std::abs(dy)) {
+                    // Hit horizontal side - deflect horizontally, keep Y velocity
+                    newX = entities.posX[i] + (dx > 0 ? 2.0f : -2.0f);
+                    entities.velX[i] = -entities.velX[i] * 0.3f;  // Bounce back weakly
+                    // Keep Y velocity to slide along wall
+                } else {
+                    // Hit vertical side - deflect vertically, keep X velocity
+                    newY = entities.posY[i] + (dy > 0 ? 2.0f : -2.0f);
+                    entities.velY[i] = -entities.velY[i] * 0.3f;  // Bounce back weakly
+                    // Keep X velocity to slide along wall
+                }
+                break;
+            }
+        }
+        
+        // Check collision with trees
+        if (!blocked) {
+            for (const auto& tree : trees) {
+                float dx = newX - tree.x;
+                float dy = newY - tree.y;
+                float distSq = dx * dx + dy * dy;
+                if (distSq < tree.radius * tree.radius) {
+                    // Inside tree - block and push out
+                    blocked = true;
+                    float dist = std::sqrt(distSq + 0.01f);
+                    newX = tree.x + (dx / dist) * (tree.radius + 2.0f);
+                    newY = tree.y + (dy / dist) * (tree.radius + 2.0f);
+                    // Deflect velocity tangentially (slide around)
+                    float normalX = dx / dist;
+                    float normalY = dy / dist;
+                    float velDotNormal = entities.velX[i] * normalX + entities.velY[i] * normalY;
+                    entities.velX[i] -= normalX * velDotNormal * 1.5f;  // Remove normal component
+                    entities.velY[i] -= normalY * velDotNormal * 1.5f;
+                    break;
+                }
+            }
+        }
+        
+        entities.posX[i] = newX;
+        entities.posY[i] = newY;
         
         // Update direction from velocity (for rendering)
         float speed = std::sqrt(entities.velX[i] * entities.velX[i] + 
@@ -444,9 +595,9 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
         bool targetFound = false;
         
         // Target speeds for each agent type
-        float targetSpeed = 60.0f;  // Base civilian speed
-        if (myType == AgentType::Zombie) targetSpeed = 55.0f;    // Zombies slightly slower but relentless
-        else if (myType == AgentType::Hero) targetSpeed = 75.0f;  // Heroes fastest
+        float targetSpeed = 40.0f;  // Base civilian speed (was 60)
+        if (myType == AgentType::Zombie) targetSpeed = 35.0f;    // Zombies slightly slower (was 55)
+        else if (myType == AgentType::Hero) targetSpeed = 50.0f;  // Heroes fastest (was 75)
         
         // Different behaviors based on agent type and state
         if (myType == AgentType::Civilian) {
@@ -503,7 +654,7 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 }
                 
                 entities.state[i] = AgentState::Fleeing;
-                targetSpeed = 65.0f;  // Panic boost
+                targetSpeed = 45.0f;  // Panic boost (was 65)
             } else if (myState == AgentState::Fleeing) {
                 entities.state[i] = AgentState::Searching;
                 entities.searchTimer[i] = searchDuration;
@@ -564,7 +715,7 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                         
                         // Lunge when close
                         if (dist < 30.0f) {
-                            targetSpeed = 65.0f;  // Sprint!
+                            targetSpeed = 45.0f;  // Sprint! (was 65)
                         }
                     }
                 } else if (neighborType == AgentType::Zombie) {
@@ -666,17 +817,17 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 
                 if (isHunter) {
                     // Hunters: chase down zombies aggressively
-                    targetSpeed = 80.0f;
+                    targetSpeed = 55.0f;  // (was 80)
                 } else {
                     // Defenders: maintain distance, kite backwards
                     if (closestZombieDist < 70.0f) {
                         // Too close - back away while shooting
                         desiredDirX = -desiredDirX;  // Reverse direction
                         desiredDirY = -desiredDirY;
-                        targetSpeed = 70.0f;  // Back up speed
+                        targetSpeed = 45.0f;  // Back up speed (was 70)
                     } else {
                         // Good distance - hold position (slow movement)
-                        targetSpeed = 20.0f;
+                        targetSpeed = 15.0f;  // (was 20)
                     }
                 }
                 
@@ -815,22 +966,29 @@ void Simulation::updateInfections() {
                     if (otherType == AgentType::Civilian) {
                         // Civilian becomes zombie
                         entities.type[j] = AgentType::Zombie;
-                        entities.health[j] = 0;
+                        entities.health[j] = 3;  // New zombie has 3 health
                         // Reverse velocity to show disorientation
                         entities.velX[j] = -entities.velX[j] * 0.5f;
                         entities.velY[j] = -entities.velY[j] * 0.5f;
                     } else if (otherType == AgentType::Hero) {
-                        // Hero kills zombie
-                        if (entities.health[j] > 0) {
-                            entities.health[j]--;
-                            zombiesToKill.push_back(i);  // Mark zombie for removal
-                            
-                            if (entities.health[j] == 0) {
-                                // Hero becomes zombie after 5 kills (exhaustion)
-                                entities.type[j] = AgentType::Zombie;
-                                spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", j);
+                        // Hero damages zombie in melee
+                        if (entities.health[i] > 0) {
+                            entities.health[i]--;  // Damage zombie
+                            if (entities.health[i] == 0) {
+                                zombiesToKill.push_back(i);  // Zombie dies
                             }
-                            break;  // Zombie is dead, stop checking
+                            
+                            // Hero loses health (track kills)
+                            if (entities.health[j] > 0) {
+                                entities.health[j]--;
+                                if (entities.health[j] == 0) {
+                                    // Hero becomes zombie after 5 kills (exhaustion)
+                                    entities.type[j] = AgentType::Zombie;
+                                    entities.health[j] = 3;  // New zombie has 3 health
+                                    spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", j);
+                                }
+                            }
+                            break;  // Zombie is damaged, stop checking
                         }
                     }
                 }
@@ -877,6 +1035,23 @@ void Simulation::draw(float alpha) {
         borderThickness,
         Color{100, 150, 255, 255}
     );
+    
+    // Draw graveyard
+    DrawRectangle(
+        static_cast<int>(graveyard.x),
+        static_cast<int>(graveyard.y),
+        static_cast<int>(graveyard.width),
+        static_cast<int>(graveyard.height),
+        Color{40, 35, 45, 255}  // Dark purple-gray
+    );
+    // Tombstones
+    for (int i = 0; i < 8; i++) {
+        float tx = graveyard.x + 30 + (i % 3) * 60;
+        float ty = graveyard.y + 40 + (i / 3) * 60;
+        DrawRectangle(static_cast<int>(tx), static_cast<int>(ty), 20, 30, Color{80, 75, 85, 255});
+        DrawRectangle(static_cast<int>(tx + 5), static_cast<int>(ty - 5), 10, 10, Color{90, 85, 95, 255});
+    }
+    DrawText("GRAVEYARD", static_cast<int>(graveyard.x + 50), static_cast<int>(graveyard.y + 10), 16, Color{120, 110, 130, 255});
     
     // Debug: Draw grid
     if (debugGrid) {
@@ -958,6 +1133,42 @@ void Simulation::draw(float alpha) {
             Vector2{line.toX, line.toY},
             0.8f,  // Thin line
             Color{255, 255, 0, alpha_byte}  // Bright yellow, fading
+        );
+    }
+    
+    // Draw buildings
+    for (const auto& building : buildings) {
+        DrawRectangle(
+            static_cast<int>(building.x),
+            static_cast<int>(building.y),
+            static_cast<int>(building.width),
+            static_cast<int>(building.height),
+            Color{80, 80, 90, 255}  // Dark gray
+        );
+        // Outline
+        DrawRectangleLines(
+            static_cast<int>(building.x),
+            static_cast<int>(building.y),
+            static_cast<int>(building.width),
+            static_cast<int>(building.height),
+            Color{60, 60, 70, 255}
+        );
+    }
+    
+    // Draw trees
+    for (const auto& tree : trees) {
+        DrawCircle(
+            static_cast<int>(tree.x),
+            static_cast<int>(tree.y),
+            tree.radius,
+            Color{40, 120, 40, 255}  // Forest green
+        );
+        // Darker center for depth
+        DrawCircle(
+            static_cast<int>(tree.x),
+            static_cast<int>(tree.y),
+            tree.radius * 0.6f,
+            Color{30, 90, 30, 255}
         );
     }
 }

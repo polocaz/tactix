@@ -15,7 +15,7 @@ int main() {
     spdlog::info("Initializing Tactix Engine...");
     
     // macOS Retina fix: Set config flags before window creation
-    SetConfigFlags(FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
     
     InitWindow(screenWidth, screenHeight, "Tactix - High-Performance Agent Simulation");
     SetTargetFPS(144);  // Render at high FPS, simulation runs at fixed 60 TPS
@@ -86,6 +86,9 @@ int main() {
         }
         
         // Time scale keyboard controls
+        if (IsKeyPressed(KEY_SPACE)) {
+            sim.togglePause();
+        }
         if (IsKeyPressed(KEY_LEFT_BRACKET)) {
             timeScale = std::max(0.125f, timeScale * 0.5f);
         }
@@ -137,6 +140,14 @@ int main() {
         rlImGuiBegin();
 
         ImGui::Begin("Tactix - Zombie Simulation");
+        
+        // Pause state
+        if (sim.isPaused()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "[PAUSED - Press SPACE to start]");
+        } else {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "[RUNNING - Press SPACE to pause]");
+        }
+        ImGui::Separator();
         
         // Agent count control
         int agentCountInt = static_cast<int>(agentCount);
