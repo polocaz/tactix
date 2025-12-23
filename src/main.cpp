@@ -1,3 +1,4 @@
+#include "platform.h"
 #include "raylib.h"
 #include "rlImGui.h"
 #include "imgui.h"

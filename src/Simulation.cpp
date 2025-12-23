@@ -1,3 +1,4 @@
+#include "platform.h"
 #include "Simulation.hpp"
 #include <raylib.h>
 #include <cmath>

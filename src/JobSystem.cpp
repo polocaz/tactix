@@ -70,6 +70,7 @@ void JobSystem::workerLoop() {
             
             // Decrement active jobs and notify waitAll if done
             if (--activeJobs == 0) {
+                std::lock_guard<std::mutex> lock(waitMutex);
                 waitCV.notify_all();
             }
         }

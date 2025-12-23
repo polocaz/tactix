@@ -1,4 +1,6 @@
 #pragma once
+#include "platform.h"
+
 #include <vector>
 #include <cstdint>
 #include "SpatialHash.hpp"
