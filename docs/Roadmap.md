@@ -100,30 +100,43 @@
 
 ---
 
-## Phase 4: Utility-Based AI & State Machine (Week 4)
+## Phase 4: Utility-Based AI & State Machine (Week 4) 🔄 IN PROGRESS
 **Goal:** Implement autonomous agent behaviors with state selection.
 
 **Performance Target:** 10,000 agents with complex AI @ 60 ticks/sec
 
 ### Tasks
-- [ ] Define `EntityState` enum (Idle, Wander, Seek, Flee, Attack, Gather) (see Design Doc §7.1)
+- [x] Define `AgentType` enum (Civilian, Zombie, Hero) (see Design Doc §7.1)
+- [x] Implement seek/flee steering behaviors (civilians flee, zombies/heroes seek)
+- [x] Add infection system (zombie-civilian collision converts to zombie)
+- [x] Add health/damage system for hero combat (5 kills before conversion)
+- [x] Color-code agents by type (white/green/blue gradient)
+- [x] Population breakdown UI with real-time percentages
 - [ ] Implement utility scoring functions per state (see Design Doc §7.2)
 - [ ] Add `selectBestState()` logic (argmax of scores)
-- [ ] Implement per-state behavior execution
 - [ ] Add simple resource tokens to world (agents seek them)
-- [ ] Add health/damage system for combat interactions
-- [ ] Color-code agents by current state
+- [ ] State transition heatmap overlay
 
 **Deliverables:**
-- Agents autonomously choosing behaviors
-- Emergent patterns (flocking, resource competition)
-- State transition heatmap overlay
+- ✅ Three agent types with distinct behaviors
+- ✅ Emergent outbreak patterns (infection spread, hero resistance)
+- ✅ Visual feedback system (color coding, population tracking)
+- 🔄 Full utility-based AI (in progress)
 
 **Acceptance Criteria:**
+- [x] Agent behaviors work correctly (flee/seek/combat)
+- [x] Performance maintained with behavior updates (tick time < 5ms achieved)
+- [x] Visible emergent behaviors in demo (zombie outbreak dynamics)
 - [ ] AI decision cost < 5 ms (0.5 µs per agent, per Design Doc §9.1)
 - [ ] State selection runs in ~20 CPU cycles per agent (per Design Doc §7.2)
-- [ ] Visible emergent behaviors in demo
 - [ ] State transitions logged for replay
+
+**Actual Results:**
+- ✅ Zombie simulation with three agent types functioning
+- ✅ Seek/flee behaviors creating dynamic chase/escape patterns
+- ✅ Hero combat system effectively culling zombie population
+- ✅ Population dynamics observable with slow-motion and camera controls
+- ✅ Performance maintained: ~2-4ms tick time with behaviors
 
 ---
 
