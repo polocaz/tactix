@@ -359,16 +359,42 @@ agentY = midY + sin(angle) * 8.0f + jitterY;
 **Civilian vs Zombie:**
 | Outcome | Base Chance | With 1 Ally | With 2+ Allies | Result |
 |---------|-------------|-------------|----------------|--------|
-| Kill Zombie | 20% | 35% | 50% | Civilian wins, zombie dies |
-| Bitten & Escape | 35% | 40% | 35% | Breaks free but infected |
+| Kill Zombie | 15% | 25% | 40% | Civilian wins, zombie dies |
+| Kill but Bitten | 10% | 15% | 15% | Wins fight but gets infected |
+| Bitten & Escape | 30% | 35% | 30% | Breaks free but infected |
 | Killed | 45% | 25% | 15% | Dies → corpse → reanimates in 3-8s |
 
-**Group Combat Bonus:**
+**Zombie Horde Bonus:**
+Zombies gain strength in numbers, reducing civilian survival odds:
+```cpp
+int nearbyZombies = countZombiesInRadius(pos, 50.0f);
+float hordeThreat = std::min(0.25f, nearbyZombies * 0.08f);  // Max +25%
+float civilianDeathChance = 0.45f + hordeThreat;  // More zombies = more danger
+```
+
+**Group Combat Dynamics:**
 ```cpp
 int nearbyAllies = countAlliesInRadius(pos, 50.0f);
-float survivalBonus = std::min(0.3f, nearbyAllies * 0.15f);
-float killChance = 0.20f + survivalBonus;
+int nearbyZombies = countZombiesInRadius(pos, 50.0f);
+
+// Ally bonus (max +30%)
+float survivalBonus = std::min(0.30f, nearbyAllies * 0.15f);
+
+// Zombie horde penalty (max +25%)
+float hordePenalty = std::min(0.25f, nearbyZombies * 0.08f);
+
+// Calculate final outcomes
+float killChance = 0.15f + survivalBonus;
+float killButBittenChance = 0.10f + (survivalBonus * 0.5f);
+float bittenEscapeChance = 0.30f;
+float deathChance = 0.45f + hordePenalty - survivalBonus;
 ```
+
+**Emergent Tactical Scenarios:**
+- **1v1:** Civilian 45% death, risky for both sides
+- **3v1:** Civilian 15% death, humans form defensive group
+- **1v3:** Civilian 70% death, zombies overwhelm isolated target
+- **3v3:** Balanced fight, encourages frontline formations
 
 **Hero vs Zombie:**
 - **Win:** 80% (kills zombie instantly)
