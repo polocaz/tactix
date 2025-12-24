@@ -21,7 +21,9 @@ enum class AgentState : uint8_t {
     Fleeing = 2,   // Running away from threat
     Pursuing = 3,  // Chasing target
     Searching = 4, // Looking for last known target location
-    Dead = 5       // Corpse waiting to reanimate
+    Dead = 5,      // Corpse waiting to reanimate
+    Fighting = 6,  // Locked in melee struggle
+    Bitten = 7     // Infected, dying slowly
 };
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
@@ -48,6 +50,11 @@ struct EntityHot {
     std::vector<uint8_t> heroType;  // Hero: 0=defender, 1=hunter
     std::vector<float> reanimationTimer;  // Time until corpse reanimates as zombie
     std::vector<float> meleeAttackCooldown;  // Zombie melee attack cooldown
+    std::vector<uint32_t> combatTarget;  // Index of opponent in locked combat
+    std::vector<float> combatTimer;  // Time remaining in combat
+    std::vector<float> combatCooldown;  // Cooldown before can enter combat again
+    std::vector<float> infectionTimer;  // Time until death from bite wound
+    std::vector<float> infectionProgress;  // 0-1 visual infection progression
     
     size_t count = 0;
     
@@ -95,6 +102,11 @@ struct EntityHot {
         heroType.push_back(agentType == AgentType::Hero ? GetRandomValue(0, 1) : 0);  // 50% hunter, 50% defender
         reanimationTimer.push_back(0.0f);
         meleeAttackCooldown.push_back(0.0f);
+        combatTarget.push_back(UINT32_MAX);  // No target
+        combatTimer.push_back(0.0f);
+        combatCooldown.push_back(0.0f);
+        infectionTimer.push_back(0.0f);
+        infectionProgress.push_back(0.0f);
         count++;
     }
 };
@@ -179,6 +191,15 @@ private:
     struct { float x, y, width, height; } graveyard = {50, 0, 200, 0};  // Set in init
     
     void generateObstacles();  // Procedural obstacle generation
+    
+    // Combat resolution helpers
+    void resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilianIdx, 
+                                       int zombieAllies, int civilianAllies,
+                                       std::vector<size_t>& zombiesToKill,
+                                       std::vector<size_t>& entitiesToKill);
+    void resolveHeroVsZombieCombat(size_t heroIdx, size_t zombieIdx,
+                                   std::vector<size_t>& zombiesToKill,
+                                   std::vector<size_t>& entitiesToKill);
 
     void updateMovement(float dt);
     void updateSeparation(float dt);  // Collision avoidance

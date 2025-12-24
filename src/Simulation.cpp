@@ -608,6 +608,79 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
             continue;
         }
         
+        // Fighting agents use special combat movement
+        if (myState == AgentState::Fighting) {
+            uint32_t targetIdx = entities.combatTarget[i];
+            if (targetIdx != UINT32_MAX && targetIdx < entities.count) {
+                // Face the opponent (lock direction)
+                float dx = entities.posX[targetIdx] - entities.posX[i];
+                float dy = entities.posY[targetIdx] - entities.posY[i];
+                float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                entities.dirX[i] = dx / dist;
+                entities.dirY[i] = dy / dist;
+                
+                // Smooth struggle animation using elapsed time
+                // Use a combination of frequencies for organic feel
+                static float elapsedTime = 0.0f;
+                elapsedTime += 1.0f / 60.0f;
+                float phase = static_cast<float>(i) * 0.7f;  // Each agent has different phase
+                
+                // Perpendicular to facing direction for side-to-side shake
+                float perpX = -entities.dirY[i];
+                float perpY = entities.dirX[i];
+                
+                // Smooth sine wave shake (no random jitter)
+                float shake = std::sin(elapsedTime * 12.0f + phase) * 1.5f;
+                
+                // Subtle push/pull toward opponent
+                float pushPull = std::sin(elapsedTime * 4.0f + phase) * 0.5f;
+                
+                entities.velX[i] = perpX * shake + entities.dirX[i] * pushPull;
+                entities.velY[i] = perpY * shake + entities.dirY[i] * pushPull;
+            }
+            continue;
+        }
+        
+        // Bitten agents flee desperately with reduced speed
+        if (myState == AgentState::Bitten) {
+            // Speed reduces as infection progresses
+            float healthySpeed = 40.0f;
+            float sickSpeed = healthySpeed * (1.0f - entities.infectionProgress[i] * 0.5f);
+            
+            // Flee from any nearby zombies
+            float fleeX = 0.0f, fleeY = 0.0f;
+            int threatCount = 0;
+            
+            float px = entities.posX[i];
+            float py = entities.posY[i];
+            spatialHash.queryNeighbors(px, py, 100.0f, localNeighbors);
+            
+            for (uint32_t neighborIdx : localNeighbors) {
+                if (entities.type[neighborIdx] == AgentType::Zombie) {
+                    float dx = px - entities.posX[neighborIdx];
+                    float dy = py - entities.posY[neighborIdx];
+                    float distSq = dx * dx + dy * dy;
+                    if (distSq > 0.01f) {
+                        float dist = std::sqrt(distSq);
+                        fleeX += (dx / dist);
+                        fleeY += (dy / dist);
+                        threatCount++;
+                    }
+                }
+            }
+            
+            if (threatCount > 0) {
+                float len = std::sqrt(fleeX * fleeX + fleeY * fleeY + 0.01f);
+                entities.velX[i] = (fleeX / len) * sickSpeed;
+                entities.velY[i] = (fleeY / len) * sickSpeed;
+            } else {
+                // Wander slowly
+                entities.velX[i] *= 0.95f;
+                entities.velY[i] *= 0.95f;
+            }
+            continue;
+        }
+        
         float px = entities.posX[i];
         float py = entities.posY[i];
         
@@ -1017,30 +1090,51 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
 }
 
 void Simulation::updateInfections() {
-    const float meleeRange = 15.0f;  // Close combat range
+    const float meleeRange = 8.0f;  // Close combat range (reduced for tighter engagement)
     const float meleeRangeSq = meleeRange * meleeRange;
-    const float meleeAttackSpeed = 1.0f;  // 1 second between zombie attacks
     const float feedRange = 20.0f;  // Range to feed on corpses
     const float feedRangeSq = feedRange * feedRange;
-    const float feedSpeed = 2.0f;  // 2 seconds to consume corpse
+    const float dt = 1.0f / 60.0f;
     
     std::vector<size_t> zombiesToKill;  // Track zombies to remove
+    std::vector<size_t> entitiesToKill;  // Track entities to remove
     std::vector<size_t> corpsesToRemove;  // Track corpses that get eaten
     std::vector<uint32_t> localNeighbors;
     localNeighbors.reserve(200);
     
+    // Update bitten civilians (infection progression)
+    for (size_t i = 0; i < entities.count; i++) {
+        // Update combat cooldown
+        if (entities.combatCooldown[i] > 0.0f) {
+            entities.combatCooldown[i] -= dt;
+        }
+        
+        if (entities.state[i] == AgentState::Bitten) {
+            entities.infectionTimer[i] -= dt;
+            entities.infectionProgress[i] = 1.0f - std::max(0.0f, entities.infectionTimer[i] / 15.0f);
+            
+            if (entities.infectionTimer[i] <= 0.0f) {
+                // Infection kills civilian - becomes corpse
+                entities.state[i] = AgentState::Dead;
+                entities.velX[i] = 0.0f;
+                entities.velY[i] = 0.0f;
+                entities.reanimationTimer[i] = 3.0f + (GetRandomValue(0, 50) / 10.0f);
+                spdlog::info("Civilian {} died from infection! Will reanimate in {:.1f}s", i, entities.reanimationTimer[i]);
+            }
+        }
+    }
+    
     // Update reanimation timers for dead civilians
     for (size_t i = 0; i < entities.count; i++) {
         if (entities.state[i] == AgentState::Dead && entities.type[i] == AgentType::Civilian) {
-            entities.reanimationTimer[i] -= 1.0f / 60.0f;  // Tick down at 60Hz
+            entities.reanimationTimer[i] -= dt;
             
             if (entities.reanimationTimer[i] <= 0.0f) {
                 // Reanimate as zombie!
                 entities.type[i] = AgentType::Zombie;
                 entities.state[i] = AgentState::Patrol;
-                entities.health[i] = 3;  // New zombie has 3 health
+                entities.health[i] = 3;
                 entities.meleeAttackCooldown[i] = 0.0f;
-                // Small velocity to show movement starting
                 entities.velX[i] = (GetRandomValue(-10, 10) / 10.0f) * 20.0f;
                 entities.velY[i] = (GetRandomValue(-10, 10) / 10.0f) * 20.0f;
                 spdlog::info("Corpse {} reanimated as zombie!", i);
@@ -1048,19 +1142,80 @@ void Simulation::updateInfections() {
         }
     }
     
-    // Zombie melee attacks
+    // Update ongoing combat
+    for (size_t i = 0; i < entities.count; i++) {
+        if (entities.state[i] == AgentState::Fighting) {
+            entities.combatTimer[i] -= dt;
+            
+            if (entities.combatTimer[i] <= 0.0f) {
+                // Combat resolves!
+                uint32_t targetIdx = entities.combatTarget[i];
+                if (targetIdx >= entities.count) {
+                    // Target gone, exit combat
+                    entities.state[i] = AgentState::Patrol;
+                    entities.combatTarget[i] = UINT32_MAX;
+                    continue;
+                }
+                
+                AgentType myType = entities.type[i];
+                AgentType targetType = entities.type[targetIdx];
+                
+                // Count nearby allies and enemies for bonuses
+                float px = entities.posX[i];
+                float py = entities.posY[i];
+                spatialHash.queryNeighbors(px, py, 50.0f, localNeighbors);
+                
+                int nearbyAllies = 0;
+                int nearbyEnemies = 0;
+                for (uint32_t idx : localNeighbors) {
+                    if (idx == i || idx == targetIdx) continue;
+                    if (entities.type[idx] == myType) nearbyAllies++;
+                    else if (entities.type[idx] == targetType) nearbyEnemies++;
+                }
+                
+                // Resolve combat based on types
+                if (myType == AgentType::Zombie && targetType == AgentType::Civilian) {
+                    resolveCivilianVsZombieCombat(i, targetIdx, nearbyAllies, nearbyEnemies, zombiesToKill, entitiesToKill);
+                } else if (myType == AgentType::Civilian && targetType == AgentType::Zombie) {
+                    resolveCivilianVsZombieCombat(targetIdx, i, nearbyEnemies, nearbyAllies, zombiesToKill, entitiesToKill);
+                } else if (myType == AgentType::Hero || targetType == AgentType::Hero) {
+                    resolveHeroVsZombieCombat(i, targetIdx, zombiesToKill, entitiesToKill);
+                }
+                
+                // Exit combat state
+                entities.state[i] = AgentState::Patrol;
+                entities.combatTarget[i] = UINT32_MAX;
+                entities.combatCooldown[i] = 2.0f;  // 2 second cooldown
+                
+                if (targetIdx < entities.count && entities.state[targetIdx] == AgentState::Fighting) {
+                    entities.state[targetIdx] = AgentState::Patrol;
+                    entities.combatTarget[targetIdx] = UINT32_MAX;
+                    entities.combatCooldown[targetIdx] = 2.0f;
+                    
+                    // Push agents apart to prevent immediate re-engagement
+                    float dx = entities.posX[i] - entities.posX[targetIdx];
+                    float dy = entities.posY[i] - entities.posY[targetIdx];
+                    float dist = std::sqrt(dx * dx + dy * dy + 0.01f);
+                    float separationDist = 25.0f;  // Push 25px apart
+                    
+                    entities.posX[i] += (dx / dist) * separationDist * 0.5f;
+                    entities.posY[i] += (dy / dist) * separationDist * 0.5f;
+                    entities.posX[targetIdx] -= (dx / dist) * separationDist * 0.5f;
+                    entities.posY[targetIdx] -= (dy / dist) * separationDist * 0.5f;
+                }
+            }
+        }
+    }
+    
+    // Initiate new combats
     for (size_t i = 0; i < entities.count; i++) {
         if (entities.type[i] != AgentType::Zombie) continue;
-        
-        // Update attack cooldown
-        if (entities.meleeAttackCooldown[i] > 0.0f) {
-            entities.meleeAttackCooldown[i] -= 1.0f / 60.0f;
-        }
+        if (entities.state[i] == AgentState::Fighting || entities.state[i] == AgentState::Dead) continue;
+        if (entities.combatCooldown[i] > 0.0f) continue;  // Still on cooldown
         
         float px = entities.posX[i];
         float py = entities.posY[i];
         
-        // Query only nearby agents (O(k) instead of O(n))
         spatialHash.queryNeighbors(px, py, meleeRange, localNeighbors);
         
         for (uint32_t j : localNeighbors) {
@@ -1069,8 +1224,9 @@ void Simulation::updateInfections() {
             AgentType otherType = entities.type[j];
             AgentState otherState = entities.state[j];
             
-            // Skip dead targets
-            if (otherState == AgentState::Dead) continue;
+            // Skip if already fighting, dead, or bitten
+            if (otherState == AgentState::Dead || otherState == AgentState::Fighting || otherState == AgentState::Bitten) continue;
+            if (entities.combatCooldown[j] > 0.0f) continue;  // Target on cooldown
             if (otherType != AgentType::Civilian && otherType != AgentType::Hero) continue;
             
             float dx = entities.posX[i] - entities.posX[j];
@@ -1078,42 +1234,28 @@ void Simulation::updateInfections() {
             float distSq = dx * dx + dy * dy;
             
             if (distSq < meleeRangeSq) {
-                if (otherType == AgentType::Civilian) {
-                    // Zombie attacks civilian
-                    if (entities.meleeAttackCooldown[i] <= 0.0f) {
-                        entities.meleeAttackCooldown[i] = meleeAttackSpeed;
-                        
-                        // Civilian dies and becomes corpse
-                        entities.state[j] = AgentState::Dead;
-                        entities.velX[j] = 0.0f;
-                        entities.velY[j] = 0.0f;
-                        // Random reanimation time: 3-8 seconds
-                        entities.reanimationTimer[j] = 3.0f + (GetRandomValue(0, 50) / 10.0f);
-                        spdlog::info("Civilian {} killed by zombie! Will reanimate in {:.1f}s", j, entities.reanimationTimer[j]);
-                        break;  // One attack per cycle
-                    }
-                } else if (otherType == AgentType::Hero) {
-                    // Hero damages zombie in melee
-                    if (entities.health[i] > 0) {
-                        entities.health[i]--;  // Damage zombie
-                        if (entities.health[i] == 0) {
-                            zombiesToKill.push_back(i);  // Zombie dies
-                        }
-                        
-                        // Hero loses health (track kills)
-                        if (entities.health[j] > 0) {
-                            entities.health[j]--;
-                            if (entities.health[j] == 0) {
-                                // Hero becomes zombie after 5 kills (exhaustion)
-                                entities.type[j] = AgentType::Zombie;
-                                entities.health[j] = 3;  // New zombie has 3 health
-                                entities.meleeAttackCooldown[j] = 0.0f;
-                                spdlog::info("Hero {} exhausted after 5 kills, turned zombie!", j);
-                            }
-                        }
-                        break;  // Zombie is damaged, stop checking
-                    }
-                }
+                // Initiate combat!
+                entities.state[i] = AgentState::Fighting;
+                entities.state[j] = AgentState::Fighting;
+                entities.combatTarget[i] = j;
+                entities.combatTarget[j] = i;
+                
+                // Stop movement - agents are now locked in combat
+                entities.velX[i] = 0.0f;
+                entities.velY[i] = 0.0f;
+                entities.velX[j] = 0.0f;
+                entities.velY[j] = 0.0f;
+                
+                // Combat duration: 2-4 seconds (heroes fight faster)
+                float duration = (otherType == AgentType::Hero) ? 
+                    (1.0f + GetRandomValue(0, 10) / 10.0f) : 
+                    (2.0f + GetRandomValue(0, 20) / 10.0f);
+                    
+                entities.combatTimer[i] = duration;
+                entities.combatTimer[j] = duration;
+                
+                spdlog::info("Combat initiated: {} vs {} ({:.1f}s)", i, j, duration);
+                break;  // One combat initiation per zombie per frame
             }
         }
     }
@@ -1179,6 +1321,11 @@ void Simulation::updateInfections() {
             entities.heroType[idx] = entities.heroType[lastIdx];
             entities.reanimationTimer[idx] = entities.reanimationTimer[lastIdx];
             entities.meleeAttackCooldown[idx] = entities.meleeAttackCooldown[lastIdx];
+            entities.combatTarget[idx] = entities.combatTarget[lastIdx];
+            entities.combatTimer[idx] = entities.combatTimer[lastIdx];
+            entities.combatCooldown[idx] = entities.combatCooldown[lastIdx];
+            entities.infectionTimer[idx] = entities.infectionTimer[lastIdx];
+            entities.infectionProgress[idx] = entities.infectionProgress[lastIdx];
             prevPosX[idx] = prevPosX[lastIdx];
             prevPosY[idx] = prevPosY[lastIdx];
         }
@@ -1203,6 +1350,11 @@ void Simulation::updateInfections() {
         entities.heroType.pop_back();
         entities.reanimationTimer.pop_back();
         entities.meleeAttackCooldown.pop_back();
+        entities.combatTarget.pop_back();
+        entities.combatTimer.pop_back();
+        entities.combatCooldown.pop_back();
+        entities.infectionTimer.pop_back();
+        entities.infectionProgress.pop_back();
         prevPosX.pop_back();
         prevPosY.pop_back();
     }
@@ -1233,6 +1385,11 @@ void Simulation::updateInfections() {
             entities.heroType[idx] = entities.heroType[lastIdx];
             entities.reanimationTimer[idx] = entities.reanimationTimer[lastIdx];
             entities.meleeAttackCooldown[idx] = entities.meleeAttackCooldown[lastIdx];
+            entities.combatTarget[idx] = entities.combatTarget[lastIdx];
+            entities.combatTimer[idx] = entities.combatTimer[lastIdx];
+            entities.combatCooldown[idx] = entities.combatCooldown[lastIdx];
+            entities.infectionTimer[idx] = entities.infectionTimer[lastIdx];
+            entities.infectionProgress[idx] = entities.infectionProgress[lastIdx];
             prevPosX[idx] = prevPosX[lastIdx];
             prevPosY[idx] = prevPosY[lastIdx];
         }
@@ -1257,8 +1414,98 @@ void Simulation::updateInfections() {
         entities.heroType.pop_back();
         entities.reanimationTimer.pop_back();
         entities.meleeAttackCooldown.pop_back();
+        entities.combatTarget.pop_back();
+        entities.combatTimer.pop_back();
+        entities.combatCooldown.pop_back();
+        entities.infectionTimer.pop_back();
+        entities.infectionProgress.pop_back();
         prevPosX.pop_back();
         prevPosY.pop_back();
+    }
+}
+
+void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilianIdx,
+                                                int zombieAllies, int civilianAllies,
+                                                std::vector<size_t>& zombiesToKill,
+                                                std::vector<size_t>& entitiesToKill) {
+    // Calculate outcome probabilities based on group sizes
+    float survivalBonus = std::min(0.30f, civilianAllies * 0.15f);
+    float hordePenalty = std::min(0.25f, zombieAllies * 0.08f);
+    
+    float killChance = 0.15f + survivalBonus;
+    float killButBittenChance = 0.10f + (survivalBonus * 0.5f);
+    float bittenEscapeChance = 0.30f;
+    float deathChance = 0.45f + hordePenalty - survivalBonus;
+    
+    // Roll outcome
+    int roll = GetRandomValue(0, 99);
+    float cumulative = 0.0f;
+    
+    if (roll < (cumulative += killChance * 100.0f)) {
+        // Civilian kills zombie!
+        zombiesToKill.push_back(zombieIdx);
+        entities.state[civilianIdx] = AgentState::Fleeing;  // Run away
+        spdlog::info("Civilian {} killed zombie {}!", civilianIdx, zombieIdx);
+    }
+    else if (roll < (cumulative += killButBittenChance * 100.0f)) {
+        // Pyrrhic victory - kills zombie but gets bitten
+        zombiesToKill.push_back(zombieIdx);
+        entities.state[civilianIdx] = AgentState::Bitten;
+        entities.infectionTimer[civilianIdx] = 5.0f + (GetRandomValue(0, 100) / 10.0f);  // 5-15 seconds
+        entities.infectionProgress[civilianIdx] = 0.0f;
+        spdlog::info("Civilian {} killed zombie {} but was bitten!", civilianIdx, zombieIdx);
+    }
+    else if (roll < (cumulative += bittenEscapeChance * 100.0f)) {
+        // Bitten and escapes
+        entities.state[civilianIdx] = AgentState::Bitten;
+        entities.infectionTimer[civilianIdx] = 5.0f + (GetRandomValue(0, 100) / 10.0f);
+        entities.infectionProgress[civilianIdx] = 0.0f;
+        spdlog::info("Civilian {} escaped but was bitten!", civilianIdx);
+    }
+    else {
+        // Killed - becomes corpse
+        entities.state[civilianIdx] = AgentState::Dead;
+        entities.velX[civilianIdx] = 0.0f;
+        entities.velY[civilianIdx] = 0.0f;
+        entities.reanimationTimer[civilianIdx] = 3.0f + (GetRandomValue(0, 50) / 10.0f);
+        spdlog::info("Civilian {} was killed by zombie {}!", civilianIdx, zombieIdx);
+    }
+}
+
+void Simulation::resolveHeroVsZombieCombat(size_t heroIdx, size_t zombieIdx,
+                                           std::vector<size_t>& zombiesToKill,
+                                           std::vector<size_t>& entitiesToKill) {
+    // Determine which is hero
+    size_t actualHeroIdx = (entities.type[heroIdx] == AgentType::Hero) ? heroIdx : zombieIdx;
+    size_t actualZombieIdx = (actualHeroIdx == heroIdx) ? zombieIdx : heroIdx;
+    
+    int roll = GetRandomValue(0, 99);
+    
+    if (roll < 80) {
+        // Hero wins - kills zombie
+        zombiesToKill.push_back(actualZombieIdx);
+        entities.state[actualHeroIdx] = AgentState::Pursuing;  // Continue hunting
+        spdlog::info("Hero {} killed zombie {}!", actualHeroIdx, actualZombieIdx);
+    }
+    else {
+        // Hero takes damage
+        if (entities.health[actualZombieIdx] > 0) {
+            entities.health[actualZombieIdx]--;
+            if (entities.health[actualZombieIdx] == 0) {
+                zombiesToKill.push_back(actualZombieIdx);
+            }
+        }
+        
+        if (entities.health[actualHeroIdx] > 0) {
+            entities.health[actualHeroIdx]--;
+            if (entities.health[actualHeroIdx] == 0) {
+                // Hero exhausted, becomes zombie
+                entities.type[actualHeroIdx] = AgentType::Zombie;
+                entities.health[actualHeroIdx] = 3;
+                spdlog::info("Hero {} exhausted and turned zombie!", actualHeroIdx);
+            }
+        }
+        spdlog::info("Hero {} vs Zombie {} - both damaged!", actualHeroIdx, actualZombieIdx);
     }
 }
 
@@ -1342,6 +1589,13 @@ void Simulation::draw(float alpha) {
         if (entities.state[i] == AgentState::Dead) {
             // Corpses are dark red/brown
             agentColor = Color{120, 40, 40, 255};
+        } else if (entities.state[i] == AgentState::Bitten) {
+            // Bitten civilians - color shifts from white → yellow → sickly green
+            float progress = entities.infectionProgress[i];
+            uint8_t r = static_cast<uint8_t>(220 - progress * 70);   // 220 → 150
+            uint8_t g = static_cast<uint8_t>(220 - progress * 20);   // 220 → 200
+            uint8_t b = static_cast<uint8_t>(220 - progress * 120);  // 220 → 100
+            agentColor = Color{r, g, b, 255};
         } else if (entities.type[i] == AgentType::Civilian) {
             agentColor = Color{220, 220, 220, 255};  // Light gray/white
         } else if (entities.type[i] == AgentType::Zombie) {
