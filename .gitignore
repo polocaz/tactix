@@ -1,12 +1,12 @@
 ﻿# Build
-/build/
-/cmake-build-debug/
-/CMakeFiles/
-/CMakeCache.txt
-/*.cmake
-/*.make
-/third_party
-Makefile
+c++/build/
+c++/cmake-build-debug/
+c++/CMakeFiles/
+c++/CMakeCache.txt
+c++/*.cmake
+c++/*.make
+c++/third_party
+c++/Makefile
 
 # Executables / object files
 *.o
