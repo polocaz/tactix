@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
+use crate::utils::Vec2;
 
-// Re-export Vec2 or define it here if it's not in a shared 'utils' module.
-// Assuming Vec2 is defined in this file or imported:
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Vec2 {
-    pub x: f32,
-    pub y: f32,
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum AgentAction {
+    MoveTo(Vec2),
+    Idle,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -28,4 +28,31 @@ pub struct Agent {
     pub health: f32,
     pub morale: f32,
     pub state: AgentState,
+    pub target_position: Option<Vec2>,
+}
+
+impl Agent {
+    pub fn is_alive(&self) -> bool {
+        matches!(self.state, AgentState::Dead | AgentState::Downed) == false
+    }
+
+    pub fn apply_action(&mut self, action: AgentAction) {
+        match action {
+            AgentAction::MoveTo(target) => self.move_towards(target),
+            AgentAction::Idle => {}
+        }
+    }
+
+    pubfn move_towards(&mut self, target: Vec2) {
+        let dir = target - self.position;
+        let dist = dir.length();
+
+        if dist < 0.01 {
+            self.position = target;
+            self.target_position = None;
+        } else {
+            let step = dir.normalized() * 1.0;
+            self.position += step;
+        }
+    }
 }
