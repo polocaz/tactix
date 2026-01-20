@@ -43,7 +43,7 @@ impl Agent {
         }
     }
 
-    pubfn move_towards(&mut self, target: Vec2) {
+    pub fn move_towards(&mut self, target: Vec2) {
         let dir = target - self.position;
         let dist = dir.length();
 
