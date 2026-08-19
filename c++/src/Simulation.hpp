@@ -139,6 +139,9 @@ public:
     size_t getZombieCount() const;
     size_t getHeroCount() const;
 
+    // Bitwise hash of all simulation-visible state. See StateDigest.hpp.
+    uint64_t stateDigest() const;
+
 private:
     int screenWidth;
     int screenHeight;
