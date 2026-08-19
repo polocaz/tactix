@@ -69,8 +69,10 @@ almost entirely. The headless split is a small change, not a rewrite.
 
 `SpatialHash` stores `std::vector<std::vector<uint32_t>> cells`.
 
-- The grid is roughly 2,000–3,000 cells, each an independent heap allocation.
-- `clear()` walks every cell every tick, touching thousands of scattered heap blocks.
+- At the configured 50px cell size over a 1280×720 world the grid is 26×15 = **390
+  cells**, each an independent heap allocation. (Cell count scales with world size;
+  the allocation-per-cell property is what matters, not the current magnitude.)
+- `clear()` walks every cell every tick, touching hundreds of scattered heap blocks.
 - `queryNeighbors` copies: for each agent it visits up to 9 cells and `insert`s their
   contents into an output vector. Candidates are copied out only to be iterated once
   and discarded. Both separation and behaviors query per agent per tick.
@@ -91,6 +93,10 @@ agents this is ~9,950 wasted iterations per tick.
 - `Agent.hpp` is dead code — nothing includes it; superseded by the SoA layout.
 - `Simulation::neighborBuffer` is reserved in the constructor and never used. The chunk
   functions correctly use stack-local buffers. Dead state, not a race.
+- `JobSystem::waitAll()` evaluates `jobQueue.empty()` while holding only `waitMutex`,
+  not `queueMutex` — a data race on the queue, distinct from §2.2. Pre-existing and
+  benign in practice; deferred to Phase E with the rest of the job system. First
+  suspect if the thread-invariance test proves flaky.
 - `set(CMAKE_CXX_FLAGS "-std=c++20")` is GCC/Clang syntax and breaks MSVC.
 - `raylib` is fetched at `GIT_TAG master` — builds are not reproducible across time.
 
