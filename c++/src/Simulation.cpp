@@ -1,13 +1,15 @@
 #include "platform.h"
 #include "Simulation.hpp"
 #include "StateDigest.hpp"
+#include "DetMath.hpp"
 #include <raylib.h>
 #include <cmath>
 #include <chrono>
 #include "spdlog/spdlog.h"
 
-Simulation::Simulation(int w, int h)
+Simulation::Simulation(int w, int h, uint32_t seed)
     : screenWidth(w), screenHeight(h)
+    , worldSeed(seed)
     , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
 {
     neighborBuffer.reserve(200);  // Pre-allocate for typical neighbor count
@@ -15,6 +17,8 @@ Simulation::Simulation(int w, int h)
 
 void Simulation::init(size_t count) {
     spdlog::info("Initializing {} agents with zombie simulation", count);
+    // init() runs before any tick, so tick 0 is reserved for setup draws.
+    const Rng rng{worldSeed, 0u};
     entities.reserve(count);
     prevPosX.reserve(count);
     prevPosY.reserve(count);
@@ -30,26 +34,33 @@ void Simulation::init(size_t count) {
         if (i < buildings.size() && !buildings.empty()) {
             // Spawn near a building
             const auto& building = buildings[i % buildings.size()];
-            px = building.x + building.width / 2.0f + (float)GetRandomValue(-60, 60);
-            py = building.y + building.height / 2.0f + (float)GetRandomValue(-60, 60);
+            // Key on the agent's GLOBAL index, not the per-loop counter: each of
+            // the three spawn loops restarts i at 0, which would correlate the
+            // draws of civilian #0, zombie #0 and hero #0.
+            const uint32_t agent = (uint32_t)entities.count;
+            px = building.x + building.width / 2.0f
+               + (float)rng.range(agent, RngUse::SpawnNearBuildingOffsetX, -60, 60);
+            py = building.y + building.height / 2.0f
+               + (float)rng.range(agent, RngUse::SpawnNearBuildingOffsetY, -60, 60);
         } else {
-            px = (float)GetRandomValue(0, screenWidth);
-            py = (float)GetRandomValue(0, screenHeight);
+            px = (float)rng.range((uint32_t)entities.count, RngUse::SpawnPosX, 0, screenWidth);
+            py = (float)rng.range((uint32_t)entities.count, RngUse::SpawnPosY, 0, screenHeight);
         }
-        float vx = (float)GetRandomValue(-10, 10);
-        float vy = (float)GetRandomValue(-10, 10);
-        entities.spawn(px, py, vx, vy, AgentType::Civilian);
+        float vx = (float)rng.range((uint32_t)entities.count, RngUse::SpawnVelX, -10, 10);
+        float vy = (float)rng.range((uint32_t)entities.count, RngUse::SpawnVelY, -10, 10);
+        entities.spawn(px, py, vx, vy, AgentType::Civilian, rng);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
     
     // Spawn zombies at graveyard (bottom-left area)
     for (size_t i = 0; i < zombieCount; i++) {
-        float px = (float)GetRandomValue(50, 250);  // Graveyard zone
-        float py = (float)GetRandomValue(screenHeight - 250, screenHeight - 50);
-        float vx = (float)GetRandomValue(-8, 8);
-        float vy = (float)GetRandomValue(-8, 8);
-        entities.spawn(px, py, vx, vy, AgentType::Zombie);
+        const uint32_t agent = (uint32_t)entities.count;
+        float px = (float)rng.range(agent, RngUse::SpawnZombiePosX, 50, 250);  // Graveyard zone
+        float py = (float)rng.range(agent, RngUse::SpawnZombiePosY, screenHeight - 250, screenHeight - 50);
+        float vx = (float)rng.range(agent, RngUse::SpawnZombieVelX, -8, 8);
+        float vy = (float)rng.range(agent, RngUse::SpawnZombieVelY, -8, 8);
+        entities.spawn(px, py, vx, vy, AgentType::Zombie, rng);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
@@ -57,11 +68,12 @@ void Simulation::init(size_t count) {
     // Spawn heroes spread out (strategic positions)
     for (size_t i = 0; i < heroCount; i++) {
         // Spread heroes around perimeter
-        float px = (float)GetRandomValue(screenWidth / 3, screenWidth * 2 / 3);
-        float py = (float)GetRandomValue(50, 200);  // Top area
-        float vx = (float)GetRandomValue(-12, 12);
-        float vy = (float)GetRandomValue(-12, 12);
-        entities.spawn(px, py, vx, vy, AgentType::Hero);
+        const uint32_t agent = (uint32_t)entities.count;
+        float px = (float)rng.range(agent, RngUse::SpawnHeroPosX, screenWidth / 3, screenWidth * 2 / 3);
+        float py = (float)rng.range(agent, RngUse::SpawnHeroPosY, 50, 200);  // Top area
+        float vx = (float)rng.range(agent, RngUse::SpawnHeroVelX, -12, 12);
+        float vy = (float)rng.range(agent, RngUse::SpawnHeroVelY, -12, 12);
+        entities.spawn(px, py, vx, vy, AgentType::Hero, rng);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
@@ -85,22 +97,25 @@ void Simulation::init(size_t count) {
 }
 
 void Simulation::generateObstacles() {
+    // Runs before any tick; no agent involved, so the obstacle index keys the draw.
+    const Rng rng{worldSeed, 0u};
+
     // City blocks (buildings)
     const int blockCount = 8;
     for (int i = 0; i < blockCount; i++) {
-        float x = (float)GetRandomValue(100, screenWidth - 200);
-        float y = (float)GetRandomValue(100, screenHeight - 200);
-        float w = (float)GetRandomValue(80, 150);
-        float h = (float)GetRandomValue(80, 150);
+        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingX, 100, screenWidth - 200);
+        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingY, 100, screenHeight - 200);
+        float w = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingW, 80, 150);
+        float h = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingH, 80, 150);
         buildings.push_back({x, y, w, h});
     }
     
     // Scattered trees
     const int treeCount = 30;
     for (int i = 0; i < treeCount; i++) {
-        float x = (float)GetRandomValue(50, screenWidth - 50);
-        float y = (float)GetRandomValue(50, screenHeight - 50);
-        float r = (float)GetRandomValue(15, 25);
+        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeX, 50, screenWidth - 50);
+        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeY, 50, screenHeight - 50);
+        float r = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeRadius, 15, 25);
         trees.push_back({x, y, r});
     }
     
@@ -109,6 +124,9 @@ void Simulation::generateObstacles() {
 
 void Simulation::setAgentCount(size_t count) {
     if (count == entities.count) return;
+
+    // Like init(), this runs outside the tick loop.
+    const Rng rng{worldSeed, 0u};
     
     if (count > entities.count) {
         // Add more agents with proper distribution
@@ -118,31 +136,34 @@ void Simulation::setAgentCount(size_t count) {
         size_t heroesToAdd = toAdd - civiliansToAdd - zombiesToAdd;
         
         for (size_t i = 0; i < civiliansToAdd; i++) {
-            float px = (float)GetRandomValue(0, screenWidth);
-            float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-20, 20);
-            float vy = (float)GetRandomValue(-20, 20);
-            entities.spawn(px, py, vx, vy, AgentType::Civilian);
+            const uint32_t agent = (uint32_t)entities.count;
+            float px = (float)rng.range(agent, RngUse::AddCivilianPosX, 0, screenWidth);
+            float py = (float)rng.range(agent, RngUse::AddCivilianPosY, 0, screenHeight);
+            float vx = (float)rng.range(agent, RngUse::AddCivilianVelX, -20, 20);
+            float vy = (float)rng.range(agent, RngUse::AddCivilianVelY, -20, 20);
+            entities.spawn(px, py, vx, vy, AgentType::Civilian, rng);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
         }
         
         for (size_t i = 0; i < zombiesToAdd; i++) {
-            float px = (float)GetRandomValue(0, screenWidth);
-            float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-15, 15);
-            float vy = (float)GetRandomValue(-15, 15);
-            entities.spawn(px, py, vx, vy, AgentType::Zombie);
+            const uint32_t agent = (uint32_t)entities.count;
+            float px = (float)rng.range(agent, RngUse::AddZombiePosX, 0, screenWidth);
+            float py = (float)rng.range(agent, RngUse::AddZombiePosY, 0, screenHeight);
+            float vx = (float)rng.range(agent, RngUse::AddZombieVelX, -15, 15);
+            float vy = (float)rng.range(agent, RngUse::AddZombieVelY, -15, 15);
+            entities.spawn(px, py, vx, vy, AgentType::Zombie, rng);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
         }
         
         for (size_t i = 0; i < heroesToAdd; i++) {
-            float px = (float)GetRandomValue(0, screenWidth);
-            float py = (float)GetRandomValue(0, screenHeight);
-            float vx = (float)GetRandomValue(-25, 25);
-            float vy = (float)GetRandomValue(-25, 25);
-            entities.spawn(px, py, vx, vy, AgentType::Hero);
+            const uint32_t agent = (uint32_t)entities.count;
+            float px = (float)rng.range(agent, RngUse::AddHeroPosX, 0, screenWidth);
+            float py = (float)rng.range(agent, RngUse::AddHeroPosY, 0, screenHeight);
+            float vx = (float)rng.range(agent, RngUse::AddHeroVelX, -25, 25);
+            float vy = (float)rng.range(agent, RngUse::AddHeroVelY, -25, 25);
+            entities.spawn(px, py, vx, vy, AgentType::Hero, rng);
             prevPosX.push_back(px);
             prevPosY.push_back(py);
         }
@@ -167,6 +188,11 @@ void Simulation::setAgentCount(size_t count) {
 
 void Simulation::tick(float dt) {
     if (paused) return;  // Skip tick if paused
+
+    // One Rng per tick. Stateless, so every worker thread can draw from it
+    // concurrently and in any order and still get the same answer.
+    ++tickNumber;
+    const Rng rng{worldSeed, tickNumber};
     
     // Store previous positions for interpolation
     for (size_t i = 0; i < entities.count; i++) {
@@ -298,12 +324,12 @@ void Simulation::tick(float dt) {
     jobSystem.resetJobCounter();
     
     // Update behaviors in parallel (Design Doc §6.2)
-    updateSeparation(dt);  // Collision avoidance using spatial queries
-    updateBehaviors(dt);   // Seek/flee/combat behaviors for zombie simulation
-    updateMovement(dt);    // Apply velocities
+    updateSeparation(dt, rng);  // Collision avoidance using spatial queries
+    updateBehaviors(dt, rng);   // Seek/flee/combat behaviors for zombie simulation
+    updateMovement(dt);         // Apply velocities
     
     // Process infections (main thread, requires state changes)
-    updateInfections();
+    updateInfections(rng);
     
     // Screen wrapping
     screenWrap();
@@ -321,21 +347,22 @@ void Simulation::rebuildSpatialHash() {
     lastSpatialHashTime = std::chrono::duration<float>(end - start).count() * 1000.0f;  // ms
 }
 
-void Simulation::updateSeparation(float dt) {
+void Simulation::updateSeparation(float dt, const Rng& rng) {
     // Parallelize collision avoidance (Design Doc §6.2)
     const size_t chunkSize = 256;  // Job granularity
     
     for (size_t start = 0; start < entities.count; start += chunkSize) {
         size_t end = std::min(start + chunkSize, entities.count);
-        jobSystem.submit([this, start, end, dt]() {
-            updateSeparationChunk(start, end, dt);
+        // rng captured BY VALUE (8 bytes): the job outlives this stack frame.
+        jobSystem.submit([this, start, end, dt, rng]() {
+            updateSeparationChunk(start, end, dt, rng);
         });
     }
     
     jobSystem.waitAll();  // Barrier (Design Doc §6.3)
 }
 
-void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
+void Simulation::updateSeparationChunk(size_t start, size_t end, float dt, Rng rng) {
     // Collision avoidance using spatial queries (Phase 2)
     const float separationRadius = 25.0f;  // Increased from 20
     const float separationStrength = 300.0f;  // Increased from 200
@@ -373,7 +400,8 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
         }
         
         // Obstacle avoidance - buildings (rectangles)
-        for (const auto& building : buildings) {
+        for (size_t b = 0; b < buildings.size(); b++) {
+            const auto& building = buildings[b];
             // Find closest point on rectangle to agent
             float closestX = std::max(building.x, std::min(px, building.x + building.width));
             float closestY = std::max(building.y, std::min(py, building.y + building.height));
@@ -385,9 +413,15 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
             const float obstacleAvoidDist = 50.0f;  // Start avoiding earlier
             if (distSq < obstacleAvoidDist * obstacleAvoidDist) {
                 if (distSq < 0.01f) {
-                    // Inside obstacle - push out strongly in any direction
-                    steerX += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
-                    steerY += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    // Inside obstacle - push out strongly in any direction.
+                    // Buildings are generated without overlap rejection, so one agent
+                    // can be inside two at once and reach this line twice per tick.
+                    // The obstacle index is folded into the key: without it both draws
+                    // share an input, always return the same sign, and can only
+                    // reinforce -- the old code's cancelling case became unreachable.
+                    const uint32_t key = (uint32_t)(i * buildings.size() + b);
+                    steerX += (rng.range(key, RngUse::SeparationPushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    steerY += (rng.range(key, RngUse::SeparationPushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (obstacleAvoidDist - dist) / obstacleAvoidDist;
@@ -398,7 +432,8 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
         }
         
         // Obstacle avoidance - trees (circles)
-        for (const auto& tree : trees) {
+        for (size_t t = 0; t < trees.size(); t++) {
+            const auto& tree = trees[t];
             float dx = px - tree.x;
             float dy = py - tree.y;
             float distSq = dx * dx + dy * dy;
@@ -406,9 +441,12 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt) {
             
             if (distSq < avoidRadius * avoidRadius) {
                 if (distSq < 0.01f) {
-                    // Inside obstacle - push out strongly
-                    steerX += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
-                    steerY += (GetRandomValue(-10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    // Inside obstacle - push out strongly. Same per-obstacle keying as
+                    // the building push above; two tree centres within 0.1px of each
+                    // other is practically unreachable, but the shape should match.
+                    const uint32_t key = (uint32_t)(i * trees.size() + t);
+                    steerX += (rng.range(key, RngUse::SeparationTreePushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
+                    steerY += (rng.range(key, RngUse::SeparationTreePushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (avoidRadius - dist) / avoidRadius;
@@ -590,21 +628,22 @@ uint64_t Simulation::stateDigest() const {
     return d.value();
 }
 
-void Simulation::updateBehaviors(float dt) {
+void Simulation::updateBehaviors(float dt, const Rng& rng) {
     // Parallelize behavior updates
     const size_t chunkSize = 256;
     
     for (size_t start = 0; start < entities.count; start += chunkSize) {
         size_t end = std::min(start + chunkSize, entities.count);
-        jobSystem.submit([this, start, end, dt]() {
-            updateBehaviorsChunk(start, end, dt);
+        // rng captured BY VALUE (8 bytes): the job outlives this stack frame.
+        jobSystem.submit([this, start, end, dt, rng]() {
+            updateBehaviorsChunk(start, end, dt, rng);
         });
     }
     
     jobSystem.waitAll();
 }
 
-void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
+void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt, Rng rng) {
     const float seekRadius = 150.0f;  // Detection range
     const float searchDuration = 3.0f;  // Seconds to search last known location
     const float wanderStrength = 20.0f;
@@ -637,8 +676,10 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 
                 // Smooth struggle animation using elapsed time
                 // Use a combination of frequencies for organic feel
-                static float elapsedTime = 0.0f;
-                elapsedTime += 1.0f / 60.0f;
+                // Derived from the tick counter, not accumulated in a function-local
+                // static: that static was incremented from every worker thread
+                // without synchronisation, losing updates non-deterministically.
+                const float elapsedTime = (float)rng.tick * (1.0f / 60.0f);
                 float phase = static_cast<float>(i) * 0.7f;  // Each agent has different phase
                 
                 // Perpendicular to facing direction for side-to-side shake
@@ -646,10 +687,10 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 float perpY = entities.dirX[i];
                 
                 // Smooth sine wave shake (no random jitter)
-                float shake = std::sin(elapsedTime * 12.0f + phase) * 1.5f;
+                float shake = detmath::sin(elapsedTime * 12.0f + phase) * 1.5f;
                 
                 // Subtle push/pull toward opponent
-                float pushPull = std::sin(elapsedTime * 4.0f + phase) * 0.5f;
+                float pushPull = detmath::sin(elapsedTime * 4.0f + phase) * 0.5f;
                 
                 entities.velX[i] = perpX * shake + entities.dirX[i] * pushPull;
                 entities.velY[i] = perpY * shake + entities.dirY[i] * pushPull;
@@ -753,7 +794,7 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
             if (targetFound) {
                 // Choose flee strategy on first detection (sticky decision)
                 if (myState != AgentState::Fleeing) {
-                    entities.fleeStrategy[i] = (GetRandomValue(0, 100) < 30) ? 1 : 0;
+                    entities.fleeStrategy[i] = (rng.range((uint32_t)i, RngUse::FleeStrategyChoice, 0, 100) < 30) ? 1 : 0;
                 }
                 
                 bool seekProtection = (entities.fleeStrategy[i] == 1) && nearestHeroDist < 1e8f;
@@ -966,7 +1007,7 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
                 // Start aiming if we have a target and no aim timer (but didn't just shoot)
                 if (!justShot && closestZombieDist < 100.0f && entities.aimTimer[i] <= 0.0f && entities.shootCooldown[i] <= 0.0f) {
                     // Variable aim delay: 0.3-0.6 seconds
-                    entities.aimTimer[i] = 0.3f + ((float)GetRandomValue(0, 300) / 1000.0f);
+                    entities.aimTimer[i] = 0.3f + ((float)rng.range((uint32_t)i, RngUse::HeroAimDelay, 0, 300) / 1000.0f);
                 }
                 
                 // Squad cohesion when pursuing (only for defenders)
@@ -1008,8 +1049,8 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
             
             // Reached patrol point or need new one
             if (distSq < 25.0f || distSq > 1e8f) {
-                entities.patrolTargetX[i] = (float)GetRandomValue(50, 1850);
-                entities.patrolTargetY[i] = (float)GetRandomValue(50, 1030);
+                entities.patrolTargetX[i] = (float)rng.range((uint32_t)i, RngUse::PatrolRetargetX, 50, 1850);
+                entities.patrolTargetY[i] = (float)rng.range((uint32_t)i, RngUse::PatrolRetargetY, 50, 1030);
                 dx = entities.patrolTargetX[i] - px;
                 dy = entities.patrolTargetY[i] - py;
                 distSq = dx * dx + dy * dy;
@@ -1105,7 +1146,7 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt) {
     }
 }
 
-void Simulation::updateInfections() {
+void Simulation::updateInfections(const Rng& rng) {
     const float meleeRange = 8.0f;  // Close combat range (reduced for tighter engagement)
     const float meleeRangeSq = meleeRange * meleeRange;
     const float feedRange = 20.0f;  // Range to feed on corpses
@@ -1134,7 +1175,7 @@ void Simulation::updateInfections() {
                 entities.state[i] = AgentState::Dead;
                 entities.velX[i] = 0.0f;
                 entities.velY[i] = 0.0f;
-                entities.reanimationTimer[i] = 3.0f + (GetRandomValue(0, 50) / 10.0f);
+                entities.reanimationTimer[i] = 3.0f + (rng.range((uint32_t)i, RngUse::InfectionDeathReanimationDelay, 0, 50) / 10.0f);
                 spdlog::info("Civilian {} died from infection! Will reanimate in {:.1f}s", i, entities.reanimationTimer[i]);
             }
         }
@@ -1151,8 +1192,8 @@ void Simulation::updateInfections() {
                 entities.state[i] = AgentState::Patrol;
                 entities.health[i] = 3;
                 entities.meleeAttackCooldown[i] = 0.0f;
-                entities.velX[i] = (GetRandomValue(-10, 10) / 10.0f) * 20.0f;
-                entities.velY[i] = (GetRandomValue(-10, 10) / 10.0f) * 20.0f;
+                entities.velX[i] = (rng.range((uint32_t)i, RngUse::ReanimateVelX, -10, 10) / 10.0f) * 20.0f;
+                entities.velY[i] = (rng.range((uint32_t)i, RngUse::ReanimateVelY, -10, 10) / 10.0f) * 20.0f;
                 spdlog::info("Corpse {} reanimated as zombie!", i);
             }
         }
@@ -1191,11 +1232,11 @@ void Simulation::updateInfections() {
                 
                 // Resolve combat based on types
                 if (myType == AgentType::Zombie && targetType == AgentType::Civilian) {
-                    resolveCivilianVsZombieCombat(i, targetIdx, nearbyAllies, nearbyEnemies, zombiesToKill, entitiesToKill);
+                    resolveCivilianVsZombieCombat(i, targetIdx, nearbyAllies, nearbyEnemies, zombiesToKill, entitiesToKill, rng);
                 } else if (myType == AgentType::Civilian && targetType == AgentType::Zombie) {
-                    resolveCivilianVsZombieCombat(targetIdx, i, nearbyEnemies, nearbyAllies, zombiesToKill, entitiesToKill);
+                    resolveCivilianVsZombieCombat(targetIdx, i, nearbyEnemies, nearbyAllies, zombiesToKill, entitiesToKill, rng);
                 } else if (myType == AgentType::Hero || targetType == AgentType::Hero) {
-                    resolveHeroVsZombieCombat(i, targetIdx, zombiesToKill, entitiesToKill);
+                    resolveHeroVsZombieCombat(i, targetIdx, zombiesToKill, entitiesToKill, rng);
                 }
                 
                 // Exit combat state
@@ -1264,8 +1305,8 @@ void Simulation::updateInfections() {
                 
                 // Combat duration: 2-4 seconds (heroes fight faster)
                 float duration = (otherType == AgentType::Hero) ? 
-                    (1.0f + GetRandomValue(0, 10) / 10.0f) : 
-                    (2.0f + GetRandomValue(0, 20) / 10.0f);
+                    (1.0f + rng.range((uint32_t)i, RngUse::CombatDurationHero, 0, 10) / 10.0f) : 
+                    (2.0f + rng.range((uint32_t)i, RngUse::CombatDurationCivilian, 0, 20) / 10.0f);
                     
                 entities.combatTimer[i] = duration;
                 entities.combatTimer[j] = duration;
@@ -1443,7 +1484,8 @@ void Simulation::updateInfections() {
 void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilianIdx,
                                                 int zombieAllies, int civilianAllies,
                                                 std::vector<size_t>& zombiesToKill,
-                                                std::vector<size_t>& entitiesToKill) {
+                                                std::vector<size_t>& entitiesToKill,
+                                                const Rng& rng) {
     // Calculate outcome probabilities based on group sizes
     float survivalBonus = std::min(0.30f, civilianAllies * 0.15f);
     float hordePenalty = std::min(0.25f, zombieAllies * 0.08f);
@@ -1453,8 +1495,9 @@ void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilian
     float bittenEscapeChance = 0.30f;
     float deathChance = 0.45f + hordePenalty - survivalBonus;
     
-    // Roll outcome
-    int roll = GetRandomValue(0, 99);
+    // Roll outcome. Keyed on the civilian: every write below targets it, and a
+    // civilian resolves at most one combat per tick.
+    int roll = rng.range((uint32_t)civilianIdx, RngUse::CivilianCombatRoll, 0, 99);
     float cumulative = 0.0f;
     
     if (roll < (cumulative += killChance * 100.0f)) {
@@ -1467,14 +1510,14 @@ void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilian
         // Pyrrhic victory - kills zombie but gets bitten
         zombiesToKill.push_back(zombieIdx);
         entities.state[civilianIdx] = AgentState::Bitten;
-        entities.infectionTimer[civilianIdx] = 5.0f + (GetRandomValue(0, 100) / 10.0f);  // 5-15 seconds
+        entities.infectionTimer[civilianIdx] = 5.0f + (rng.range((uint32_t)civilianIdx, RngUse::PyrrhicInfectionDuration, 0, 100) / 10.0f);  // 5-15 seconds
         entities.infectionProgress[civilianIdx] = 0.0f;
         spdlog::info("Civilian {} killed zombie {} but was bitten!", civilianIdx, zombieIdx);
     }
     else if (roll < (cumulative += bittenEscapeChance * 100.0f)) {
         // Bitten and escapes
         entities.state[civilianIdx] = AgentState::Bitten;
-        entities.infectionTimer[civilianIdx] = 5.0f + (GetRandomValue(0, 100) / 10.0f);
+        entities.infectionTimer[civilianIdx] = 5.0f + (rng.range((uint32_t)civilianIdx, RngUse::BittenEscapeInfectionDuration, 0, 100) / 10.0f);
         entities.infectionProgress[civilianIdx] = 0.0f;
         spdlog::info("Civilian {} escaped but was bitten!", civilianIdx);
     }
@@ -1483,19 +1526,20 @@ void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilian
         entities.state[civilianIdx] = AgentState::Dead;
         entities.velX[civilianIdx] = 0.0f;
         entities.velY[civilianIdx] = 0.0f;
-        entities.reanimationTimer[civilianIdx] = 3.0f + (GetRandomValue(0, 50) / 10.0f);
+        entities.reanimationTimer[civilianIdx] = 3.0f + (rng.range((uint32_t)civilianIdx, RngUse::CombatDeathReanimationDelay, 0, 50) / 10.0f);
         spdlog::info("Civilian {} was killed by zombie {}!", civilianIdx, zombieIdx);
     }
 }
 
 void Simulation::resolveHeroVsZombieCombat(size_t heroIdx, size_t zombieIdx,
                                            std::vector<size_t>& zombiesToKill,
-                                           std::vector<size_t>& entitiesToKill) {
+                                           std::vector<size_t>& entitiesToKill,
+                                           const Rng& rng) {
     // Determine which is hero
     size_t actualHeroIdx = (entities.type[heroIdx] == AgentType::Hero) ? heroIdx : zombieIdx;
     size_t actualZombieIdx = (actualHeroIdx == heroIdx) ? zombieIdx : heroIdx;
     
-    int roll = GetRandomValue(0, 99);
+    int roll = rng.range((uint32_t)actualHeroIdx, RngUse::HeroCombatRoll, 0, 99);
     
     if (roll < 80) {
         // Hero wins - kills zombie

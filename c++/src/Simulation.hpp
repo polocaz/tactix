@@ -3,9 +3,10 @@
 
 #include <vector>
 #include <cstdint>
+#include <cmath>
 #include "SpatialHash.hpp"
 #include "JobSystem.hpp"
-#include <raylib.h>
+#include "Rng.hpp"
 
 // Agent types for zombie simulation
 enum class AgentType : uint8_t {
@@ -73,7 +74,7 @@ struct EntityHot {
         searchTimer.reserve(n);
     }
     
-    void spawn(float px, float py, float vx, float vy, AgentType agentType) {
+    void spawn(float px, float py, float vx, float vy, AgentType agentType, const Rng& rng) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
@@ -93,13 +94,15 @@ struct EntityHot {
         lastSeenX.push_back(0.0f);
         lastSeenY.push_back(0.0f);
         searchTimer.push_back(0.0f);
-        // Random initial patrol target
-        patrolTargetX.push_back((float)GetRandomValue(50, 1850));
-        patrolTargetY.push_back((float)GetRandomValue(50, 1030));
+        // Random initial patrol target. The agent index is `count`: spawn appends,
+        // so `count` is the slot this agent is about to occupy.
+        patrolTargetX.push_back((float)rng.range((uint32_t)count, RngUse::SpawnPatrolX, 50, 1850));
+        patrolTargetY.push_back((float)rng.range((uint32_t)count, RngUse::SpawnPatrolY, 50, 1030));
         shootCooldown.push_back(0.0f);
         aimTimer.push_back(0.0f);
         fleeStrategy.push_back(0);  // Default panic flee
-        heroType.push_back(agentType == AgentType::Hero ? GetRandomValue(0, 1) : 0);  // 50% hunter, 50% defender
+        heroType.push_back(agentType == AgentType::Hero
+            ? (uint8_t)rng.range((uint32_t)count, RngUse::SpawnHeroType, 0, 1) : 0);  // 50% hunter, 50% defender
         reanimationTimer.push_back(0.0f);
         meleeAttackCooldown.push_back(0.0f);
         combatTarget.push_back(UINT32_MAX);  // No target
@@ -113,11 +116,12 @@ struct EntityHot {
 
 class Simulation {
 public:
-    Simulation(int screenWidth, int screenHeight);
+    Simulation(int screenWidth, int screenHeight, uint32_t seed = 1u);
 
     void init(size_t count);
     void setAgentCount(size_t count);  // Dynamically adjust agent count
     size_t getAgentCount() const { return entities.count; }
+    uint32_t getSeed() const { return worldSeed; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
     void draw(float alpha);  // Interpolated rendering (Design Doc §8.1)
     
@@ -145,6 +149,9 @@ public:
 private:
     int screenWidth;
     int screenHeight;
+
+    uint32_t worldSeed = 1u;
+    uint32_t tickNumber = 0u;
 
     EntityHot entities;  // Hot data (SoA)
     
@@ -199,18 +206,22 @@ private:
     void resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilianIdx, 
                                        int zombieAllies, int civilianAllies,
                                        std::vector<size_t>& zombiesToKill,
-                                       std::vector<size_t>& entitiesToKill);
+                                       std::vector<size_t>& entitiesToKill,
+                                       const Rng& rng);
     void resolveHeroVsZombieCombat(size_t heroIdx, size_t zombieIdx,
                                    std::vector<size_t>& zombiesToKill,
-                                   std::vector<size_t>& entitiesToKill);
+                                   std::vector<size_t>& entitiesToKill,
+                                   const Rng& rng);
 
     void updateMovement(float dt);
-    void updateSeparation(float dt);  // Collision avoidance
-    void updateBehaviors(float dt);   // Seek/flee/combat behaviors
-    void updateInfections();          // Handle zombie infections
-    void updateSeparationChunk(size_t start, size_t end, float dt);  // Parallel version
-    void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version
-    void updateBehaviorsChunk(size_t start, size_t end, float dt);   // Parallel version
+    void updateSeparation(float dt, const Rng& rng);  // Collision avoidance
+    void updateBehaviors(float dt, const Rng& rng);   // Seek/flee/combat behaviors
+    void updateInfections(const Rng& rng);            // Handle zombie infections
+    // Chunks take Rng BY VALUE: they run on worker threads via a lambda that
+    // outlives the tick() local the Rng is constructed from.
+    void updateSeparationChunk(size_t start, size_t end, float dt, Rng rng);  // Parallel version
+    void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
+    void updateBehaviorsChunk(size_t start, size_t end, float dt, Rng rng);   // Parallel version
     void screenWrap();
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
 };
