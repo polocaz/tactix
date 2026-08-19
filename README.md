@@ -18,6 +18,7 @@ measured rather than estimated.
 | Worker threads | 7 |
 | Agent state | ~32 bytes, structure of arrays |
 | Neighbor query | uniform grid hash, 3x3 cell lookup, ~100 to 200 candidates instead of 10,000 |
+| Timing | hand-rolled steady_clock, 60-frame rolling average in an ImGui overlay |
 
 Full feature breakdown and phase history in [`c++/README.md`](c++/README.md). Architecture and
 performance budgets in [`c++/docs/Design Document.md`](c++/docs/Design%20Document.md).
@@ -38,7 +39,7 @@ The measurement discipline stays the same. Nothing goes in this README that was 
 | Phase | Goal | Status |
 | --- | --- | --- |
 | 1 to 4.5 | CPU simulation, spatial grid, job system, combat and environment | Complete |
-| 5.1 | Profile the current tick and name the top three costs | Next |
+| 5.1 | Wire in a real profiler (Tracy or Nsight Systems), then name the top three tick costs | Next |
 | 5.2 | Agent state resident on GPU, no per-frame host transfer | |
 | 5.3 | GPU spatial grid, rebuilt or refit per frame | |
 | 5.4 | Steering and collision as kernels | |
@@ -61,18 +62,16 @@ Each row is a measured change, not a plan. Empty until 5.1 lands.
 
 ## Building
 
+Dependencies are pulled by CMake FetchContent at configure time, so the first configure needs
+network access. There are no submodules to initialise.
+
 ```
 cd c++
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-Submodules are required:
-
-```
-git submodule update --init --recursive
-```
-
 ## Built with
 
-C++17, CMake, SDL2, Dear ImGui, [Tracy](https://github.com/wolfpld/tracy), spdlog.
+C++20, CMake, [raylib](https://github.com/raysan5/raylib), Dear ImGui (docking) via rlImGui,
+spdlog.
