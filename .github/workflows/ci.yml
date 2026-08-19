@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [master, 'phase-*']
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux graphics dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            xorg-dev libasound2-dev
+
+      - name: Configure
+        working-directory: c++
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: c++
+        run: cmake --build build --config Release --parallel
+
+      - name: Test (unit, determinism, counter+digest gate)
+        working-directory: c++
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Record benchmark output (never gated on timing)
+        working-directory: c++
+        shell: bash
+        run: |
+          if [ -f build/Release/tactix_bench.exe ]; then
+            BENCH=build/Release/tactix_bench.exe
+          else
+            BENCH=build/tactix_bench
+          fi
+          "$BENCH" --agents 2000 --ticks 200 --seed 42 --threads 2 --json
