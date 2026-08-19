@@ -94,6 +94,7 @@ enable_testing()
 add_executable(tactix_tests
     tests/main.cpp
     tests/test_spatialhash.cpp
+    tests/test_rng.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest)
 add_test(NAME unit COMMAND tactix_tests)
