@@ -102,4 +102,6 @@ add_executable(tactix_tests
     tests/test_counters.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest)
+target_compile_definitions(tactix_tests PRIVATE
+    TACTIX_BASELINE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/baseline")
 add_test(NAME unit COMMAND tactix_tests)
