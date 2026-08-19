@@ -1,10 +1,12 @@
 #include "JobSystem.hpp"
 #include "spdlog/spdlog.h"
 
-JobSystem::JobSystem() {
-    // Use hardware concurrency, leave 1 core for main thread and rendering
-    workerCount = std::max(1u, std::thread::hardware_concurrency() - 1);
-    
+JobSystem::JobSystem(uint32_t requestedWorkers) {
+    // 0 means auto: hardware concurrency, leaving 1 core for main thread and rendering.
+    workerCount = (requestedWorkers > 0)
+        ? requestedWorkers
+        : std::max(1u, std::thread::hardware_concurrency() - 1);
+
     spdlog::info("JobSystem: Starting {} worker threads", workerCount);
     
     // Spawn worker threads

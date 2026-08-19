@@ -6,10 +6,11 @@
 #include <chrono>
 #include "spdlog/spdlog.h"
 
-Simulation::Simulation(int w, int h, uint32_t seed)
+Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
     : screenWidth(w), screenHeight(h)
     , worldSeed(seed)
     , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
+    , jobSystem(workerThreads)
 {
 }
 

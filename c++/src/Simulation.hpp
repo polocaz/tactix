@@ -116,7 +116,7 @@ struct EntityHot {
 
 class Simulation {
 public:
-    Simulation(int screenWidth, int screenHeight, uint32_t seed = 1u);
+    Simulation(int screenWidth, int screenHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
 
     void init(size_t count);
     void setAgentCount(size_t count);  // Dynamically adjust agent count
