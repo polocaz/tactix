@@ -7,6 +7,7 @@
 #include "SpatialHash.hpp"
 #include "JobSystem.hpp"
 #include "Rng.hpp"
+#include "WorkCounters.hpp"
 
 // Agent types for zombie simulation
 enum class AgentType : uint8_t {
@@ -147,7 +148,13 @@ public:
     // Bitwise hash of all simulation-visible state. See StateDigest.hpp.
     uint64_t stateDigest() const;
 
+    // Deterministic, machine-independent measures of work done. See WorkCounters.hpp.
+    const WorkCounters& counters() const { return workCounters; }
+    void resetCounters() { workCounters.reset(); }
+
 private:
+    WorkCounters workCounters;
+
     int screenWidth;
     int screenHeight;
 

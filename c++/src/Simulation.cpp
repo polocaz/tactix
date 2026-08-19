@@ -12,6 +12,7 @@ Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
     , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
     , jobSystem(workerThreads)
 {
+    spatialHash.setCounters(&workCounters);
 }
 
 void Simulation::init(size_t count) {
@@ -356,6 +357,7 @@ void Simulation::updateSeparation(float dt, const Rng& rng) {
         jobSystem.submit([this, start, end, dt, rng]() {
             updateSeparationChunk(start, end, dt, rng);
         });
+        workCounters.add(workCounters.jobsDispatched, 1);
     }
     
     jobSystem.waitAll();  // Barrier (Design Doc §6.3)
@@ -479,6 +481,7 @@ void Simulation::updateMovement(float dt) {
         jobSystem.submit([this, start, end, dt]() {
             updateMovementChunk(start, end, dt);
         });
+        workCounters.add(workCounters.jobsDispatched, 1);
     }
     
     jobSystem.waitAll();  // Barrier
@@ -637,6 +640,7 @@ void Simulation::updateBehaviors(float dt, const Rng& rng) {
         jobSystem.submit([this, start, end, dt, rng]() {
             updateBehaviorsChunk(start, end, dt, rng);
         });
+        workCounters.add(workCounters.jobsDispatched, 1);
     }
     
     jobSystem.waitAll();
