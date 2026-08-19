@@ -23,6 +23,7 @@ void SpatialHash::clear() {
 void SpatialHash::insert(uint32_t entityId, float x, float y) {
     uint32_t cellId = hashPosition(x, y);
     cells[cellId].push_back(entityId);
+    if (counters) counters->add(counters->gridInsertions, 1);
 }
 
 void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uint32_t>& outEntities) const {
@@ -41,10 +42,15 @@ void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uin
             int32_t cellY = centerY + dy;
             
             if (!isValidCell(cellX, cellY)) continue;
-            
+
             uint32_t cellId = cellY * gridWidth + cellX;
             const auto& cell = cells[cellId];
-            
+
+            if (counters) {
+                counters->add(counters->cellsVisited, 1);
+                counters->add(counters->candidatesExamined, cell.size());
+            }
+
             // Add all entities from this cell
             // (Could add distance filtering here, but caller typically does that)
             outEntities.insert(outEntities.end(), cell.begin(), cell.end());
