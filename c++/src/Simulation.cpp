@@ -1,5 +1,6 @@
 #include "platform.h"
 #include "Simulation.hpp"
+#include "StateDigest.hpp"
 #include <raylib.h>
 #include <cmath>
 #include <chrono>
@@ -572,6 +573,21 @@ size_t Simulation::getHeroCount() const {
         if (entities.type[i] == AgentType::Hero) count++;
     }
     return count;
+}
+
+uint64_t Simulation::stateDigest() const {
+    StateDigest d;
+    d.mix(static_cast<uint32_t>(entities.count));
+    for (size_t i = 0; i < entities.count; ++i) {
+        d.mix(entities.posX[i]);
+        d.mix(entities.posY[i]);
+        d.mix(entities.velX[i]);
+        d.mix(entities.velY[i]);
+        d.mix(static_cast<uint32_t>(entities.type[i]));
+        d.mix(static_cast<uint32_t>(entities.state[i]));
+        d.mix(static_cast<uint32_t>(entities.health[i]));
+    }
+    return d.value();
 }
 
 void Simulation::updateBehaviors(float dt) {
