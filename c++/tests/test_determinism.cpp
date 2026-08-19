@@ -41,3 +41,30 @@ TEST_CASE("simulation runs headless with no window initialised") {
     CHECK(sim.getAgentCount() > 0);
     CHECK(sim.stateDigest() != 0ull);
 }
+
+namespace {
+uint64_t runWithThreads(uint32_t threads, uint32_t seed = 42u) {
+    Simulation sim(1280, 720, seed, threads);
+    sim.init(2000);
+    sim.setPaused(false);
+    for (int i = 0; i < 200; ++i) {
+        sim.tick(1.0f / 60.0f);
+    }
+    return sim.stateDigest();
+}
+} // namespace
+
+TEST_CASE("state is identical regardless of worker thread count") {
+    const uint64_t single = runWithThreads(1u);
+    CHECK(runWithThreads(2u)  == single);
+    CHECK(runWithThreads(4u)  == single);
+    CHECK(runWithThreads(7u)  == single);
+    CHECK(runWithThreads(16u) == single);
+}
+
+TEST_CASE("thread invariance holds across repeated trials") {
+    const uint64_t reference = runWithThreads(1u, 5u);
+    for (int trial = 0; trial < 5; ++trial) {
+        CHECK(runWithThreads(8u, 5u) == reference);
+    }
+}
