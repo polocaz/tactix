@@ -28,3 +28,16 @@ TEST_CASE("repeated runs stay stable across many trials") {
         CHECK(runAndDigest(500, 100, 7u) == reference);
     }
 }
+
+TEST_CASE("simulation runs headless with no window initialised") {
+    // If any raylib call remains in the tick path this either crashes or
+    // returns garbage, because no GL context or window exists here.
+    Simulation sim(1280, 720, 99u);
+    sim.init(1000);
+    sim.setPaused(false);
+    for (int i = 0; i < 50; ++i) {
+        sim.tick(1.0f / 60.0f);
+    }
+    CHECK(sim.getAgentCount() > 0);
+    CHECK(sim.stateDigest() != 0ull);
+}
