@@ -71,6 +71,11 @@ add_library(tactix_sim STATIC
 target_include_directories(tactix_sim PUBLIC src)
 target_link_libraries(tactix_sim PUBLIC tactix_fp_flags spdlog::spdlog_header_only)
 
+# --- Headless benchmark harness: MUST NOT link raylib ---
+add_executable(tactix_bench bench/main.cpp)
+target_include_directories(tactix_bench PRIVATE bench)
+target_link_libraries(tactix_bench PRIVATE tactix_sim)
+
 # --- GUI application ---
 add_executable(tactix
     src/main.cpp
