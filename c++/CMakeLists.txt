@@ -71,13 +71,10 @@ add_library(tactix_sim STATIC
 target_include_directories(tactix_sim PUBLIC src)
 target_link_libraries(tactix_sim PUBLIC tactix_fp_flags spdlog::spdlog_header_only)
 
-# NOTE: until Task 6, Simulation.cpp still references raylib symbols
-# (GetRandomValue and draw()). Task 6 removes this line permanently.
-target_link_libraries(tactix_sim PUBLIC raylib)
-
 # --- GUI application ---
 add_executable(tactix
     src/main.cpp
+    src/Renderer.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp

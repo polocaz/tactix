@@ -123,8 +123,9 @@ public:
     size_t getAgentCount() const { return entities.count; }
     uint32_t getSeed() const { return worldSeed; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
-    void draw(float alpha);  // Interpolated rendering (Design Doc §8.1)
-    
+
+    friend void drawSimulation(const Simulation& sim, float alpha);
+
     // Metrics access
     float getLastSpatialHashTime() const { return lastSpatialHashTime; }
     uint32_t getMaxCellOccupancy() const;
@@ -165,9 +166,6 @@ private:
     
     // Job system (Phase 3)
     JobSystem jobSystem;
-    
-    // Neighbor query temp buffer (reused to avoid allocations)
-    mutable std::vector<uint32_t> neighborBuffer;
     
     // Debug visualization
     bool debugGrid = false;

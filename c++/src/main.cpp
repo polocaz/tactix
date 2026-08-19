@@ -6,6 +6,7 @@
 #include <chrono>
 
 #include "Simulation.hpp"
+#include "Renderer.hpp"
 
 int main() {
     // 1. Setup Window
@@ -130,7 +131,7 @@ int main() {
 
         // Apply camera transform
         BeginMode2D(camera);
-        sim.draw(alpha);
+        drawSimulation(sim, alpha);
         EndMode2D();
         
         // Draw camera instructions (screen space)
