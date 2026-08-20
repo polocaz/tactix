@@ -130,6 +130,7 @@ add_executable(tactix_tests
     tests/test_detmath.cpp
     tests/test_determinism.cpp
     tests/test_counters.cpp
+    tests/test_units.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE

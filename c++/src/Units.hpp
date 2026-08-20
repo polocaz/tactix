@@ -1,0 +1,26 @@
+#pragma once
+#include <cstdint>
+
+enum class Team : uint8_t { A = 0, B = 1 };
+enum class UnitType : uint8_t { Infantry = 0, Archer = 1, Cavalry = 2 };
+enum class SoldierState : uint8_t { Forming = 0, Engaged = 1, Routing = 2, Dead = 3 };
+
+constexpr uint32_t kUnitTypeCount = 3;
+
+struct Vec2 { float x, y; };
+
+// Radius of a soldier's own neighbour query. Archer range deliberately
+// exceeds it, which is why target assignment lives on the squad.
+constexpr float kSeekRadius = 150.0f;
+
+struct UnitStats {
+    float   speed;      // px/s
+    float   range;      // px, 0 means melee only
+    uint8_t maxHealth;
+};
+
+constexpr UnitStats kUnitStats[kUnitTypeCount] = {
+    /* Infantry */ { 45.0f,   0.0f, 3 },
+    /* Archer   */ { 42.0f, 280.0f, 2 },
+    /* Cavalry  */ { 95.0f,   0.0f, 3 },
+};

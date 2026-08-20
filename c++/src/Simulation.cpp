@@ -30,7 +30,12 @@ void Simulation::init(size_t count) {
         const float py = (float)rng.range(agent, RngUse::SpawnPosY, 0, screenHeight);
         const float vx = (float)rng.range(agent, RngUse::SpawnVelX, -10, 10);
         const float vy = (float)rng.range(agent, RngUse::SpawnVelY, -10, 10);
-        entities.spawn(px, py, vx, vy);
+        // Placeholder deployment: alternate teams and cycle unit types so the
+        // new fields are populated deterministically. Real two-army
+        // deployment lands in Task 5.
+        const Team team = (agent % 2 == 0) ? Team::A : Team::B;
+        const UnitType unitType = static_cast<UnitType>(agent % kUnitTypeCount);
+        entities.spawn(px, py, vx, vy, team, unitType, 0);
         prevPosX.push_back(px);
         prevPosY.push_back(py);
     }
@@ -45,6 +50,15 @@ void Simulation::reset(size_t count) {
     entities.velY.clear();
     entities.dirX.clear();
     entities.dirY.clear();
+    entities.team.clear();
+    entities.unitType.clear();
+    entities.state.clear();
+    entities.squadId.clear();
+    entities.slotIndex.clear();
+    entities.health.clear();
+    entities.attackCooldown.clear();
+    entities.intentTarget.clear();
+    entities.intentFire.clear();
     entities.count = 0;
 
     prevPosX.clear();
@@ -367,6 +381,12 @@ uint64_t Simulation::stateDigest() const {
         d.mix(entities.posY[i]);
         d.mix(entities.velX[i]);
         d.mix(entities.velY[i]);
+        d.mix(static_cast<uint32_t>(entities.team[i]));
+        d.mix(static_cast<uint32_t>(entities.unitType[i]));
+        d.mix(static_cast<uint32_t>(entities.state[i]));
+        d.mix(static_cast<uint32_t>(entities.squadId[i]));
+        d.mix(static_cast<uint32_t>(entities.slotIndex[i]));
+        d.mix(static_cast<uint32_t>(entities.health[i]));
     }
     return d.value();
 }

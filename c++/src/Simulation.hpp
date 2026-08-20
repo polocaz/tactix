@@ -4,19 +4,31 @@
 #include <vector>
 #include <cstdint>
 #include <cmath>
+#include <limits>
 #include "SpatialHash.hpp"
 #include "JobSystem.hpp"
 #include "Rng.hpp"
 #include "WorkCounters.hpp"
+#include "Units.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
-struct EntityHot {
+struct SoldierHot {
     std::vector<float> posX;
     std::vector<float> posY;
     std::vector<float> velX;
     std::vector<float> velY;
     std::vector<float> dirX;  // Normalized direction for rendering
     std::vector<float> dirY;
+
+    std::vector<Team>         team;
+    std::vector<UnitType>     unitType;
+    std::vector<SoldierState> state;
+    std::vector<uint16_t>     squadId;
+    std::vector<uint16_t>     slotIndex;
+    std::vector<uint8_t>      health;
+    std::vector<float>        attackCooldown;
+    std::vector<uint32_t>     intentTarget;   // UINT32_MAX means none
+    std::vector<uint8_t>      intentFire;
 
     size_t count = 0;
 
@@ -27,9 +39,19 @@ struct EntityHot {
         velY.reserve(n);
         dirX.reserve(n);
         dirY.reserve(n);
+
+        team.reserve(n);
+        unitType.reserve(n);
+        state.reserve(n);
+        squadId.reserve(n);
+        slotIndex.reserve(n);
+        health.reserve(n);
+        attackCooldown.reserve(n);
+        intentTarget.reserve(n);
+        intentFire.reserve(n);
     }
 
-    void spawn(float px, float py, float vx, float vy) {
+    void spawn(float px, float py, float vx, float vy, Team t, UnitType ut, uint16_t squad) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
@@ -42,6 +64,17 @@ struct EntityHot {
             dirX.push_back(1.0f);
             dirY.push_back(0.0f);
         }
+
+        team.push_back(t);
+        unitType.push_back(ut);
+        state.push_back(SoldierState::Forming);
+        squadId.push_back(squad);
+        slotIndex.push_back(0);
+        health.push_back(kUnitStats[(int)ut].maxHealth);
+        attackCooldown.push_back(0.0f);
+        intentTarget.push_back(std::numeric_limits<uint32_t>::max());
+        intentFire.push_back(0);
+
         count++;
     }
 };
@@ -87,7 +120,7 @@ private:
     uint32_t worldSeed = 1u;
     uint32_t tickNumber = 0u;
 
-    EntityHot entities;  // Hot data (SoA)
+    SoldierHot entities;  // Hot data (SoA)
     
     // Previous state for interpolation
     std::vector<float> prevPosX;
