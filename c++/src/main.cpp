@@ -150,26 +150,14 @@ int main() {
         }
         ImGui::Separator();
         
-        // Agent count control
+        // Agent count control. Changing the slider restarts the simulation at the
+        // new count rather than growing/shrinking it live (see Simulation::reset).
         int agentCountInt = static_cast<int>(agentCount);
         if (ImGui::SliderInt("Total Agents", &agentCountInt, 100, 10000)) {
             agentCount = static_cast<size_t>(agentCountInt);
-            sim.setAgentCount(agentCount);
+            sim.reset(agentCount);
         }
         ImGui::Text("Active Agents: %zu", sim.getAgentCount());
-        
-        // Population breakdown
-        ImGui::Separator();
-        ImGui::Text("Population Breakdown:");
-        size_t civilianCount = sim.getCivilianCount();
-        size_t zombieCount = sim.getZombieCount();
-        size_t heroCount = sim.getHeroCount();
-        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "  Civilians: %zu (%.1f%%)", 
-                          civilianCount, (civilianCount / (float)sim.getAgentCount()) * 100.0f);
-        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "  Zombies: %zu (%.1f%%)", 
-                          zombieCount, (zombieCount / (float)sim.getAgentCount()) * 100.0f);
-        ImGui::TextColored(ImVec4(0.2f, 0.4f, 0.9f, 1.0f), "  Heroes: %zu (%.1f%%)", 
-                          heroCount, (heroCount / (float)sim.getAgentCount()) * 100.0f);
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());

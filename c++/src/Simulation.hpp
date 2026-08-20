@@ -9,25 +9,6 @@
 #include "Rng.hpp"
 #include "WorkCounters.hpp"
 
-// Agent types for zombie simulation
-enum class AgentType : uint8_t {
-    Civilian = 0,
-    Zombie = 1,
-    Hero = 2
-};
-
-// AI states for behavior system
-enum class AgentState : uint8_t {
-    Idle = 0,      // Just standing/minimal movement
-    Patrol = 1,    // Wandering to random destinations
-    Fleeing = 2,   // Running away from threat
-    Pursuing = 3,  // Chasing target
-    Searching = 4, // Looking for last known target location
-    Dead = 5,      // Corpse waiting to reanimate
-    Fighting = 6,  // Locked in melee struggle
-    Bitten = 7     // Infected, dying slowly
-};
-
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct EntityHot {
     std::vector<float> posX;
@@ -36,30 +17,9 @@ struct EntityHot {
     std::vector<float> velY;
     std::vector<float> dirX;  // Normalized direction for rendering
     std::vector<float> dirY;
-    std::vector<AgentType> type;  // Agent type
-    std::vector<AgentState> state;  // Current AI state
-    std::vector<uint8_t> health;  // Hero health (kills remaining), unused for others
-    
-    // Memory system for persistent behavior
-    std::vector<float> lastSeenX;  // Last known target position
-    std::vector<float> lastSeenY;
-    std::vector<float> searchTimer;  // Time spent searching
-    std::vector<float> patrolTargetX;  // Patrol destination
-    std::vector<float> patrolTargetY;
-    std::vector<float> shootCooldown;  // Hero shooting cooldown
-    std::vector<float> aimTimer;  // Hero aiming delay before shot
-    std::vector<uint8_t> fleeStrategy;  // Civilian: 0=panic, 1=seek_hero
-    std::vector<uint8_t> heroType;  // Hero: 0=defender, 1=hunter
-    std::vector<float> reanimationTimer;  // Time until corpse reanimates as zombie
-    std::vector<float> meleeAttackCooldown;  // Zombie melee attack cooldown
-    std::vector<uint32_t> combatTarget;  // Index of opponent in locked combat
-    std::vector<float> combatTimer;  // Time remaining in combat
-    std::vector<float> combatCooldown;  // Cooldown before can enter combat again
-    std::vector<float> infectionTimer;  // Time until death from bite wound
-    std::vector<float> infectionProgress;  // 0-1 visual infection progression
-    
+
     size_t count = 0;
-    
+
     void reserve(size_t n) {
         posX.reserve(n);
         posY.reserve(n);
@@ -67,50 +27,21 @@ struct EntityHot {
         velY.reserve(n);
         dirX.reserve(n);
         dirY.reserve(n);
-        type.reserve(n);
-        state.reserve(n);
-        health.reserve(n);
-        lastSeenX.reserve(n);
-        lastSeenY.reserve(n);
-        searchTimer.reserve(n);
     }
-    
-    void spawn(float px, float py, float vx, float vy, AgentType agentType, const Rng& rng) {
+
+    void spawn(float px, float py, float vx, float vy) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
         velY.push_back(vy);
-        // Initial direction from velocity
-        float speed = std::sqrt(vx * vx + vy * vy);
+        const float speed = std::sqrt(vx * vx + vy * vy);
         if (speed > 0.01f) {
             dirX.push_back(vx / speed);
             dirY.push_back(vy / speed);
         } else {
-            dirX.push_back(1.0f);  // Default facing right
+            dirX.push_back(1.0f);
             dirY.push_back(0.0f);
         }
-        type.push_back(agentType);
-        state.push_back(AgentState::Patrol);  // Start patrolling
-        health.push_back(agentType == AgentType::Hero ? 5 : (agentType == AgentType::Zombie ? 3 : 0));  // Heroes 5, Zombies 3, Civilians 0
-        lastSeenX.push_back(0.0f);
-        lastSeenY.push_back(0.0f);
-        searchTimer.push_back(0.0f);
-        // Random initial patrol target. The agent index is `count`: spawn appends,
-        // so `count` is the slot this agent is about to occupy.
-        patrolTargetX.push_back((float)rng.range((uint32_t)count, RngUse::SpawnPatrolX, 50, 1850));
-        patrolTargetY.push_back((float)rng.range((uint32_t)count, RngUse::SpawnPatrolY, 50, 1030));
-        shootCooldown.push_back(0.0f);
-        aimTimer.push_back(0.0f);
-        fleeStrategy.push_back(0);  // Default panic flee
-        heroType.push_back(agentType == AgentType::Hero
-            ? (uint8_t)rng.range((uint32_t)count, RngUse::SpawnHeroType, 0, 1) : 0);  // 50% hunter, 50% defender
-        reanimationTimer.push_back(0.0f);
-        meleeAttackCooldown.push_back(0.0f);
-        combatTarget.push_back(UINT32_MAX);  // No target
-        combatTimer.push_back(0.0f);
-        combatCooldown.push_back(0.0f);
-        infectionTimer.push_back(0.0f);
-        infectionProgress.push_back(0.0f);
         count++;
     }
 };
@@ -120,7 +51,7 @@ public:
     Simulation(int screenWidth, int screenHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
 
     void init(size_t count);
-    void setAgentCount(size_t count);  // Dynamically adjust agent count
+    void reset(size_t count);  // Tear down and re-init at a new agent count
     size_t getAgentCount() const { return entities.count; }
     uint32_t getSeed() const { return worldSeed; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
@@ -139,11 +70,6 @@ public:
     bool isPaused() const { return paused; }
     void togglePause() { paused = !paused; }
     void setPaused(bool p) { paused = p; }
-    
-    // Agent type counts
-    size_t getCivilianCount() const;
-    size_t getZombieCount() const;
-    size_t getHeroCount() const;
 
     // Bitwise hash of all simulation-visible state. See StateDigest.hpp.
     uint64_t stateDigest() const;
@@ -177,21 +103,7 @@ private:
     // Debug visualization
     bool debugGrid = false;
     bool paused = true;  // Start paused
-    
-    // Gunshot tracking (heroes attract zombies when shooting)
-    struct Gunshot {
-        float x, y;
-        float lifetime;  // Decays over time
-    };
-    std::vector<Gunshot> recentGunshots;
-    
-    // Visual gunshot lines (for rendering)
-    struct GunshotLine {
-        float fromX, fromY, toX, toY;
-        float lifetime;
-    };
-    std::vector<GunshotLine> gunshotLines;
-    
+
     // Static obstacles for environment
     struct Building {
         float x, y, width, height;
@@ -201,32 +113,15 @@ private:
     };
     std::vector<Building> buildings;
     std::vector<Tree> trees;
-    
-    // Graveyard zone
-    struct { float x, y, width, height; } graveyard = {50, 0, 200, 0};  // Set in init
-    
+
     void generateObstacles();  // Procedural obstacle generation
-    
-    // Combat resolution helpers
-    void resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilianIdx, 
-                                       int zombieAllies, int civilianAllies,
-                                       std::vector<size_t>& zombiesToKill,
-                                       std::vector<size_t>& entitiesToKill,
-                                       const Rng& rng);
-    void resolveHeroVsZombieCombat(size_t heroIdx, size_t zombieIdx,
-                                   std::vector<size_t>& zombiesToKill,
-                                   std::vector<size_t>& entitiesToKill,
-                                   const Rng& rng);
 
     void updateMovement(float dt);
     void updateSeparation(float dt, const Rng& rng);  // Collision avoidance
-    void updateBehaviors(float dt, const Rng& rng);   // Seek/flee/combat behaviors
-    void updateInfections(const Rng& rng);            // Handle zombie infections
     // Chunks take Rng BY VALUE: they run on worker threads via a lambda that
     // outlives the tick() local the Rng is constructed from.
     void updateSeparationChunk(size_t start, size_t end, float dt, Rng rng);  // Parallel version
     void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
-    void updateBehaviorsChunk(size_t start, size_t end, float dt, Rng rng);   // Parallel version
     void screenWrap();
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
 };

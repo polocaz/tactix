@@ -12,23 +12,6 @@ void drawSimulation(const Simulation& sim, float alpha) {
         Color{100, 150, 255, 255}
     );
 
-    // Draw graveyard
-    DrawRectangle(
-        static_cast<int>(sim.graveyard.x),
-        static_cast<int>(sim.graveyard.y),
-        static_cast<int>(sim.graveyard.width),
-        static_cast<int>(sim.graveyard.height),
-        Color{40, 35, 45, 255}  // Dark purple-gray
-    );
-    // Tombstones
-    for (int i = 0; i < 8; i++) {
-        float tx = sim.graveyard.x + 30 + (i % 3) * 60;
-        float ty = sim.graveyard.y + 40 + (i / 3) * 60;
-        DrawRectangle(static_cast<int>(tx), static_cast<int>(ty), 20, 30, Color{80, 75, 85, 255});
-        DrawRectangle(static_cast<int>(tx + 5), static_cast<int>(ty - 5), 10, 10, Color{90, 85, 95, 255});
-    }
-    DrawText("GRAVEYARD", static_cast<int>(sim.graveyard.x + 50), static_cast<int>(sim.graveyard.y + 10), 16, Color{120, 110, 130, 255});
-
     // Debug: Draw grid
     if (sim.debugGrid) {
         const float cellSize = 50.0f;
@@ -78,52 +61,14 @@ void drawSimulation(const Simulation& sim, float alpha) {
         float baseRight_X = renderX + perpX * (agentSize * 0.4f);
         float baseRight_Y = renderY + perpY * (agentSize * 0.4f);
 
-        // Color based on agent type and state
-        Color agentColor;
-        if (sim.entities.state[i] == AgentState::Dead) {
-            // Corpses are dark red/brown
-            agentColor = Color{120, 40, 40, 255};
-        } else if (sim.entities.state[i] == AgentState::Bitten) {
-            // Bitten civilians - color shifts from white → yellow → sickly green
-            float progress = sim.entities.infectionProgress[i];
-            uint8_t r = static_cast<uint8_t>(220 - progress * 70);   // 220 → 150
-            uint8_t g = static_cast<uint8_t>(220 - progress * 20);   // 220 → 200
-            uint8_t b = static_cast<uint8_t>(220 - progress * 120);  // 220 → 100
-            agentColor = Color{r, g, b, 255};
-        } else if (sim.entities.type[i] == AgentType::Civilian) {
-            agentColor = Color{220, 220, 220, 255};  // Light gray/white
-        } else if (sim.entities.type[i] == AgentType::Zombie) {
-            agentColor = Color{50, 200, 50, 255};     // Green
-        } else {  // Hero
-            // Color heroes based on health (blue gradient)
-            uint8_t health = sim.entities.health[i];
-            uint8_t brightness = 100 + (health * 30);  // Brighter with more health
-            agentColor = Color{50, 100, brightness, 255};
-        }
+        // Every agent draws as one color for now; Task 11 restores real visuals.
+        Color agentColor = Color{200, 200, 200, 255};
 
-        // Corpses are rendered as small circles instead of triangles
-        if (sim.entities.state[i] == AgentState::Dead) {
-            DrawCircle(static_cast<int>(renderX), static_cast<int>(renderY), agentSize * 0.8f, agentColor);
-        } else {
-            DrawTriangle(
-                Vector2{frontX, frontY},
-                Vector2{baseLeft_X, baseLeft_Y},
-                Vector2{baseRight_X, baseRight_Y},
-                agentColor
-            );
-        }
-    }
-
-    // Draw gunshot lines (visualize shooting)
-    for (const auto& line : sim.gunshotLines) {
-        // Fade based on lifetime (0.15s total)
-        float alpha_val = line.lifetime / 0.15f;
-        uint8_t alpha_byte = static_cast<uint8_t>(alpha_val * 255.0f);
-        DrawLineEx(
-            Vector2{line.fromX, line.fromY},
-            Vector2{line.toX, line.toY},
-            0.8f,  // Thin line
-            Color{255, 255, 0, alpha_byte}  // Bright yellow, fading
+        DrawTriangle(
+            Vector2{frontX, frontY},
+            Vector2{baseLeft_X, baseLeft_Y},
+            Vector2{baseRight_X, baseRight_Y},
+            agentColor
         );
     }
 
