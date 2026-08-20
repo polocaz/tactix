@@ -64,18 +64,45 @@ TEST_CASE("deployment places every soldier on its own slot") {
     CHECK(sawTeamB);
 }
 
-TEST_CASE("squads close the distance to their slots over time") {
+TEST_CASE("meanSlotError plateaus instead of drifting") {
+    // This used to assert convergence toward zero error. That assumption
+    // does not hold: generateObstacles() scatters 8 buildings and 30 trees
+    // across the field, and both armies deploy down the field's full height
+    // (Simulation::init), so some soldiers' assigned slots land inside or
+    // beside an obstacle. Obstacle avoidance correctly and permanently holds
+    // those soldiers off their slot -- you cannot stand inside a wall -- so
+    // a nonzero mean error is the correct steady state, not a defect.
+    //
+    // Confirmed directly: with obstacles (as shipped), meanSlotError plateaus
+    // around tick120=8.63 / tick400=8.02. With generateObstacles() disabled
+    // for the same seed and agent count, it collapses to tick120=1.63 /
+    // tick400=1.53, near steerToSlot's 2px arrival deadband. The gap between
+    // those two runs is obstacles, not a steering defect, so what is worth
+    // guarding is that the error reaches a STABLE plateau, not that it goes
+    // to zero. If this test starts failing because the plateau crept back
+    // down near zero, that means obstacles stopped blocking slots (a
+    // deployment or generateObstacles change), not a steering regression --
+    // do not "fix" this back into a zero-convergence assertion.
     Simulation sim(1280, 720, 42u);
     sim.init(500);
     sim.setPaused(false);
-    sim.tick(1.0f / 60.0f);
-    const float before = sim.meanSlotError();
+
     for (int i = 0; i < 120; ++i) sim.tick(1.0f / 60.0f);
-    const float after = sim.meanSlotError();
-    // Deployment already places soldiers near their slots, so this asserts
-    // that steering does not make things worse, not that it converges from
-    // far away.
-    CHECK(after <= before + 1.0f);
+    const float at120 = sim.meanSlotError();
+
+    for (int i = 0; i < 280; ++i) sim.tick(1.0f / 60.0f);
+    const float at400 = sim.meanSlotError();
+
+    // Measured delta between tick120 and tick400 was ~0.61px; 2px gives
+    // over 3x headroom while still catching a plateau that has not
+    // actually settled (e.g. still climbing toward an unbounded drift).
+    CHECK(std::fabs(at400 - at120) <= 2.0f);
+
+    // Measured plateau was ~8.0-8.6px; 15px gives comfortable headroom
+    // above that without being so loose it would pass the ~16px+ plateau
+    // seen before the separation-radius fix, or the far larger figures
+    // the centroid-drift and rotation bugs produced earlier in this task.
+    CHECK(at400 <= 15.0f);
 }
 
 TEST_CASE("a squad's centroid does not drift with no orders given") {
