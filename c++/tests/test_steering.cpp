@@ -114,7 +114,13 @@ TEST_CASE("a squad's centroid does not drift with no orders given") {
     const float dBx = sim.squadCentroidX(squadB) - b0x;
     const float dBy = sim.squadCentroidY(squadB) - b0y;
 
-    constexpr float kDriftBound = 15.0f;
+    // Measured after the formationMeanOffset fix plus shrinking the
+    // separation radius to sit below kSlotSpacing: ~2.07px (team A) and
+    // ~2.16px (team B). 5px gives more than double that headroom while
+    // staying far under both the ~8-8.6px this measured with the old 25px
+    // separation radius and the ~191px the original bug produced -- tight
+    // enough to catch a real regression in either mechanism.
+    constexpr float kDriftBound = 5.0f;
     CHECK(std::sqrt(dAx * dAx + dAy * dAy) <= kDriftBound);
     CHECK(std::sqrt(dBx * dBx + dBy * dBy) <= kDriftBound);
 }

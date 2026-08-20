@@ -5,6 +5,21 @@
 
 constexpr float kSlotSpacing = 12.0f;
 
+// Separation (Simulation::phaseSoldierSteerChunk) exists to stop soldiers
+// overlapping, not to enforce spacing -- formation shape does that. It MUST
+// stay below kSlotSpacing: a soldier's rendered footprint is ~4px radius
+// (Renderer.cpp's agentSize), so two soldiers visually overlap under ~8px
+// apart, and correctly-slotted Line ranks sit exactly kSlotSpacing (12px)
+// apart. 10px sits between those two bounds -- comfortably clear of visual
+// overlap, comfortably clear of a held Line formation -- so a soldier
+// standing on its slot feels zero separation force. Raising this back toward
+// its old value (25px) would put it inside kSlotSpacing again, and
+// separation would fight the formation instead of just preventing overlap:
+// that is the bug this constant fixes. If a formation shape is ever added
+// with tighter spacing than this, shrink this constant to match, not the
+// other way around.
+constexpr float kSeparationRadius = 10.0f;
+
 namespace detail {
 
 // Smallest w such that w * ceil(n/w) >= n and w/depth is near the target

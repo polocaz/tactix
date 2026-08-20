@@ -2,6 +2,7 @@
 #include "Simulation.hpp"
 #include "Squads.hpp"
 #include "Soldiers.hpp"
+#include "Formation.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
 #include <algorithm>
@@ -337,8 +338,11 @@ void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {
 }
 
 void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng rng) {
-    // Collision avoidance using spatial queries (Phase 2)
-    const float separationRadius = 25.0f;  // Increased from 20
+    // Collision avoidance using spatial queries (Phase 2). Radius is
+    // kSeparationRadius (Formation.hpp): it must stay below kSlotSpacing so
+    // separation only prevents overlap and never fights a held formation --
+    // see that constant's comment for the derivation.
+    const float separationRadius = kSeparationRadius;
     const float separationStrength = 300.0f;  // Increased from 200
     const float separationRadiusSq = separationRadius * separationRadius;
 
