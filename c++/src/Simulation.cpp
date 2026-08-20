@@ -36,14 +36,18 @@ void Simulation::init(size_t soldierCount) {
 
     // Squad composition by count: 60% infantry, 25% archers, 15% cavalry.
     constexpr uint32_t kSquadSize = 25;
-    const size_t perTeam = soldierCount / 2;
-    const uint32_t squadsPerTeam = (uint32_t)((perTeam + kSquadSize - 1) / kSquadSize);
+    // Team A gets the floor half, team B the remainder, so an odd
+    // soldierCount still deploys every soldier requested (off by one
+    // between the two armies rather than one soldier short overall).
+    const size_t perTeamA = soldierCount / 2;
 
     const float w = (float)screenWidth;
     const float h = (float)screenHeight;
 
     for (int t = 0; t < 2; ++t) {
         const Team team = (t == 0) ? Team::A : Team::B;
+        const size_t perTeam = (t == 0) ? perTeamA : (soldierCount - perTeamA);
+        const uint32_t squadsPerTeam = (uint32_t)((perTeam + kSquadSize - 1) / kSquadSize);
         // Team A faces right from the left margin, team B faces left.
         const float baseX = (t == 0) ? w * 0.15f : w * 0.85f;
         const float facing = (t == 0) ? 1.0f : -1.0f;

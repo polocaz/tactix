@@ -44,7 +44,7 @@ int main() {
     const float FIXED_DT = 1.0f / 60.0f;  // 60 ticks per second
     float accumulator = 0.0f;
     auto lastTime = std::chrono::steady_clock::now();
-    float timeScale = 0.5f;  // Time scaling: start at half speed to observe infection dynamics
+    float timeScale = 0.5f;  // Time scaling: start at half speed to observe formation dynamics
 
     // Metrics
     float tickTimes[60] = {0};  // Rolling window for tick time
@@ -146,7 +146,7 @@ int main() {
         // ----------- IMGUI -----------
         rlImGuiBegin();
 
-        ImGui::Begin("Tactix - Zombie Simulation");
+        ImGui::Begin("Tactix - Medieval Skirmish");
         
         // Pause state
         if (sim.isPaused()) {
@@ -163,7 +163,10 @@ int main() {
             agentCount = static_cast<size_t>(agentCountInt);
             sim.reset(agentCount);
         }
-        ImGui::Text("Active Agents: %zu", sim.getAgentCount());
+        ImGui::Text("Soldiers: %zu  Squads: %zu", sim.getAgentCount(), sim.getSquadCount());
+        ImGui::Text("Team A: %zu   Team B: %zu",
+                    sim.getTeamCount(Team::A), sim.getTeamCount(Team::B));
+        ImGui::Text("World: %d x %d", worldWidth, worldHeight);
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());

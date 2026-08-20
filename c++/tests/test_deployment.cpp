@@ -44,6 +44,15 @@ TEST_CASE("every soldier belongs to a squad that claims it") {
     CHECK(sim.everySoldierHasASquadSlot());
 }
 
+TEST_CASE("an odd soldier count deploys the full count requested") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(1001);
+    CHECK(sim.getAgentCount() == 1001);
+    const size_t a = sim.getTeamCount(Team::A);
+    const size_t b = sim.getTeamCount(Team::B);
+    CHECK(a + b == 1001);
+}
+
 TEST_CASE("deployment is deterministic for a seed") {
     Simulation a(1280, 720, 7u);
     Simulation b(1280, 720, 7u);
