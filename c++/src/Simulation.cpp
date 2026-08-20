@@ -1,5 +1,6 @@
 #include "platform.h"
 #include "Simulation.hpp"
+#include "Squads.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
 #include <cassert>
@@ -40,6 +41,13 @@ void Simulation::init(size_t count) {
         prevPosY.push_back(py);
     }
 
+    // Placeholder deployment assigns every soldier squadId 0, so a single
+    // squad keeps that id valid for rebuildSquadMembers. Real multi-squad
+    // deployment lands in Task 5.
+    if (entities.count > 0) {
+        squads.spawn(Team::A, UnitType::Infantry);
+    }
+
     generateObstacles();
 }
 
@@ -60,6 +68,22 @@ void Simulation::reset(size_t count) {
     entities.intentTarget.clear();
     entities.intentFire.clear();
     entities.count = 0;
+
+    squads.team.clear();
+    squads.unitType.clear();
+    squads.centroidX.clear();
+    squads.centroidY.clear();
+    squads.facingX.clear();
+    squads.facingY.clear();
+    squads.order.clear();
+    squads.targetSquad.clear();
+    squads.targetSoldier.clear();
+    squads.morale.clear();
+    squads.discipline.clear();
+    squads.memberStart.clear();
+    squads.memberCount.clear();
+    squads.count = 0;
+    squadMembers.clear();
 
     prevPosX.clear();
     prevPosY.clear();
@@ -110,6 +134,7 @@ void Simulation::tick(float dt) {
     }
 
     rebuildSpatialHash();
+    rebuildSquadMembers(entities, squads, squadMembers);
     jobSystem.resetJobCounter();
 
     updateSeparation(dt, rng);

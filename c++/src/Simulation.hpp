@@ -10,6 +10,7 @@
 #include "Rng.hpp"
 #include "WorkCounters.hpp"
 #include "Units.hpp"
+#include "Squads.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct SoldierHot {
@@ -121,7 +122,11 @@ private:
     uint32_t tickNumber = 0u;
 
     SoldierHot entities;  // Hot data (SoA)
-    
+
+    // Squad tier: per-squad aggregate data and the per-tick membership index.
+    SquadHot squads;
+    std::vector<uint32_t> squadMembers;
+
     // Previous state for interpolation
     std::vector<float> prevPosX;
     std::vector<float> prevPosY;
