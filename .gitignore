@@ -41,3 +41,6 @@ checkpoints/
 
 # Rust Build
 tactix-ai/target/
+# App-generated UI state (per-user window layout, churns on every run)
+imgui.ini
+c++/imgui.ini
