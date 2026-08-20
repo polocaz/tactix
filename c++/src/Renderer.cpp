@@ -1,14 +1,13 @@
 #include "Renderer.hpp"
 #include "Simulation.hpp"
 #include <raylib.h>
-#include <cmath>
 #include <algorithm>
 
 void drawSimulation(const Simulation& sim, float alpha) {
     // Draw simulation world boundary
     const float borderThickness = 3.0f;
     DrawRectangleLinesEx(
-        Rectangle{0, 0, static_cast<float>(sim.screenWidth), static_cast<float>(sim.screenHeight)},
+        Rectangle{0, 0, static_cast<float>(sim.worldWidth), static_cast<float>(sim.worldHeight)},
         borderThickness,
         Color{100, 150, 255, 255}
     );
@@ -16,40 +15,30 @@ void drawSimulation(const Simulation& sim, float alpha) {
     // Debug: Draw grid
     if (sim.debugGrid) {
         const float cellSize = 50.0f;
-        for (int x = 0; x < sim.screenWidth; x += static_cast<int>(cellSize)) {
-            DrawLine(x, 0, x, sim.screenHeight, Color{80, 255, 100, 180});
+        for (int x = 0; x < sim.worldWidth; x += static_cast<int>(cellSize)) {
+            DrawLine(x, 0, x, sim.worldHeight, Color{80, 255, 100, 180});
         }
-        for (int y = 0; y < sim.screenHeight; y += static_cast<int>(cellSize)) {
-            DrawLine(0, y, sim.screenWidth, y, Color{80, 255, 100, 180});
+        for (int y = 0; y < sim.worldHeight; y += static_cast<int>(cellSize)) {
+            DrawLine(0, y, sim.worldWidth, y, Color{80, 255, 100, 180});
         }
     }
 
     // Interpolated rendering with directional triangles
     // Triangles show movement direction - useful for AI visualization
-    const float wrapThreshold = static_cast<float>(sim.screenWidth) * 0.5f;  // Detect wrapping
-
-    for (size_t i = 0; i < sim.entities.count; i++) {
-        // Check if agent wrapped this frame (large position delta)
-        float deltaX = std::abs(sim.entities.posX[i] - sim.prevPosX[i]);
-        float deltaY = std::abs(sim.entities.posY[i] - sim.prevPosY[i]);
-
-        // If wrapped, don't interpolate (use current position to avoid stretching)
-        float renderX, renderY;
-        if (deltaX > wrapThreshold || deltaY > wrapThreshold) {
-            renderX = sim.entities.posX[i];
-            renderY = sim.entities.posY[i];
-        } else {
-            renderX = sim.prevPosX[i] + (sim.entities.posX[i] - sim.prevPosX[i]) * alpha;
-            renderY = sim.prevPosY[i] + (sim.entities.posY[i] - sim.prevPosY[i]) * alpha;
-        }
+    for (size_t i = 0; i < sim.soldiers.count; i++) {
+        // clampToWorld only clamps and bounces (it has never wrapped a
+        // position), so interpolating from the previous tick's position is
+        // always safe here -- no large-delta special case needed.
+        const float renderX = sim.prevPosX[i] + (sim.soldiers.posX[i] - sim.prevPosX[i]) * alpha;
+        const float renderY = sim.prevPosY[i] + (sim.soldiers.posY[i] - sim.prevPosY[i]) * alpha;
 
         // Team identity carries in hue, unit type in shape. Reading a battle
         // at zoomed-out scale depends on those being separable at a few pixels.
-        const bool teamA = sim.entities.team[i] == Team::A;
+        const bool teamA = sim.soldiers.team[i] == Team::A;
         Color agentColor = teamA ? Color{ 90, 140, 235, 255 }   // steel blue
                                  : Color{ 210,  95,  70, 255 }; // rust red
 
-        switch (sim.entities.unitType[i]) {
+        switch (sim.soldiers.unitType[i]) {
             case UnitType::Archer:
                 // Slightly lighter, drawn as a small square.
                 agentColor.r = (uint8_t)std::min(255, agentColor.r + 45);
@@ -66,15 +55,15 @@ void drawSimulation(const Simulation& sim, float alpha) {
                 break;
         }
 
-        const float size = (sim.entities.unitType[i] == UnitType::Cavalry) ? 6.0f : 4.0f;
+        const float size = (sim.soldiers.unitType[i] == UnitType::Cavalry) ? 6.0f : 4.0f;
 
-        if (sim.entities.unitType[i] == UnitType::Archer) {
+        if (sim.soldiers.unitType[i] == UnitType::Archer) {
             DrawRectangleV(Vector2{ renderX - 2.0f, renderY - 2.0f },
                            Vector2{ 4.0f, 4.0f }, agentColor);
         } else {
             // Calculate triangle vertices pointing in direction of movement
-            float dx = sim.entities.dirX[i];
-            float dy = sim.entities.dirY[i];
+            float dx = sim.soldiers.dirX[i];
+            float dy = sim.soldiers.dirY[i];
 
             // Front vertex (pointing forward)
             float frontX = renderX + dx * size;
