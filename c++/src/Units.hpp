@@ -25,3 +25,13 @@ constexpr UnitStats kUnitStats[kUnitTypeCount] = {
     /* Archer   */ { 42.0f, 280.0f, 2 },
     /* Cavalry  */ { 95.0f,   0.0f, 3 },
 };
+
+// Shared by Simulation.cpp (deployment) and Soldiers.cpp (Task 8) so both
+// agree on which formation shape a unit type marches in.
+constexpr FormationShape shapeForUnit(UnitType u) {
+    switch (u) {
+        case UnitType::Archer:  return FormationShape::Loose;
+        case UnitType::Cavalry: return FormationShape::Wedge;
+        default:                return FormationShape::Line;
+    }
+}

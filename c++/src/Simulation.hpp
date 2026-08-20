@@ -90,6 +90,14 @@ public:
     uint32_t getSeed() const { return worldSeed; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
 
+    // Deployment / squad accessors (Task 5)
+    size_t getSquadCount() const { return squads.count; }
+    size_t getTeamCount(Team t) const;
+    float  teamCentroidX(Team t) const;
+    float  soldierX(size_t i) const { return entities.posX[i]; }
+    float  soldierY(size_t i) const { return entities.posY[i]; }
+    bool   everySoldierHasASquadSlot() const;
+
     friend void drawSimulation(const Simulation& sim, float alpha);
 
     // Metrics access

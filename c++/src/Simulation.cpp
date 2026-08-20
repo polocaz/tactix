@@ -1,8 +1,10 @@
 #include "platform.h"
 #include "Simulation.hpp"
 #include "Squads.hpp"
+#include "Formation.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <chrono>
@@ -17,38 +19,114 @@ Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
     spatialHash.setCounters(&workCounters);
 }
 
-void Simulation::init(size_t count) {
-    spdlog::info("Initializing {} agents", count);
+static float clampf(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+void Simulation::init(size_t soldierCount) {
+    spdlog::info("Initializing {} agents", soldierCount);
     // init() runs before any tick, so tick 0 is reserved for setup draws.
     const Rng rng{worldSeed, 0u};
-    entities.reserve(count);
-    prevPosX.reserve(count);
-    prevPosY.reserve(count);
-
-    for (size_t i = 0; i < count; i++) {
-        const uint32_t agent = (uint32_t)entities.count;
-        const float px = (float)rng.range(agent, RngUse::SpawnPosX, 0, screenWidth);
-        const float py = (float)rng.range(agent, RngUse::SpawnPosY, 0, screenHeight);
-        const float vx = (float)rng.range(agent, RngUse::SpawnVelX, -10, 10);
-        const float vy = (float)rng.range(agent, RngUse::SpawnVelY, -10, 10);
-        // Placeholder deployment: alternate teams and cycle unit types so the
-        // new fields are populated deterministically. Real two-army
-        // deployment lands in Task 5.
-        const Team team = (agent % 2 == 0) ? Team::A : Team::B;
-        const UnitType unitType = static_cast<UnitType>(agent % kUnitTypeCount);
-        entities.spawn(px, py, vx, vy, team, unitType, 0);
-        prevPosX.push_back(px);
-        prevPosY.push_back(py);
-    }
-
-    // Placeholder deployment assigns every soldier squadId 0, so a single
-    // squad keeps that id valid for rebuildSquadMembers. Real multi-squad
-    // deployment lands in Task 5.
-    if (entities.count > 0) {
-        squads.spawn(Team::A, UnitType::Infantry);
-    }
+    entities.reserve(soldierCount);
+    prevPosX.reserve(soldierCount);
+    prevPosY.reserve(soldierCount);
 
     generateObstacles();
+
+    // Squad composition by count: 60% infantry, 25% archers, 15% cavalry.
+    constexpr uint32_t kSquadSize = 25;
+    const size_t perTeam = soldierCount / 2;
+    const uint32_t squadsPerTeam = (uint32_t)((perTeam + kSquadSize - 1) / kSquadSize);
+
+    const float w = (float)screenWidth;
+    const float h = (float)screenHeight;
+
+    for (int t = 0; t < 2; ++t) {
+        const Team team = (t == 0) ? Team::A : Team::B;
+        // Team A faces right from the left margin, team B faces left.
+        const float baseX = (t == 0) ? w * 0.15f : w * 0.85f;
+        const float facing = (t == 0) ? 1.0f : -1.0f;
+
+        for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
+            UnitType unit = UnitType::Infantry;
+            const uint32_t bucket = sq % 20;
+            if (bucket >= 12 && bucket < 17)      unit = UnitType::Archer;
+            else if (bucket >= 17)                unit = UnitType::Cavalry;
+
+            const uint16_t squadId = (uint16_t)squads.count;
+            squads.spawn(team, unit);
+            squads.facingX[squadId] = facing;
+            squads.facingY[squadId] = 0.0f;
+
+            // Squads stack down the deployment edge, wrapping into a second
+            // column if one does not fit. Scaled to the map so a larger world
+            // spreads the army rather than overlapping it.
+            const uint32_t perColumn = (uint32_t)std::max(1.0f, h / 60.0f);
+            const uint32_t column = sq / perColumn;
+            const uint32_t row = sq % perColumn;
+            const float squadX = baseX - facing * (float)column * 70.0f;
+            const float squadY = h * 0.1f + (float)row * (h * 0.8f / (float)perColumn);
+
+            squads.centroidX[squadId] = squadX;
+            squads.centroidY[squadId] = squadY;
+
+            // sq < squadsPerTeam = ceil(perTeam / kSquadSize), so by the
+            // definition of ceiling division sq * kSquadSize < perTeam here:
+            // the subtraction below never underflows.
+            const uint32_t members = (uint32_t)std::min<size_t>(
+                kSquadSize, perTeam - (size_t)sq * kSquadSize);
+            for (uint32_t k = 0; k < members; ++k) {
+                const Vec2 slot = formationSlot(shapeForUnit(unit), (uint16_t)k, members);
+                // Facing is +/-1 on X, so the local-to-world rotation reduces
+                // to a sign flip. Task 8 uses the general rotation.
+                const uint32_t agent = (uint32_t)entities.count;
+                const float jx = (float)rng.range(agent, RngUse::DeployJitterX, -2, 2);
+                const float jy = (float)rng.range(agent, RngUse::DeployJitterY, -2, 2);
+                const float px = squadX + facing * slot.y + jx;
+                const float py = squadY + slot.x + jy;
+
+                entities.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
+                               0.0f, 0.0f, team, unit, squadId);
+                entities.slotIndex[agent] = (uint16_t)k;
+                prevPosX.push_back(entities.posX[agent]);
+                prevPosY.push_back(entities.posY[agent]);
+            }
+        }
+    }
+
+    spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
+                 entities.count, squads.count, screenWidth, screenHeight);
+}
+
+size_t Simulation::getTeamCount(Team t) const {
+    size_t n = 0;
+    for (size_t i = 0; i < entities.count; ++i) {
+        if (entities.team[i] == t) n++;
+    }
+    return n;
+}
+
+float Simulation::teamCentroidX(Team t) const {
+    double sum = 0.0;
+    size_t n = 0;
+    for (size_t i = 0; i < entities.count; ++i) {
+        if (entities.team[i] != t) continue;
+        sum += entities.posX[i];
+        n++;
+    }
+    return n ? (float)(sum / (double)n) : 0.0f;
+}
+
+bool Simulation::everySoldierHasASquadSlot() const {
+    for (size_t i = 0; i < entities.count; ++i) {
+        const uint16_t s = entities.squadId[i];
+        if (s >= squads.count) return false;
+        const uint32_t start = squads.memberStart[s];
+        const uint32_t n = squads.memberCount[s];
+        if (entities.slotIndex[i] >= n) return false;
+        if (squadMembers[start + entities.slotIndex[i]] != i) return false;
+    }
+    return true;
 }
 
 void Simulation::reset(size_t count) {

@@ -24,6 +24,10 @@ enum class RngUse : uint32_t {
     SeparationTreePushX,    // pushed out of a tree (reachable in the same
     SeparationTreePushY,    // agent-tick as the building push, so distinct)
 
+    // Deployment
+    DeployJitterX,
+    DeployJitterY,
+
     // Keep this trailing sentinel last.
     Count
 };
