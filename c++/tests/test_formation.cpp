@@ -56,6 +56,21 @@ TEST_CASE("slots are stable across calls") {
     }
 }
 
+TEST_CASE("a wedge tapers while a line does not") {
+    // "Measurably different geometry from Line for the same member count":
+    // a Line's front rank (rank 0) already spans the formation's full
+    // width, while a Wedge's front rank is a single point (the tip) that
+    // only widens going back. Checking width at slot 0 alone discriminates
+    // the two shapes, and would fail if shapeForUnit ever mapped Cavalry to
+    // Line instead of Wedge.
+    const uint32_t n = 25;
+    const Vec2 lineFront = formationSlot(FormationShape::Line, 0, n);
+    const Vec2 wedgeTip   = formationSlot(FormationShape::Wedge, 0, n);
+
+    CHECK(std::abs(lineFront.x) > 0.0f);
+    CHECK(wedgeTip.x == doctest::Approx(0.0f));
+}
+
 TEST_CASE("an empty squad returns the origin rather than dividing by zero") {
     const Vec2 s = formationSlot(FormationShape::Line, 0, 0);
     CHECK(s.x == doctest::Approx(0.0f));

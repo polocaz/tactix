@@ -41,9 +41,9 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=54907138
-cellsVisited=3342615
+candidatesExamined=74982362
+cellsVisited=3318441
 gridInsertions=400000
 jobsDispatched=3800
 squadDecisions=16000
-stateDigest=e269c2b44d962ab5
+stateDigest=ebd3ec16aae86d77

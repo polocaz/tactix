@@ -5,35 +5,52 @@
 #include <cmath>
 
 TEST_CASE("a slot rotates with squad facing") {
+    // Asserts the actual expected world coordinates for a known facing and
+    // slot, not just "some difference exists" -- east.x != north.x alone
+    // does not discriminate handedness, and a mirrored rotation (the exact
+    // Task 8 bug: team A's slots came out mirrored) would still pass it.
+    // Expected values worked out by hand from formationSlot's Line layout
+    // (width 5 for 9 members, spacing 12) and slotWorldPosition's
+    // recentering and rotation:
+    //   raw slot 4 (row 0, col 4): right=24, forward=0
+    //   formationMeanOffset(Line, 9): mean=(-8/3, -16/3)
+    //   local = raw - mean = (80/3, 16/3)
+    //   facing east (1,0): rightX=0, rightY=-1 -> world = centroid + (local.y, -local.x)
+    //   facing north (0,1): rightX=1, rightY=0 -> world = centroid + (local.x, local.y)
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 100.0f;
     q.centroidY[0] = 100.0f;
     q.memberCount[0] = 9;
 
-    // Facing +x: local forward maps to world +x.
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     const Vec2 east = slotWorldPosition(q, 0, 4, 9);
+    CHECK(east.x == doctest::Approx(100.0f + 16.0f / 3.0f));
+    CHECK(east.y == doctest::Approx(100.0f - 80.0f / 3.0f));
 
-    // Facing +y: the same slot must land somewhere different.
     q.facingX[0] = 0.0f; q.facingY[0] = 1.0f;
     const Vec2 north = slotWorldPosition(q, 0, 4, 9);
-
-    CHECK(east.x != doctest::Approx(north.x));
+    CHECK(north.x == doctest::Approx(100.0f + 80.0f / 3.0f));
+    CHECK(north.y == doctest::Approx(100.0f + 16.0f / 3.0f));
 }
 
 TEST_CASE("a soldier standing on its slot is not pushed away") {
+    // Asserts meanSlotError stays bounded, not just that positions are
+    // finite -- the original version of this test passed identically with
+    // steerToSlot deleted, with its rotation inverted, or with the arrival
+    // deadband removed, since all of those still leave every position a
+    // finite number. Bound is generous: deployment starts every soldier
+    // within jitter of its slot (~2.83px) and the arrival deadband is 2px,
+    // so a healthy run stays a few px; 10px gives headroom above that
+    // without being loose enough to pass a soldier actually getting pushed
+    // off its slot by separation.
     Simulation sim(1280, 720, 42u);
     sim.init(200);
     sim.setPaused(false);
     // Two ticks so membership and aggregates settle.
     sim.tick(1.0f / 60.0f);
     sim.tick(1.0f / 60.0f);
-    // No claim about a specific soldier; only that nothing has diverged.
-    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
-        CHECK(std::isfinite(sim.soldierX(i)));
-        CHECK(std::isfinite(sim.soldierY(i)));
-    }
+    CHECK(sim.meanSlotError() <= 10.0f);
 }
 
 TEST_CASE("deployment places every soldier on its own slot") {
