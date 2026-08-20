@@ -26,15 +26,17 @@ void SpatialHash::insert(uint32_t entityId, float x, float y) {
     if (counters) counters->add(counters->gridInsertions, 1);
 }
 
+// NOTE: `radius` is currently IGNORED. This always returns the fixed 3x3 cell block around
+// (x, y) regardless of the requested radius, whether that block is larger or smaller than
+// `radius` actually calls for. This is a known, pre-existing bug, deliberately not fixed here
+// because doing so would change simulation behaviour/output. See the branch's final review notes.
 void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uint32_t>& outEntities) const {
     outEntities.clear();
-    
+
     // Get center cell coordinates
     int32_t centerX = static_cast<int32_t>(x / cellSize);
     int32_t centerY = static_cast<int32_t>(y / cellSize);
-    
-    const float radiusSq = radius * radius;
-    
+
     // Check 9 cells (3x3 grid) around center (Design Doc §5.4)
     for (int32_t dy = -1; dy <= 1; ++dy) {
         for (int32_t dx = -1; dx <= 1; ++dx) {

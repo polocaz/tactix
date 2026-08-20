@@ -147,7 +147,8 @@ Each row is a measured change, not a plan.
 ## Building
 
 Dependencies are pulled by CMake FetchContent at configure time, so the first configure needs
-network access. There are no submodules to initialise.
+network access. There are no submodules to initialise (a stale `.gitmodules` referencing Tracy
+and spdlog existed from a pre-C++20/raylib pivot and has been removed).
 
 ```
 cd c++

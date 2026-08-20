@@ -106,9 +106,4 @@ struct Rng {
         const uint32_t span = static_cast<uint32_t>(hi - lo) + 1u;
         return lo + static_cast<int>(bits(agentIndex, use) % span);
     }
-
-    // [0.0f, 1.0f). Top 24 bits scaled by 2^-24 — exact in float.
-    float unit(uint32_t agentIndex, RngUse use) const {
-        return static_cast<float>(bits(agentIndex, use) >> 8) * 0x1.0p-24f;
-    }
 };

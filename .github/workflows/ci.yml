@@ -46,3 +46,41 @@ jobs:
             BENCH=build/tactix_bench
           fi
           "$BENCH" --agents 2000 --ticks 200 --seed 42 --threads 2 --json
+
+  tsan:
+    name: ThreadSanitizer (Linux)
+    runs-on: ubuntu-latest
+    # KNOWN, PRE-EXISTING RACE, DEFERRED: JobSystem::waitAll() reads jobQueue.empty() holding
+    # only waitMutex, not queueMutex, which TSan will very likely flag. That race predates this
+    # CI job, is understood, and is deferred to a later phase rather than fixed here (fixing it
+    # is a behavioural change outside this wave's scope). continue-on-error is used instead of a
+    # suppressions file so the job's real output (pass/fail per test, and any *other* races it
+    # finds) is never silently discarded -- a suppressions file would hide those too, since TSan
+    # suppresses by source location/frame, not by "we already knew about this one." Once
+    # waitAll() is fixed, remove this continue-on-error and let the job gate normally.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            xorg-dev libasound2-dev
+
+      - name: Configure (Debug + TSan)
+        working-directory: c++
+        run: |
+          cmake -B build-tsan -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS=-fsanitize=thread \
+            -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread
+
+      - name: Build tactix_tests
+        working-directory: c++
+        run: cmake --build build-tsan --target tactix_tests --parallel
+
+      - name: Run tests under TSan
+        working-directory: c++
+        env:
+          TSAN_OPTIONS: halt_on_error=0
+        run: ./build-tsan/tactix_tests

@@ -29,6 +29,17 @@
 # NOT resolve it by loosening the digest check, dropping it, or splitting
 # this file per platform without a deliberate, documented decision (see spec
 # Sec.5.4 for the sanctioned fallback path).
+#
+# A THIRD, legitimate reason the digest can move: StateDigest.hpp hashes an
+# index-ordered walk of the SoA arrays (order-DEPENDENT, not order-
+# independent), so a pure memory-layout change -- e.g. a future phase that
+# reorders agent arrays by spatial cell for cache locality, with no change to
+# *which* agents exist or *what* they do -- will necessarily move the digest
+# even though simulation behaviour is unchanged. That is expected, not a bug.
+# If you land a layout-only reordering, update stateDigest here in the same
+# commit and say explicitly in the commit message that the move is a layout
+# change, not a behavioural one, so this stays distinguishable from case 2
+# above in history.
 candidatesExamined=41857556
 cellsVisited=7019627
 gridInsertions=399467

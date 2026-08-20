@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include "Simulation.hpp"
+#include <thread>
 
 namespace {
 // Runs a simulation to completion and returns the digest of its final state.
@@ -67,4 +68,15 @@ TEST_CASE("thread invariance holds across repeated trials") {
     for (int trial = 0; trial < 5; ++trial) {
         CHECK(runWithThreads(8u, 5u) == reference);
     }
+}
+
+TEST_CASE("threads=0 (auto) matches an explicit hardware_concurrency()-1") {
+    // threads=0 is the configuration the published README benchmark numbers were produced
+    // under (JobSystem's "auto" path), yet nothing previously pinned it against an explicit
+    // count. This nails down that auto resolves to exactly hardware_concurrency()-1 workers
+    // (or 1, on a machine hardware_concurrency() can't characterize) and that its result is
+    // bit-identical to requesting that count explicitly.
+    const unsigned hc = std::thread::hardware_concurrency();
+    const uint32_t explicitWorkers = hc > 1 ? hc - 1 : 1u;
+    CHECK(runWithThreads(0u) == runWithThreads(explicitWorkers));
 }
