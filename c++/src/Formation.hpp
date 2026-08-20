@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -85,4 +86,26 @@ inline Vec2 formationMeanOffset(FormationShape shape, uint32_t memberCount) {
         sumY += s.y;
     }
     return Vec2{ sumX / (float)memberCount, sumY / (float)memberCount };
+}
+
+// Bounding extent of a squad's own formation, in squad-local axes: x is the
+// squad's width (right/left spread), y is its depth (front/back spread).
+// Deployment (Simulation::init) uses this to size the grid it lays squads
+// out on, so neighbouring squads' own footprints do not overlap.
+//
+// Scanned directly from formationSlot rather than derived in closed form:
+// memberCount is a few dozen, so the loop cost is negligible and its
+// correctness is obvious by inspection, matching formationMeanOffset above.
+inline Vec2 formationExtent(FormationShape shape, uint32_t memberCount) {
+    if (memberCount == 0) return Vec2{0.0f, 0.0f};
+
+    float minX = 0.0f, maxX = 0.0f, minY = 0.0f, maxY = 0.0f;
+    for (uint32_t i = 0; i < memberCount; ++i) {
+        const Vec2 s = formationSlot(shape, (uint16_t)i, memberCount);
+        minX = std::min(minX, s.x);
+        maxX = std::max(maxX, s.x);
+        minY = std::min(minY, s.y);
+        maxY = std::max(maxY, s.y);
+    }
+    return Vec2{ maxX - minX, maxY - minY };
 }

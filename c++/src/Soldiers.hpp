@@ -7,7 +7,9 @@ struct SoldierHot;
 struct SquadHot;
 
 // World position of a formation slot, rotating the squad-local offset by the
-// squad's facing. Facing is guaranteed unit length by updateSquadAggregate.
+// squad's facing. Facing's unit-length invariant is established at
+// deployment (Simulation::init, before this is ever called) and maintained
+// every tick after by updateSquadAggregate.
 Vec2 slotWorldPosition(const SquadHot& squads, size_t squadIndex,
                        uint16_t slotIndex, uint32_t memberCount);
 

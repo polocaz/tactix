@@ -79,8 +79,12 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "error: --threads must be between 0 and 1024\n");
         return 2;
     }
-    if (width < 128 || height < 128 || width > 100000 || height > 100000) {
-        std::fprintf(stderr, "error: --width and --height must be between 128 and 100000\n");
+    // 300 is not an arbitrary round number: generateObstacles() computes
+    // rng.range(..., 100, width - 200) for buildings, which inverts below
+    // ~300px wide and underflows to a roughly 4-billion-wide span. 300
+    // keeps that range valid with margin.
+    if (width < 300 || height < 300 || width > 100000 || height > 100000) {
+        std::fprintf(stderr, "error: --width and --height must be between 300 and 100000\n");
         return 2;
     }
 

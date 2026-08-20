@@ -52,3 +52,10 @@ void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
 void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
                           const std::vector<uint32_t>& members,
                           size_t squadIndex);
+
+// Normalizes a squad's facing vector in place, falling back to (1, 0) for a
+// zero-length input rather than producing NaN. Shared by deployment
+// (Simulation::init, which must establish the unit-length invariant slot
+// rotation depends on) and updateSquadAggregate (which maintains it every
+// tick), so both routes go through one definition of "unit length."
+void normalizeFacing(SquadHot& squads, size_t squadIndex);

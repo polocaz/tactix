@@ -79,6 +79,10 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
     // Plan 3 derives facing from the order objective. Until then a squad
     // holds its deployed facing; renormalize so formation rotation in Task 8
     // can assume unit length.
+    normalizeFacing(squads, s);
+}
+
+void normalizeFacing(SquadHot& squads, size_t s) {
     const float fx = squads.facingX[s];
     const float fy = squads.facingY[s];
     const float len = std::sqrt(fx * fx + fy * fy);

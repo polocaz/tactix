@@ -7,6 +7,13 @@
 // Rule when replacing a GetRandomValue call site: add an enumerator named for
 // what the draw produces. Never reuse one unless the two sites are provably
 // unreachable within the same agent-tick.
+//
+// Enumerator VALUES are hashed directly into bits() below, so they are part
+// of every draw's input and, transitively, of stateDigest(). Never reorder
+// or delete an enumerator, including ones with no production reader today
+// (e.g. SpawnPosX/Y, SpawnVelX/Y) -- doing so silently reshuffles the values
+// of every enumerator declared after it and moves the digest for no reason.
+// Only ever append a new one immediately before Count.
 enum class RngUse : uint32_t {
     SpawnPosX = 1,
     SpawnPosY,

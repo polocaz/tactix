@@ -12,7 +12,7 @@
 #include "spdlog/spdlog.h"
 
 Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
-    : screenWidth(w), screenHeight(h)
+    : worldWidth(w), worldHeight(h)
     , worldSeed(seed)
     , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
     , jobSystem(workerThreads)
@@ -28,7 +28,7 @@ void Simulation::init(size_t soldierCount) {
     spdlog::info("Initializing {} agents", soldierCount);
     // init() runs before any tick, so tick 0 is reserved for setup draws.
     const Rng rng{worldSeed, 0u};
-    entities.reserve(soldierCount);
+    soldiers.reserve(soldierCount);
     prevPosX.reserve(soldierCount);
     prevPosY.reserve(soldierCount);
 
@@ -41,17 +41,67 @@ void Simulation::init(size_t soldierCount) {
     // between the two armies rather than one soldier short overall).
     const size_t perTeamA = soldierCount / 2;
 
-    const float w = (float)screenWidth;
-    const float h = (float)screenHeight;
+    const float w = (float)worldWidth;
+    const float h = (float)worldHeight;
+
+    // Rows stack a team's squads down the field; columns wrap a second rank
+    // in behind the first once a column fills up. Both pitches are derived
+    // from real quantities (a squad's own formation footprint, and the
+    // depth actually available behind the front line) rather than fixed
+    // constants, so neither can push a squad origin outside the world. If
+    // the requested density does not fit at those pitches, both pack
+    // tighter instead of spilling past the world edge -- see the warning
+    // below.
+    bool packedTighter = false;
 
     for (int t = 0; t < 2; ++t) {
         const Team team = (t == 0) ? Team::A : Team::B;
         const size_t perTeam = (t == 0) ? perTeamA : (soldierCount - perTeamA);
         const uint32_t squadsPerTeam = (uint32_t)((perTeam + kSquadSize - 1) / kSquadSize);
+        if (squadsPerTeam == 0) continue;
+
         // Team A faces right from the left margin, team B faces left.
         const float baseX = (t == 0) ? w * 0.15f : w * 0.85f;
         const float facing = (t == 0) ? 1.0f : -1.0f;
+        // Depth behind the front line before the corridor runs into the
+        // world edge -- exactly the distance from baseX to that edge, so a
+        // column offset (below) can never carry a squad past it.
+        const float colBandDepth = (t == 0) ? baseX : (w - baseX);
+        // Vertical band squads stack down: h*0.1 to h*0.9.
+        const float rowBand = h * 0.8f;
 
+        // Pass 1: every squad's shape and member count is knowable without
+        // touching a soldier, so scan them first for the largest formation
+        // footprint (Formation.hpp's formationExtent) this team will
+        // actually deploy. That sets the spacing floor neighbouring squads
+        // need so they do not overlap (finding 2). Floored at kSlotSpacing
+        // so a pitch is never zero regardless of member counts.
+        float neededRowPitch = kSlotSpacing;
+        float neededColPitch = kSlotSpacing;
+        for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
+            UnitType unit = UnitType::Infantry;
+            const uint32_t bucket = sq % 20;
+            if (bucket >= 12 && bucket < 17)      unit = UnitType::Archer;
+            else if (bucket >= 17)                unit = UnitType::Cavalry;
+            const uint32_t members = (uint32_t)std::min<size_t>(
+                kSquadSize, perTeam - (size_t)sq * kSquadSize);
+            const Vec2 extent = formationExtent(shapeForUnit(unit), members);
+            neededRowPitch = std::max(neededRowPitch, extent.x);
+            neededColPitch = std::max(neededColPitch, extent.y);
+        }
+
+        const uint32_t perColumn = std::max(1u, (uint32_t)(rowBand / neededRowPitch));
+        const uint32_t columnsNeeded = (squadsPerTeam + perColumn - 1) / perColumn;
+        const float rowPitch = rowBand / (float)perColumn;
+        const float colPitch = colBandDepth / (float)columnsNeeded;
+        // Both loops above only ever shrink a pitch relative to what the
+        // squads actually need (division against a fixed band), never grow
+        // it, so "less than needed" is exactly the degrade case (finding 1).
+        if (rowPitch < neededRowPitch || colPitch < neededColPitch) {
+            packedTighter = true;
+        }
+
+        // Pass 2: place squads and spawn their soldiers.
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
             UnitType unit = UnitType::Infantry;
             const uint32_t bucket = sq % 20;
@@ -62,15 +112,15 @@ void Simulation::init(size_t soldierCount) {
             squads.spawn(team, unit);
             squads.facingX[squadId] = facing;
             squads.facingY[squadId] = 0.0f;
+            // Established here, not assumed: slotWorldPosition below (and
+            // every steerToSlot call this tick and after) depends on facing
+            // being unit length (see Soldiers.hpp).
+            normalizeFacing(squads, squadId);
 
-            // Squads stack down the deployment edge, wrapping into a second
-            // column if one does not fit. Scaled to the map so a larger world
-            // spreads the army rather than overlapping it.
-            const uint32_t perColumn = (uint32_t)std::max(1.0f, h / 60.0f);
             const uint32_t column = sq / perColumn;
             const uint32_t row = sq % perColumn;
-            const float squadX = baseX - facing * (float)column * 70.0f;
-            const float squadY = h * 0.1f + (float)row * (h * 0.8f / (float)perColumn);
+            const float squadX = baseX - facing * (float)column * colPitch;
+            const float squadY = h * 0.1f + (float)row * rowPitch;
 
             squads.centroidX[squadId] = squadX;
             squads.centroidY[squadId] = squadY;
@@ -80,24 +130,44 @@ void Simulation::init(size_t soldierCount) {
             // the subtraction below never underflows.
             const uint32_t members = (uint32_t)std::min<size_t>(
                 kSquadSize, perTeam - (size_t)sq * kSquadSize);
+            // steerToSlot reads squads.memberCount, not a local variable --
+            // set the field itself so deployment and steering agree by
+            // construction, not by coincidence (finding 4).
+            squads.memberCount[squadId] = members;
+
             for (uint32_t k = 0; k < members; ++k) {
                 // Spawn exactly on the slot steerToSlot will target, using the
                 // same rotation (slotWorldPosition), so tick 1 moves nobody.
                 // Squad centroid/facing above must be set before this call.
-                const uint32_t agent = (uint32_t)entities.count;
+                const uint32_t agent = (uint32_t)soldiers.count;
                 const float jx = (float)rng.range(agent, RngUse::DeployJitterX, -2, 2);
                 const float jy = (float)rng.range(agent, RngUse::DeployJitterY, -2, 2);
-                const Vec2 slot = slotWorldPosition(squads, squadId, (uint16_t)k, members);
+                const Vec2 slot = slotWorldPosition(squads, squadId, (uint16_t)k,
+                                                    squads.memberCount[squadId]);
                 const float px = slot.x + jx;
                 const float py = slot.y + jy;
 
-                entities.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
+                soldiers.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
                                0.0f, 0.0f, team, unit, squadId);
-                entities.slotIndex[agent] = (uint16_t)k;
-                prevPosX.push_back(entities.posX[agent]);
-                prevPosY.push_back(entities.posY[agent]);
+                soldiers.slotIndex[agent] = (uint16_t)k;
+                // A soldier that never moves keeps the velocity-derived
+                // direction SoldierHot::spawn defaults to, (1,0), forever --
+                // seed it from the squad's own facing instead so a
+                // stationary soldier still renders facing its own front
+                // (finding 3). phaseMovementChunk's speed-gated update
+                // still owns direction once a soldier actually moves.
+                soldiers.dirX[agent] = squads.facingX[squadId];
+                soldiers.dirY[agent] = squads.facingY[squadId];
+                prevPosX.push_back(soldiers.posX[agent]);
+                prevPosY.push_back(soldiers.posY[agent]);
             }
         }
+    }
+
+    if (packedTighter) {
+        spdlog::warn("Deployment denser than formation spacing wants: {} agents on a {}x{} "
+                     "field -- squads packed tighter than their own formation extent",
+                     soldierCount, worldWidth, worldHeight);
     }
 
     // Populate memberCount/memberStart (otherwise left at zero until the
@@ -105,16 +175,16 @@ void Simulation::init(size_t soldierCount) {
     // check placement immediately after init, sees each squad's real size.
     // Deployment already assigned distinct slotIndex 0..members-1 per squad,
     // so this reproduces exactly what the first tick would compute anyway.
-    rebuildSquadMembers(entities, squads, squadMembers);
+    rebuildSquadMembers(soldiers, squads, squadMembers);
 
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
-                 entities.count, squads.count, screenWidth, screenHeight);
+                 soldiers.count, squads.count, worldWidth, worldHeight);
 }
 
 size_t Simulation::getTeamCount(Team t) const {
     size_t n = 0;
-    for (size_t i = 0; i < entities.count; ++i) {
-        if (entities.team[i] == t) n++;
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        if (soldiers.team[i] == t) n++;
     }
     return n;
 }
@@ -122,60 +192,60 @@ size_t Simulation::getTeamCount(Team t) const {
 float Simulation::teamCentroidX(Team t) const {
     double sum = 0.0;
     size_t n = 0;
-    for (size_t i = 0; i < entities.count; ++i) {
-        if (entities.team[i] != t) continue;
-        sum += entities.posX[i];
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        if (soldiers.team[i] != t) continue;
+        sum += soldiers.posX[i];
         n++;
     }
     return n ? (float)(sum / (double)n) : 0.0f;
 }
 
 float Simulation::slotError(size_t i) const {
-    const uint16_t s = entities.squadId[i];
-    const Vec2 t = slotWorldPosition(squads, s, entities.slotIndex[i],
+    const uint16_t s = soldiers.squadId[i];
+    const Vec2 t = slotWorldPosition(squads, s, soldiers.slotIndex[i],
                                      squads.memberCount[s]);
-    const float dx = t.x - entities.posX[i];
-    const float dy = t.y - entities.posY[i];
+    const float dx = t.x - soldiers.posX[i];
+    const float dy = t.y - soldiers.posY[i];
     return std::sqrt(dx * dx + dy * dy);
 }
 
 float Simulation::meanSlotError() const {
     double sum = 0.0;
-    for (size_t i = 0; i < entities.count; ++i) {
+    for (size_t i = 0; i < soldiers.count; ++i) {
         sum += slotError(i);
     }
-    return entities.count ? (float)(sum / (double)entities.count) : 0.0f;
+    return soldiers.count ? (float)(sum / (double)soldiers.count) : 0.0f;
 }
 
 bool Simulation::everySoldierHasASquadSlot() const {
-    for (size_t i = 0; i < entities.count; ++i) {
-        const uint16_t s = entities.squadId[i];
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        const uint16_t s = soldiers.squadId[i];
         if (s >= squads.count) return false;
         const uint32_t start = squads.memberStart[s];
         const uint32_t n = squads.memberCount[s];
-        if (entities.slotIndex[i] >= n) return false;
-        if (squadMembers[start + entities.slotIndex[i]] != i) return false;
+        if (soldiers.slotIndex[i] >= n) return false;
+        if (squadMembers[start + soldiers.slotIndex[i]] != i) return false;
     }
     return true;
 }
 
 void Simulation::reset(size_t count) {
-    entities.posX.clear();
-    entities.posY.clear();
-    entities.velX.clear();
-    entities.velY.clear();
-    entities.dirX.clear();
-    entities.dirY.clear();
-    entities.team.clear();
-    entities.unitType.clear();
-    entities.state.clear();
-    entities.squadId.clear();
-    entities.slotIndex.clear();
-    entities.health.clear();
-    entities.attackCooldown.clear();
-    entities.intentTarget.clear();
-    entities.intentFire.clear();
-    entities.count = 0;
+    soldiers.posX.clear();
+    soldiers.posY.clear();
+    soldiers.velX.clear();
+    soldiers.velY.clear();
+    soldiers.dirX.clear();
+    soldiers.dirY.clear();
+    soldiers.team.clear();
+    soldiers.unitType.clear();
+    soldiers.state.clear();
+    soldiers.squadId.clear();
+    soldiers.slotIndex.clear();
+    soldiers.health.clear();
+    soldiers.attackCooldown.clear();
+    soldiers.intentTarget.clear();
+    soldiers.intentFire.clear();
+    soldiers.count = 0;
 
     squads.team.clear();
     squads.unitType.clear();
@@ -211,8 +281,8 @@ void Simulation::generateObstacles() {
     // City blocks (buildings)
     const int blockCount = 8;
     for (int i = 0; i < blockCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingX, 100, screenWidth - 200);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingY, 100, screenHeight - 200);
+        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingX, 100, worldWidth - 200);
+        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingY, 100, worldHeight - 200);
         float w = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingW, 80, 150);
         float h = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingH, 80, 150);
         buildings.push_back({x, y, w, h});
@@ -221,8 +291,8 @@ void Simulation::generateObstacles() {
     // Scattered trees
     const int treeCount = 30;
     for (int i = 0; i < treeCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeX, 50, screenWidth - 50);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeY, 50, screenHeight - 50);
+        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeX, 50, worldWidth - 50);
+        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeY, 50, worldHeight - 50);
         float r = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeRadius, 15, 25);
         trees.push_back({x, y, r});
     }
@@ -236,19 +306,27 @@ void Simulation::tick(float dt) {
     ++tickNumber;
     const Rng rng{worldSeed, tickNumber};
 
-    for (size_t i = 0; i < entities.count; i++) {
-        prevPosX[i] = entities.posX[i];
-        prevPosY[i] = entities.posY[i];
+    for (size_t i = 0; i < soldiers.count; i++) {
+        prevPosX[i] = soldiers.posX[i];
+        prevPosY[i] = soldiers.posY[i];
     }
 
     jobSystem.resetJobCounter();
 
+    // tick() is the single owner of every barrier between phases: each
+    // parallel phase below submits jobs and returns without waiting, and
+    // the jobSystem.waitAll() immediately after it is the only barrier for
+    // that phase. Do not add another inside a phase function -- a phase
+    // that carries its own barrier is indistinguishable from here, but the
+    // next plan that copies its structure without noticing the extra
+    // barrier is the one whose omission breaks silently.
+    //
     // Phase 1: serial. The influence grid accumulates floats, and summing
     // them in index order on one thread is what makes the result
     // bit-reproducible. Atomics from workers would not be.
     rebuildSpatialHash();
     rebuildInfluence();
-    rebuildSquadMembers(entities, squads, squadMembers);
+    rebuildSquadMembers(soldiers, squads, squadMembers);
 
     // Phase 2: parallel over squads. Writes only its own squad.
     phaseSquadAggregate();
@@ -274,15 +352,15 @@ void Simulation::tick(float dt) {
     phaseMovement(dt);
     jobSystem.waitAll();
 
-    screenWrap();
+    clampToWorld();
 }
 
 void Simulation::rebuildSpatialHash() {
     auto start = std::chrono::steady_clock::now();
 
     spatialHash.clear();
-    for (size_t i = 0; i < entities.count; i++) {
-        spatialHash.insert(static_cast<uint32_t>(i), entities.posX[i], entities.posY[i]);
+    for (size_t i = 0; i < soldiers.count; i++) {
+        spatialHash.insert(static_cast<uint32_t>(i), soldiers.posX[i], soldiers.posY[i]);
     }
 
     auto end = std::chrono::steady_clock::now();
@@ -303,7 +381,7 @@ void Simulation::phaseSquadAggregate() {
         const size_t end = std::min(start + chunkSize, squads.count);
         jobSystem.submit([this, start, end]() {
             for (size_t s = start; s < end; ++s) {
-                updateSquadAggregate(entities, squads, squadMembers, s);
+                updateSquadAggregate(soldiers, squads, squadMembers, s);
                 workCounters.add(workCounters.squadDecisions, 1);
             }
         });
@@ -330,8 +408,8 @@ void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {
     // Parallelize collision avoidance (Design Doc §6.2)
     const size_t chunkSize = 256;  // Job granularity
 
-    for (size_t start = 0; start < entities.count; start += chunkSize) {
-        size_t end = std::min(start + chunkSize, entities.count);
+    for (size_t start = 0; start < soldiers.count; start += chunkSize) {
+        size_t end = std::min(start + chunkSize, soldiers.count);
         // rng captured BY VALUE (8 bytes): the job outlives this stack frame.
         jobSystem.submit([this, start, end, dt, rng]() {
             phaseSoldierSteerChunk(start, end, dt, rng);
@@ -339,7 +417,8 @@ void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {
         workCounters.add(workCounters.jobsDispatched, 1);
     }
 
-    jobSystem.waitAll();  // Barrier (Design Doc §6.3)
+    // Barrier owned by tick() (Design Doc §6.3), not this function -- see
+    // the comment on tick()'s own jobSystem.waitAll() calls.
 }
 
 void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng rng) {
@@ -359,10 +438,10 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         // Sets base velocity toward this soldier's formation slot. Must run
         // first: separation and obstacle avoidance below ADD to velocity,
         // so calling this after would erase them instead of blending in.
-        steerToSlot(entities, squads, i, dt);
+        steerToSlot(soldiers, squads, i, dt);
 
-        float px = entities.posX[i];
-        float py = entities.posY[i];
+        float px = soldiers.posX[i];
+        float py = soldiers.posY[i];
 
         // Query nearby neighbors (Design Doc §5.4)
         spatialHash.queryNeighbors(px, py, separationRadius, localNeighbors);
@@ -374,8 +453,8 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         for (uint32_t neighborIdx : localNeighbors) {
             if (neighborIdx == i) continue;  // Skip self
 
-            float dx = px - entities.posX[neighborIdx];
-            float dy = py - entities.posY[neighborIdx];
+            float dx = px - soldiers.posX[neighborIdx];
+            float dy = py - soldiers.posY[neighborIdx];
             float distSq = dx * dx + dy * dy;
 
             if (distSq < separationRadiusSq && distSq > 0.01f) {
@@ -445,16 +524,16 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         }
 
         // Apply separation steering
-        entities.velX[i] += steerX * separationStrength * dt;
-        entities.velY[i] += steerY * separationStrength * dt;
+        soldiers.velX[i] += steerX * separationStrength * dt;
+        soldiers.velY[i] += steerY * separationStrength * dt;
 
         // Limit velocity
         const float maxSpeed = 150.0f;
-        float speedSq = entities.velX[i] * entities.velX[i] + entities.velY[i] * entities.velY[i];
+        float speedSq = soldiers.velX[i] * soldiers.velX[i] + soldiers.velY[i] * soldiers.velY[i];
         if (speedSq > maxSpeed * maxSpeed) {
             float speed = std::sqrt(speedSq);
-            entities.velX[i] = (entities.velX[i] / speed) * maxSpeed;
-            entities.velY[i] = (entities.velY[i] / speed) * maxSpeed;
+            soldiers.velX[i] = (soldiers.velX[i] / speed) * maxSpeed;
+            soldiers.velY[i] = (soldiers.velY[i] / speed) * maxSpeed;
         }
     }
 }
@@ -463,22 +542,23 @@ void Simulation::phaseMovement(float dt) {
     // Parallelize movement integration (Design Doc §6.2)
     const size_t chunkSize = 256;
 
-    for (size_t start = 0; start < entities.count; start += chunkSize) {
-        size_t end = std::min(start + chunkSize, entities.count);
+    for (size_t start = 0; start < soldiers.count; start += chunkSize) {
+        size_t end = std::min(start + chunkSize, soldiers.count);
         jobSystem.submit([this, start, end, dt]() {
             phaseMovementChunk(start, end, dt);
         });
         workCounters.add(workCounters.jobsDispatched, 1);
     }
 
-    jobSystem.waitAll();  // Barrier
+    // Barrier owned by tick(), not this function -- see the comment on
+    // tick()'s own jobSystem.waitAll() calls.
 }
 
 void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
     // SIMD-friendly: compiler auto-vectorizes this loop
     for (size_t i = start; i < end; i++) {
-        float newX = entities.posX[i] + entities.velX[i] * dt;
-        float newY = entities.posY[i] + entities.velY[i] * dt;
+        float newX = soldiers.posX[i] + soldiers.velX[i] * dt;
+        float newY = soldiers.posY[i] + soldiers.velY[i] * dt;
 
         // Check collision with buildings
         bool blocked = false;
@@ -490,19 +570,19 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
                 // Find which side we hit
                 float centerX = building.x + building.width / 2.0f;
                 float centerY = building.y + building.height / 2.0f;
-                float dx = entities.posX[i] - centerX;
-                float dy = entities.posY[i] - centerY;
+                float dx = soldiers.posX[i] - centerX;
+                float dy = soldiers.posY[i] - centerY;
 
                 // Push out and deflect velocity
                 if (std::abs(dx) > std::abs(dy)) {
                     // Hit horizontal side - deflect horizontally, keep Y velocity
-                    newX = entities.posX[i] + (dx > 0 ? 2.0f : -2.0f);
-                    entities.velX[i] = -entities.velX[i] * 0.3f;  // Bounce back weakly
+                    newX = soldiers.posX[i] + (dx > 0 ? 2.0f : -2.0f);
+                    soldiers.velX[i] = -soldiers.velX[i] * 0.3f;  // Bounce back weakly
                     // Keep Y velocity to slide along wall
                 } else {
                     // Hit vertical side - deflect vertically, keep X velocity
-                    newY = entities.posY[i] + (dy > 0 ? 2.0f : -2.0f);
-                    entities.velY[i] = -entities.velY[i] * 0.3f;  // Bounce back weakly
+                    newY = soldiers.posY[i] + (dy > 0 ? 2.0f : -2.0f);
+                    soldiers.velY[i] = -soldiers.velY[i] * 0.3f;  // Bounce back weakly
                     // Keep X velocity to slide along wall
                 }
                 break;
@@ -524,52 +604,52 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
                     // Deflect velocity tangentially (slide around)
                     float normalX = dx / dist;
                     float normalY = dy / dist;
-                    float velDotNormal = entities.velX[i] * normalX + entities.velY[i] * normalY;
-                    entities.velX[i] -= normalX * velDotNormal * 1.5f;  // Remove normal component
-                    entities.velY[i] -= normalY * velDotNormal * 1.5f;
+                    float velDotNormal = soldiers.velX[i] * normalX + soldiers.velY[i] * normalY;
+                    soldiers.velX[i] -= normalX * velDotNormal * 1.5f;  // Remove normal component
+                    soldiers.velY[i] -= normalY * velDotNormal * 1.5f;
                     break;
                 }
             }
         }
 
-        entities.posX[i] = newX;
-        entities.posY[i] = newY;
+        soldiers.posX[i] = newX;
+        soldiers.posY[i] = newY;
 
         // Update direction from velocity (for rendering)
-        float speed = std::sqrt(entities.velX[i] * entities.velX[i] +
-                               entities.velY[i] * entities.velY[i]);
+        float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
+                               soldiers.velY[i] * soldiers.velY[i]);
         if (speed > 0.1f) {  // Only update if moving
-            entities.dirX[i] = entities.velX[i] / speed;
-            entities.dirY[i] = entities.velY[i] / speed;
+            soldiers.dirX[i] = soldiers.velX[i] / speed;
+            soldiers.dirY[i] = soldiers.velY[i] / speed;
         }
     }
 }
 
-void Simulation::screenWrap() {
-    const float w = static_cast<float>(screenWidth);
-    const float h = static_cast<float>(screenHeight);
+void Simulation::clampToWorld() {
+    const float w = static_cast<float>(worldWidth);
+    const float h = static_cast<float>(worldHeight);
     const float damping = 0.5f; // Bounce damping factor
 
-    for (size_t i = 0; i < entities.count; i++) {
+    for (size_t i = 0; i < soldiers.count; i++) {
         // Left boundary
-        if (entities.posX[i] < 0) {
-            entities.posX[i] = 0;
-            entities.velX[i] = std::abs(entities.velX[i]) * damping; // Bounce right
+        if (soldiers.posX[i] < 0) {
+            soldiers.posX[i] = 0;
+            soldiers.velX[i] = std::abs(soldiers.velX[i]) * damping; // Bounce right
         }
         // Right boundary
-        if (entities.posX[i] > w) {
-            entities.posX[i] = w;
-            entities.velX[i] = -std::abs(entities.velX[i]) * damping; // Bounce left
+        if (soldiers.posX[i] > w) {
+            soldiers.posX[i] = w;
+            soldiers.velX[i] = -std::abs(soldiers.velX[i]) * damping; // Bounce left
         }
         // Top boundary
-        if (entities.posY[i] < 0) {
-            entities.posY[i] = 0;
-            entities.velY[i] = std::abs(entities.velY[i]) * damping; // Bounce down
+        if (soldiers.posY[i] < 0) {
+            soldiers.posY[i] = 0;
+            soldiers.velY[i] = std::abs(soldiers.velY[i]) * damping; // Bounce down
         }
         // Bottom boundary
-        if (entities.posY[i] > h) {
-            entities.posY[i] = h;
-            entities.velY[i] = -std::abs(entities.velY[i]) * damping; // Bounce up
+        if (soldiers.posY[i] > h) {
+            soldiers.posY[i] = h;
+            soldiers.velY[i] = -std::abs(soldiers.velY[i]) * damping; // Bounce up
         }
     }
 }
@@ -580,18 +660,30 @@ uint32_t Simulation::getMaxCellOccupancy() const {
 
 uint64_t Simulation::stateDigest() const {
     StateDigest d;
-    d.mix(static_cast<uint32_t>(entities.count));
-    for (size_t i = 0; i < entities.count; ++i) {
-        d.mix(entities.posX[i]);
-        d.mix(entities.posY[i]);
-        d.mix(entities.velX[i]);
-        d.mix(entities.velY[i]);
-        d.mix(static_cast<uint32_t>(entities.team[i]));
-        d.mix(static_cast<uint32_t>(entities.unitType[i]));
-        d.mix(static_cast<uint32_t>(entities.state[i]));
-        d.mix(static_cast<uint32_t>(entities.squadId[i]));
-        d.mix(static_cast<uint32_t>(entities.slotIndex[i]));
-        d.mix(static_cast<uint32_t>(entities.health[i]));
+    d.mix(static_cast<uint32_t>(soldiers.count));
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        d.mix(soldiers.posX[i]);
+        d.mix(soldiers.posY[i]);
+        d.mix(soldiers.velX[i]);
+        d.mix(soldiers.velY[i]);
+        d.mix(static_cast<uint32_t>(soldiers.team[i]));
+        d.mix(static_cast<uint32_t>(soldiers.unitType[i]));
+        d.mix(static_cast<uint32_t>(soldiers.state[i]));
+        d.mix(static_cast<uint32_t>(soldiers.squadId[i]));
+        d.mix(static_cast<uint32_t>(soldiers.slotIndex[i]));
+        d.mix(static_cast<uint32_t>(soldiers.health[i]));
+        // intentTarget/intentFire/attackCooldown are constant today (plan 2
+        // makes them live inside phaseResolution, the phase with the most
+        // cross-agent pressure); dirX/dirY are set at deployment and by the
+        // speed-gated update in phaseMovementChunk. All five are included
+        // now, ahead of plan 2, so the thread-invariance gate already
+        // exercises them the day they start changing instead of being
+        // blind to a divergence introduced then.
+        d.mix(soldiers.intentTarget[i]);
+        d.mix(static_cast<uint32_t>(soldiers.intentFire[i]));
+        d.mix(soldiers.attackCooldown[i]);
+        d.mix(soldiers.dirX[i]);
+        d.mix(soldiers.dirY[i]);
     }
 
     // The squad tier now has real per-tick state (centroid, facing) written

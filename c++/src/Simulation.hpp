@@ -82,11 +82,11 @@ struct SoldierHot {
 
 class Simulation {
 public:
-    Simulation(int screenWidth, int screenHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
+    Simulation(int worldWidth, int worldHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
 
     void init(size_t count);
     void reset(size_t count);  // Tear down and re-init at a new agent count
-    size_t getAgentCount() const { return entities.count; }
+    size_t getAgentCount() const { return soldiers.count; }
     uint32_t getSeed() const { return worldSeed; }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
 
@@ -94,9 +94,10 @@ public:
     size_t getSquadCount() const { return squads.count; }
     size_t getTeamCount(Team t) const;
     float  teamCentroidX(Team t) const;
-    float  soldierX(size_t i) const { return entities.posX[i]; }
-    float  soldierY(size_t i) const { return entities.posY[i]; }
-    Team   soldierTeam(size_t i) const { return entities.team[i]; }
+    float  soldierX(size_t i) const { return soldiers.posX[i]; }
+    float  soldierY(size_t i) const { return soldiers.posY[i]; }
+    Team   soldierTeam(size_t i) const { return soldiers.team[i]; }
+    UnitType soldierUnitType(size_t i) const { return soldiers.unitType[i]; }
     bool   everySoldierHasASquadSlot() const;
 
     // Per-squad accessors (Task 8). Used to check a squad's centroid does
@@ -137,13 +138,13 @@ public:
 private:
     WorkCounters workCounters;
 
-    int screenWidth;
-    int screenHeight;
+    int worldWidth;
+    int worldHeight;
 
     uint32_t worldSeed = 1u;
     uint32_t tickNumber = 0u;
 
-    SoldierHot entities;  // Hot data (SoA)
+    SoldierHot soldiers;  // Hot data (SoA)
 
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
@@ -189,5 +190,5 @@ private:
     void phaseResolution(const Rng& rng);  // Stub: plan 2 fills this in. Only place cross-agent mutation is permitted.
     void phaseMovement(float dt);
     void phaseMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
-    void screenWrap();
+    void clampToWorld();  // Clamps positions to world bounds and bounces velocity (never wraps, despite older code's name for this)
 };
