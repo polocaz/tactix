@@ -6,8 +6,17 @@
 
 Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
                        uint16_t slotIndex, uint32_t memberCount) {
-    const Vec2 local = formationSlot(shapeForUnit(squads.unitType[s]),
-                                     slotIndex, memberCount);
+    const FormationShape shape = shapeForUnit(squads.unitType[s]);
+    const Vec2 raw = formationSlot(shape, slotIndex, memberCount);
+    // updateSquadAggregate sets centroid to the mean of member positions, but
+    // formationSlot's local origin is the formation's front-center, not its
+    // mean (rank 0 sits at forward = 0, every later rank is negative). The
+    // two points differ unless we recenter here: subtract the formation's
+    // own mean offset so the mean of a squad's slot positions is exactly the
+    // centroid, making the centroid a genuine fixed point instead of one the
+    // squad chases backward every tick.
+    const Vec2 mean = formationMeanOffset(shape, memberCount);
+    const Vec2 local{ raw.x - mean.x, raw.y - mean.y };
     const float fx = squads.facingX[s];
     const float fy = squads.facingY[s];
     // Local +y is "toward the enemy" and maps onto facing; local +x is

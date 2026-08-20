@@ -99,6 +99,12 @@ public:
     Team   soldierTeam(size_t i) const { return entities.team[i]; }
     bool   everySoldierHasASquadSlot() const;
 
+    // Per-squad accessors (Task 8). Used to check a squad's centroid does
+    // not drift over time with no orders given.
+    float  squadCentroidX(size_t s) const { return squads.centroidX[s]; }
+    float  squadCentroidY(size_t s) const { return squads.centroidY[s]; }
+    Team   squadTeam(size_t s) const { return squads.team[s]; }
+
     // Distance from one soldier to its own formation slot (Task 8).
     float  slotError(size_t i) const;
 

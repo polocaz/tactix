@@ -50,3 +50,24 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
     const float forward = -(float)row * spacing;
     return Vec2{ right, forward };
 }
+
+// Mean of every slot offset for this shape and count. slotWorldPosition
+// subtracts it so that the mean of a squad's slot positions is exactly the
+// squad centroid. Without this, centroid (a mean of member positions) and
+// the formation's front-anchored origin are different points, and the squad
+// translates backward every tick chasing its own receding centroid.
+inline Vec2 formationMeanOffset(FormationShape shape, uint32_t memberCount) {
+    if (memberCount == 0) return Vec2{0.0f, 0.0f};
+
+    // Averaged by direct summation rather than a closed form: memberCount is
+    // a few dozen, so the loop's cost is negligible and its correctness is
+    // obvious by inspection. Accumulated in ascending slot order so the
+    // result is bit-reproducible regardless of caller or thread.
+    float sumX = 0.0f, sumY = 0.0f;
+    for (uint32_t i = 0; i < memberCount; ++i) {
+        const Vec2 s = formationSlot(shape, (uint16_t)i, memberCount);
+        sumX += s.x;
+        sumY += s.y;
+    }
+    return Vec2{ sumX / (float)memberCount, sumY / (float)memberCount };
+}
