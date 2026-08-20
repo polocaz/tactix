@@ -2,6 +2,7 @@
 #include "Simulation.hpp"
 #include "Squads.hpp"
 #include "Formation.hpp"
+#include "Soldiers.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
 #include <algorithm>
@@ -115,6 +116,19 @@ float Simulation::teamCentroidX(Team t) const {
         n++;
     }
     return n ? (float)(sum / (double)n) : 0.0f;
+}
+
+float Simulation::meanSlotError() const {
+    double sum = 0.0;
+    for (size_t i = 0; i < entities.count; ++i) {
+        const uint16_t s = entities.squadId[i];
+        const Vec2 t = slotWorldPosition(squads, s, entities.slotIndex[i],
+                                         squads.memberCount[s]);
+        const float dx = t.x - entities.posX[i];
+        const float dy = t.y - entities.posY[i];
+        sum += std::sqrt(dx * dx + dy * dy);
+    }
+    return entities.count ? (float)(sum / (double)entities.count) : 0.0f;
 }
 
 bool Simulation::everySoldierHasASquadSlot() const {
@@ -322,6 +336,11 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
     localNeighbors.reserve(200);
 
     for (size_t i = start; i < end; i++) {
+        // Sets base velocity toward this soldier's formation slot. Must run
+        // first: separation and obstacle avoidance below ADD to velocity,
+        // so calling this after would erase them instead of blending in.
+        steerToSlot(entities, squads, i, dt);
+
         float px = entities.posX[i];
         float py = entities.posY[i];
 

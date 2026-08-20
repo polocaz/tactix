@@ -93,6 +93,7 @@ add_library(tactix_sim STATIC
     src/SpatialHash.cpp
     src/JobSystem.cpp
     src/Squads.cpp
+    src/Soldiers.cpp
 )
 target_include_directories(tactix_sim PUBLIC src)
 target_link_libraries(tactix_sim PUBLIC tactix_fp_flags spdlog::spdlog_header_only)
@@ -135,6 +136,7 @@ add_executable(tactix_tests
     tests/test_formation.cpp
     tests/test_squads.cpp
     tests/test_deployment.cpp
+    tests/test_steering.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE

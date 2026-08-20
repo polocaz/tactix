@@ -98,6 +98,10 @@ public:
     float  soldierY(size_t i) const { return entities.posY[i]; }
     bool   everySoldierHasASquadSlot() const;
 
+    // Mean distance from each soldier to its assigned formation slot
+    // (Task 8). Used by tests to check steering converges over time.
+    float  meanSlotError() const;
+
     friend void drawSimulation(const Simulation& sim, float alpha);
 
     // Metrics access
