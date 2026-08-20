@@ -4,6 +4,7 @@
 enum class Team : uint8_t { A = 0, B = 1 };
 enum class UnitType : uint8_t { Infantry = 0, Archer = 1, Cavalry = 2 };
 enum class SoldierState : uint8_t { Forming = 0, Engaged = 1, Routing = 2, Dead = 3 };
+enum class FormationShape : uint8_t { Line = 0, Column = 1, Wedge = 2, Loose = 3 };
 
 constexpr uint32_t kUnitTypeCount = 3;
 
