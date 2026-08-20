@@ -165,7 +165,7 @@ private:
     // Tick phases, in the order Simulation::tick calls them (Design Doc §4).
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
     void rebuildInfluence();    // Stub: plan 3 fills this in.
-    void phaseSquadAggregate();       // Stub: plan 3 fills this in.
+    void phaseSquadAggregate();       // Plan 7: recomputes each squad's centroid and facing, parallel across squads.
     void phaseSquadDecide(const Rng& rng);  // Stub: plan 3 fills this in.
     void phaseSoldierSteer(float dt, const Rng& rng);  // Collision avoidance
     // Chunks take Rng BY VALUE: they run on worker threads via a lambda that

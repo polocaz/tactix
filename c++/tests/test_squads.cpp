@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include "Squads.hpp"
 #include "Simulation.hpp"
+#include <cmath>
 #include <vector>
 
 namespace {
@@ -165,4 +166,48 @@ TEST_CASE("rebuilding twice is idempotent") {
     rebuildSquadMembers(s, q, second);
 
     CHECK(first == second);
+}
+
+TEST_CASE("centroid is the mean of member positions") {
+    SoldierHot s;
+    s.spawn(10.0f, 20.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(30.0f, 40.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    SquadHot q = makeSquads(1);
+    std::vector<uint32_t> members;
+    rebuildSquadMembers(s, q, members);
+
+    updateSquadAggregate(s, q, members, 0);
+
+    CHECK(q.centroidX[0] == doctest::Approx(20.0f));
+    CHECK(q.centroidY[0] == doctest::Approx(30.0f));
+}
+
+TEST_CASE("an empty squad keeps its previous centroid rather than producing NaN") {
+    SoldierHot s;  // no members
+    SquadHot q = makeSquads(1);
+    q.centroidX[0] = 123.0f;
+    q.centroidY[0] = 456.0f;
+    std::vector<uint32_t> members;
+    rebuildSquadMembers(s, q, members);
+
+    updateSquadAggregate(s, q, members, 0);
+
+    CHECK(q.centroidX[0] == doctest::Approx(123.0f));
+    CHECK(q.centroidY[0] == doctest::Approx(456.0f));
+}
+
+TEST_CASE("facing stays normalized") {
+    SoldierHot s;
+    s.spawn(0.0f, 0.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    SquadHot q = makeSquads(1);
+    q.facingX[0] = 3.0f;   // deliberately not unit length
+    q.facingY[0] = 4.0f;
+    std::vector<uint32_t> members;
+    rebuildSquadMembers(s, q, members);
+
+    updateSquadAggregate(s, q, members, 0);
+
+    const float len = std::sqrt(q.facingX[0] * q.facingX[0] +
+                                q.facingY[0] * q.facingY[0]);
+    CHECK(len == doctest::Approx(1.0f));
 }

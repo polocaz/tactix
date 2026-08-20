@@ -1,6 +1,7 @@
 #include "Squads.hpp"
 #include "Simulation.hpp"
 #include <algorithm>
+#include <cmath>
 
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
                          std::vector<uint32_t>& members) {
@@ -50,5 +51,42 @@ void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
         for (uint32_t k = 0; k < n; ++k) {
             soldiers.slotIndex[members[start + k]] = (uint16_t)k;
         }
+    }
+}
+
+void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
+                          const std::vector<uint32_t>& members,
+                          size_t s) {
+    const uint32_t start = squads.memberStart[s];
+    const uint32_t n = squads.memberCount[s];
+
+    // An emptied squad keeps its last centroid. Squads are never destroyed
+    // (that is what keeps targetSquad valid without a liveness check), so a
+    // wiped-out squad must not poison the field with NaN.
+    if (n > 0) {
+        // Summed in member order on one thread, so the result is
+        // bit-reproducible regardless of worker count.
+        float sumX = 0.0f, sumY = 0.0f;
+        for (uint32_t k = 0; k < n; ++k) {
+            const uint32_t i = members[start + k];
+            sumX += soldiers.posX[i];
+            sumY += soldiers.posY[i];
+        }
+        squads.centroidX[s] = sumX / (float)n;
+        squads.centroidY[s] = sumY / (float)n;
+    }
+
+    // Plan 3 derives facing from the order objective. Until then a squad
+    // holds its deployed facing; renormalize so formation rotation in Task 8
+    // can assume unit length.
+    const float fx = squads.facingX[s];
+    const float fy = squads.facingY[s];
+    const float len = std::sqrt(fx * fx + fy * fy);
+    if (len > 1e-6f) {
+        squads.facingX[s] = fx / len;
+        squads.facingY[s] = fy / len;
+    } else {
+        squads.facingX[s] = 1.0f;
+        squads.facingY[s] = 0.0f;
     }
 }

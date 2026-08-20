@@ -265,8 +265,19 @@ void Simulation::rebuildInfluence() {
 }
 
 void Simulation::phaseSquadAggregate() {
-    // Plan 7 fills this in. updateSquadAggregate (Squads.hpp) is declared
-    // but not yet defined, so it is not dispatched from here yet.
+    // Plan 7: recompute each squad's centroid and facing. Parallel across
+    // squads, never within one -- updateSquadAggregate sums one squad's
+    // members on a single thread so the accumulation order is fixed.
+    const size_t chunkSize = 32;
+    for (size_t start = 0; start < squads.count; start += chunkSize) {
+        const size_t end = std::min(start + chunkSize, squads.count);
+        jobSystem.submit([this, start, end]() {
+            for (size_t s = start; s < end; ++s) {
+                updateSquadAggregate(entities, squads, squadMembers, s);
+            }
+        });
+        workCounters.add(workCounters.jobsDispatched, 1);
+    }
 }
 
 void Simulation::phaseSquadDecide(const Rng&) {
