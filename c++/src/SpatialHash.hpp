@@ -1,27 +1,32 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include "WorkCounters.hpp"
 
 // Spatial hash grid for efficient neighbor queries (Design Doc §5)
 class SpatialHash {
 public:
     SpatialHash(float worldWidth, float worldHeight, float cellSize);
-    
+
     // Clear and rebuild the grid for current frame
     void clear();
     void insert(uint32_t entityId, float x, float y);
-    
+
     // Query entities in 9-cell neighborhood (3x3 grid around position)
     void queryNeighbors(float x, float y, float radius, std::vector<uint32_t>& outEntities) const;
-    
+
     // Debug info
     uint32_t getCellCount() const { return gridWidth * gridHeight; }
     uint32_t getMaxOccupancy() const;
-    
+
     // Get cell coordinates for position
     void getCellCoords(float x, float y, int32_t& cellX, int32_t& cellY) const;
 
+    void setCounters(WorkCounters* c) { counters = c; }
+
 private:
+    WorkCounters* counters = nullptr;
+
     float cellSize;
     uint32_t gridWidth;
     uint32_t gridHeight;

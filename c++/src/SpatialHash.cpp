@@ -23,17 +23,20 @@ void SpatialHash::clear() {
 void SpatialHash::insert(uint32_t entityId, float x, float y) {
     uint32_t cellId = hashPosition(x, y);
     cells[cellId].push_back(entityId);
+    if (counters) counters->add(counters->gridInsertions, 1);
 }
 
+// NOTE: `radius` is currently IGNORED. This always returns the fixed 3x3 cell block around
+// (x, y) regardless of the requested radius, whether that block is larger or smaller than
+// `radius` actually calls for. This is a known, pre-existing bug, deliberately not fixed here
+// because doing so would change simulation behaviour/output. See the branch's final review notes.
 void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uint32_t>& outEntities) const {
     outEntities.clear();
-    
+
     // Get center cell coordinates
     int32_t centerX = static_cast<int32_t>(x / cellSize);
     int32_t centerY = static_cast<int32_t>(y / cellSize);
-    
-    const float radiusSq = radius * radius;
-    
+
     // Check 9 cells (3x3 grid) around center (Design Doc §5.4)
     for (int32_t dy = -1; dy <= 1; ++dy) {
         for (int32_t dx = -1; dx <= 1; ++dx) {
@@ -41,10 +44,15 @@ void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uin
             int32_t cellY = centerY + dy;
             
             if (!isValidCell(cellX, cellY)) continue;
-            
+
             uint32_t cellId = cellY * gridWidth + cellX;
             const auto& cell = cells[cellId];
-            
+
+            if (counters) {
+                counters->add(counters->cellsVisited, 1);
+                counters->add(counters->candidatesExamined, cell.size());
+            }
+
             // Add all entities from this cell
             // (Could add distance filtering here, but caller typically does that)
             outEntities.insert(outEntities.end(), cell.begin(), cell.end());

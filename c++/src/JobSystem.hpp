@@ -12,7 +12,7 @@ class JobSystem {
 public:
     using Job = std::function<void()>;
     
-    JobSystem();
+    explicit JobSystem(uint32_t requestedWorkers = 0);
     ~JobSystem();
     
     // Submit a job to be executed by worker threads

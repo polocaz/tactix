@@ -2,7 +2,7 @@
 
 **Current Status:** Phase 4.5 Complete - Tactical Survival Simulation  
 **Latest:** Group behaviors, ranged combat, environment obstacles, hard collision physics  
-**Performance:** 10,000 agents @ 60 TPS, ~1.6ms tick time, 144 FPS
+**Performance:** 10,000 agents @ 60 TPS. Measured numbers: see the root [`README.md`](../../README.md#current-numbers) "Current numbers" section — the single source of truth, each figure backed by a reproducible `tactix_bench` command.
 
 ## 1. High-Level Architecture
 

@@ -1,0 +1,47 @@
+# Deterministic work counters and state digest: 2000 agents, 200 ticks, seed 42, 1 thread.
+# Machine-independent by construction. Regenerate with:
+#   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
+# Paste the four counters (candidatesExamined/cellsVisited/gridInsertions/
+# jobsDispatched) and stateDigest straight from that command's JSON output --
+# stateDigest below is hex, exactly as printed ("%016llx"), so no mental
+# base conversion is needed. loadBaseline in test_counters.cpp parses
+# stateDigest as base 16 and every other key as base 10, and rejects any
+# value it cannot consume in full, so a value pasted into the wrong slot
+# (or in the wrong base) fails the test loudly instead of silently.
+#
+# An intentional optimisation SHOULD change candidatesExamined/cellsVisited/
+# gridInsertions/jobsDispatched. Update them in the same commit as the change
+# that causes it, so the diff shows the improvement next to its cause.
+#
+# stateDigest is different: it is NOT expected to move for a routine
+# optimisation. It is a hash of final simulation state, so a changed digest
+# means simulation *behaviour* changed -- either a deliberate behavioural
+# change (update it, and say why in the commit) or a bug (a stray order-of-
+# operations dependency, an uninitialised value, etc. -- do not update it
+# until the cause is understood).
+#
+# stateDigest is also the single cross-platform correctness check: nothing
+# else in this repo compares Linux and Windows output against a fixed
+# reference. The determinism tests only assert same-seed reproducibility
+# *within* one platform/run, never against a committed value. If CI ever
+# shows Linux and Windows disagreeing on any value here -- including the
+# digest -- that is a real bit-reproducibility bug, not a test problem. Do
+# NOT resolve it by loosening the digest check, dropping it, or splitting
+# this file per platform without a deliberate, documented decision (see spec
+# Sec.5.4 for the sanctioned fallback path).
+#
+# A THIRD, legitimate reason the digest can move: StateDigest.hpp hashes an
+# index-ordered walk of the SoA arrays (order-DEPENDENT, not order-
+# independent), so a pure memory-layout change -- e.g. a future phase that
+# reorders agent arrays by spatial cell for cache locality, with no change to
+# *which* agents exist or *what* they do -- will necessarily move the digest
+# even though simulation behaviour is unchanged. That is expected, not a bug.
+# If you land a layout-only reordering, update stateDigest here in the same
+# commit and say explicitly in the commit message that the move is a layout
+# change, not a behavioural one, so this stays distinguishable from case 2
+# above in history.
+candidatesExamined=41857556
+cellsVisited=7019627
+gridInsertions=399467
+jobsDispatched=4800
+stateDigest=6ddc96530e96e9d4
