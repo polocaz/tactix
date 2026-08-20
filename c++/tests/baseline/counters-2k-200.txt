@@ -44,4 +44,4 @@ candidatesExamined=40900494
 cellsVisited=3079574
 gridInsertions=400000
 jobsDispatched=3800
-stateDigest=77537039df643e55
+stateDigest=9c89b84fa4bd084a

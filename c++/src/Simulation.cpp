@@ -554,5 +554,26 @@ uint64_t Simulation::stateDigest() const {
         d.mix(static_cast<uint32_t>(entities.slotIndex[i]));
         d.mix(static_cast<uint32_t>(entities.health[i]));
     }
+
+    // The squad tier now has real per-tick state (centroid, facing) written
+    // by a parallel-across-squads phase. A digest that only covered soldiers
+    // would pass the thread-invariance gate even if that phase diverged
+    // across thread counts, since none of its output would ever be
+    // compared. Digest it so the gate actually exercises what this task
+    // added. order/targetSquad/morale/discipline are constant today (plan 3
+    // gives them meaning) but are included now so the gate already covers
+    // them once that lands.
+    d.mix(static_cast<uint32_t>(squads.count));
+    for (size_t s = 0; s < squads.count; ++s) {
+        d.mix(static_cast<uint32_t>(squads.memberCount[s]));
+        d.mix(static_cast<uint32_t>(squads.order[s]));
+        d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
+        d.mix(squads.centroidX[s]);
+        d.mix(squads.centroidY[s]);
+        d.mix(squads.facingX[s]);
+        d.mix(squads.facingY[s]);
+        d.mix(squads.morale[s]);
+        d.mix(squads.discipline[s]);
+    }
     return d.value();
 }
