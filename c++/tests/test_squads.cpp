@@ -106,18 +106,43 @@ TEST_CASE("equal previous slotIndex ties break on soldier index, not std::sort's
     // stable sort: with an all-equal range its output permutation is
     // implementation-defined, and libstdc++ and MSVC STL disagree on it. The
     // comparator must tie-break on soldier index so the result is the same
-    // on every platform. If the tie-break is removed, this is the case that
-    // catches it (though the exact wrong permutation is library-specific).
-    SoldierHot s = makeSoldiers({0, 0, 0, 0}, {0, 0, 0, 0});
+    // on every platform.
+    //
+    // The squad MUST be large enough to enter introsort's partitioning path,
+    // which is what actually permutes equal elements: libstdc++ routes
+    // ranges under 16 elements, and MSVC STL ranges under roughly 32, straight
+    // to insertion sort instead. Insertion sort only moves an element when
+    // the comparator returns true, and an all-false comparator (no
+    // tie-break) performs zero swaps on an already-ascending input, so a
+    // small squad here passes identically with or without the fix and guards
+    // nothing. 64 elements clears both cutoffs with margin. Do not shrink
+    // this back down; a future "simplification" to a handful of soldiers
+    // would silently disarm the test.
+    //
+    // NOTE (see task-4-report.md for the full trace): on MSVC STL this test
+    // was verified NOT to fail even with the tie-break removed, at any size
+    // tried (64 / 1000 / 100000). Reading vcruntime's <algorithm> shows why:
+    // its partition routine first extends an "already equal" run from both
+    // ends of the range, and with an all-false comparator that run always
+    // meets in the middle, so the function returns before its swap loops
+    // ever execute -- zero swaps, for any N. That is a genuine property of
+    // MSVC's implementation, not a weak test. libstdc++'s partition (a Hoare
+    // scheme keyed the same way) does not have that short-circuit and does
+    // swap on an all-equal range, so this test still guards CI's
+    // ubuntu-latest leg, which is the platform the original finding named.
+    constexpr size_t kCount = 64;
+    std::vector<uint16_t> squadIds(kCount, 0);
+    std::vector<uint16_t> slotIndices(kCount, 0);  // all tied
+    SoldierHot s = makeSoldiers(squadIds, slotIndices);
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
 
     rebuildSquadMembers(s, q, members);
 
-    CHECK(members[0] == 0);
-    CHECK(members[1] == 1);
-    CHECK(members[2] == 2);
-    CHECK(members[3] == 3);
+    REQUIRE(members.size() == kCount);
+    for (uint32_t i = 0; i < kCount; ++i) {
+        CHECK(members[i] == i);
+    }
 }
 
 TEST_CASE("an empty squad has a zero-length range") {
