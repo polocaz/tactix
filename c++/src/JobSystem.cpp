@@ -45,9 +45,16 @@ void JobSystem::submit(Job job) {
 
 void JobSystem::waitAll() {
     std::unique_lock<std::mutex> lock(waitMutex);
-    waitCV.wait(lock, [this]() { 
-        return activeJobs.load() == 0 && jobQueue.empty(); 
-    });
+    // activeJobs alone is the whole condition. submit() increments it under
+    // queueMutex before pushing, and a worker decrements it only after its job
+    // has finished running, so a zero count means the queue is drained AND
+    // nothing is still executing.
+    //
+    // The predicate used to also read jobQueue.empty(). That was a data race:
+    // jobQueue is guarded by queueMutex, not the waitMutex held here, so the
+    // read ran concurrently with workers popping from it. The read was also
+    // redundant, which is why removing it is the whole fix.
+    waitCV.wait(lock, [this]() { return activeJobs.load() == 0; });
 }
 
 void JobSystem::workerLoop() {
