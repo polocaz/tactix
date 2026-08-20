@@ -191,13 +191,20 @@ tactix/
 ├── src/
 │   ├── main.cpp           # Entry point, fixed timestep loop, camera controls
 │   ├── platform.h         # Cross-platform Windows API conflict resolution
-│   ├── Simulation.hpp     # Core simulation orchestration & agent behaviors
+│   ├── Simulation.hpp     # Core simulation orchestration & agent behaviors (headless, no raylib)
 │   ├── Simulation.cpp     # SoA entity management, seek/flee, infection system
+│   ├── Renderer.hpp       # Drawing layer, extracted from Simulation so tactix_sim stays headless
+│   ├── Renderer.cpp       # raylib/ImGui draw calls
 │   ├── SpatialHash.hpp    # Uniform grid hash for neighbor queries
 │   ├── SpatialHash.cpp    # Spatial partitioning implementation
 │   ├── JobSystem.hpp      # Worker thread pool for parallelization
 │   ├── JobSystem.cpp      # Job queue & barrier synchronization
-│   └── Agent.hpp          # (Legacy, unused)
+│   ├── Rng.hpp            # Stateless per-agent hash RNG (deterministic, thread-safe)
+│   ├── DetMath.hpp        # Platform-independent transcendentals (deterministic tick math)
+│   ├── StateDigest.hpp    # Order-independent hash of simulation state, for determinism tests
+│   └── WorkCounters.hpp   # Deterministic work counters, gated in CI
+├── bench/                 # tactix_bench: headless benchmark harness (main.cpp + BenchStats.hpp)
+├── tests/                 # doctest suite (multiple files): determinism, thread invariance, counter baseline
 ├── docs/
 │   ├── Design Document.md # Detailed architecture & algorithms
 │   └── Roadmap.md        # 7-week implementation plan
