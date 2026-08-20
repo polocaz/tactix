@@ -124,3 +124,19 @@ TEST_CASE("threads=0 (auto) matches an explicit hardware_concurrency()-1") {
     const uint32_t explicitWorkers = hc > 1 ? hc - 1 : 1u;
     CHECK(runWithThreads(0u) == runWithThreads(explicitWorkers));
 }
+
+TEST_CASE("phase order is stable across thread counts") {
+    // The phases mutate shared state only in resolution. If a parallel phase
+    // ever writes another agent, this diverges as thread count changes.
+    auto run = [](uint32_t threads) {
+        Simulation sim(1280, 720, 42u, threads);
+        sim.init(2000);
+        sim.setPaused(false);
+        for (int i = 0; i < 120; ++i) sim.tick(1.0f / 60.0f);
+        return sim.stateDigest();
+    };
+    const uint64_t one = run(1u);
+    CHECK(run(2u)  == one);
+    CHECK(run(4u)  == one);
+    CHECK(run(8u)  == one);
+}

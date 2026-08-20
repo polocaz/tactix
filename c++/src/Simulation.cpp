@@ -211,12 +211,39 @@ void Simulation::tick(float dt) {
         prevPosY[i] = entities.posY[i];
     }
 
-    rebuildSpatialHash();
-    rebuildSquadMembers(entities, squads, squadMembers);
     jobSystem.resetJobCounter();
 
-    updateSeparation(dt, rng);
-    updateMovement(dt);
+    // Phase 1: serial. The influence grid accumulates floats, and summing
+    // them in index order on one thread is what makes the result
+    // bit-reproducible. Atomics from workers would not be.
+    rebuildSpatialHash();
+    rebuildInfluence();
+    rebuildSquadMembers(entities, squads, squadMembers);
+
+    // Phase 2: parallel over squads. Writes only its own squad.
+    phaseSquadAggregate();
+    jobSystem.waitAll();
+
+    // Phase 3: parallel over squads. Safe to read every squad's aggregate
+    // only because the barrier above made those values read-only.
+    phaseSquadDecide(rng);
+    jobSystem.waitAll();
+
+    // Phase 4: parallel over soldiers. Writes only its own soldier.
+    phaseSoldierSteer(dt, rng);
+    jobSystem.waitAll();
+
+    // Phase 5: parallel over projectiles.
+    phaseProjectiles(dt);
+    jobSystem.waitAll();
+
+    // Phase 6: serial. The ONLY place cross-agent mutation happens.
+    phaseResolution(rng);
+
+    // Phase 7: parallel over soldiers.
+    phaseMovement(dt);
+    jobSystem.waitAll();
+
     screenWrap();
 }
 
@@ -232,7 +259,32 @@ void Simulation::rebuildSpatialHash() {
     lastSpatialHashTime = std::chrono::duration<float>(end - start).count() * 1000.0f;  // ms
 }
 
-void Simulation::updateSeparation(float dt, const Rng& rng) {
+void Simulation::rebuildInfluence() {
+    // Plan 3 fills this in. Declared here so the phase order is visible and
+    // fixed from the start rather than being inserted later.
+}
+
+void Simulation::phaseSquadAggregate() {
+    // Plan 7 fills this in. updateSquadAggregate (Squads.hpp) is declared
+    // but not yet defined, so it is not dispatched from here yet.
+}
+
+void Simulation::phaseSquadDecide(const Rng&) {
+    // Plan 3 fills this in. Every squad currently holds the Advance order it
+    // was deployed with.
+}
+
+void Simulation::phaseProjectiles(float) {
+    // Plan 2 fills this in.
+}
+
+void Simulation::phaseResolution(const Rng&) {
+    // Plan 2 fills this in. Kept in the phase order now because it is the
+    // only place cross-agent mutation is permitted, and later plans must not
+    // be tempted to put that anywhere else.
+}
+
+void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {
     // Parallelize collision avoidance (Design Doc §6.2)
     const size_t chunkSize = 256;  // Job granularity
 
@@ -240,7 +292,7 @@ void Simulation::updateSeparation(float dt, const Rng& rng) {
         size_t end = std::min(start + chunkSize, entities.count);
         // rng captured BY VALUE (8 bytes): the job outlives this stack frame.
         jobSystem.submit([this, start, end, dt, rng]() {
-            updateSeparationChunk(start, end, dt, rng);
+            phaseSoldierSteerChunk(start, end, dt, rng);
         });
         workCounters.add(workCounters.jobsDispatched, 1);
     }
@@ -248,7 +300,7 @@ void Simulation::updateSeparation(float dt, const Rng& rng) {
     jobSystem.waitAll();  // Barrier (Design Doc §6.3)
 }
 
-void Simulation::updateSeparationChunk(size_t start, size_t end, float dt, Rng rng) {
+void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng rng) {
     // Collision avoidance using spatial queries (Phase 2)
     const float separationRadius = 25.0f;  // Increased from 20
     const float separationStrength = 300.0f;  // Increased from 200
@@ -357,14 +409,14 @@ void Simulation::updateSeparationChunk(size_t start, size_t end, float dt, Rng r
     }
 }
 
-void Simulation::updateMovement(float dt) {
+void Simulation::phaseMovement(float dt) {
     // Parallelize movement integration (Design Doc §6.2)
     const size_t chunkSize = 256;
 
     for (size_t start = 0; start < entities.count; start += chunkSize) {
         size_t end = std::min(start + chunkSize, entities.count);
         jobSystem.submit([this, start, end, dt]() {
-            updateMovementChunk(start, end, dt);
+            phaseMovementChunk(start, end, dt);
         });
         workCounters.add(workCounters.jobsDispatched, 1);
     }
@@ -372,7 +424,7 @@ void Simulation::updateMovement(float dt) {
     jobSystem.waitAll();  // Barrier
 }
 
-void Simulation::updateMovementChunk(size_t start, size_t end, float dt) {
+void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
     // SIMD-friendly: compiler auto-vectorizes this loop
     for (size_t i = start; i < end; i++) {
         float newX = entities.posX[i] + entities.velX[i] * dt;

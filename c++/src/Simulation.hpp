@@ -162,12 +162,18 @@ private:
 
     void generateObstacles();  // Procedural obstacle generation
 
-    void updateMovement(float dt);
-    void updateSeparation(float dt, const Rng& rng);  // Collision avoidance
+    // Tick phases, in the order Simulation::tick calls them (Design Doc §4).
+    void rebuildSpatialHash();  // Rebuild spatial hash each tick
+    void rebuildInfluence();    // Stub: plan 3 fills this in.
+    void phaseSquadAggregate();       // Stub: plan 3 fills this in.
+    void phaseSquadDecide(const Rng& rng);  // Stub: plan 3 fills this in.
+    void phaseSoldierSteer(float dt, const Rng& rng);  // Collision avoidance
     // Chunks take Rng BY VALUE: they run on worker threads via a lambda that
     // outlives the tick() local the Rng is constructed from.
-    void updateSeparationChunk(size_t start, size_t end, float dt, Rng rng);  // Parallel version
-    void updateMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
+    void phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng rng);  // Parallel version
+    void phaseProjectiles(float dt);  // Stub: plan 2 fills this in.
+    void phaseResolution(const Rng& rng);  // Stub: plan 2 fills this in. Only place cross-agent mutation is permitted.
+    void phaseMovement(float dt);
+    void phaseMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
     void screenWrap();
-    void rebuildSpatialHash();  // Rebuild spatial hash each tick
 };
