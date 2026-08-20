@@ -183,7 +183,7 @@ instead.
 | Memory per Agent | 24 bytes | 24 bytes | 24 bytes |
 | Render FPS | 100-144+ | 100-144+ | 60+ |
 
-**Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k (**50x faster**) ⚡
+**Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k -- a **~50x reduction in comparison count** (algorithmic, not a measured wall-clock speedup; see root README for measured numbers) ⚡
 
 ---
 
@@ -235,7 +235,7 @@ tactix/
 - Multi-threaded worker pool (7 threads)
 - Parallel entity updates (256-agent chunks)
 - 10,000 agents @ 60 TPS
-- 3.5x speedup achieved
+- Parallelized across worker threads (speedup unverified; see root README)
 
 ### ✅ Phase 4-4.5: Tactical AI & Combat (Complete)
 - ✅ Five-state AI with memory system
