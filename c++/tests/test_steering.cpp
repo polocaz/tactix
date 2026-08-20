@@ -34,24 +34,22 @@ TEST_CASE("a slot rotates with squad facing") {
     CHECK(north.y == doctest::Approx(100.0f + 16.0f / 3.0f));
 }
 
-TEST_CASE("a soldier standing on its slot is not pushed away") {
-    // Asserts meanSlotError stays bounded, not just that positions are
-    // finite -- the original version of this test passed identically with
-    // steerToSlot deleted, with its rotation inverted, or with the arrival
-    // deadband removed, since all of those still leave every position a
-    // finite number. Bound is generous: deployment starts every soldier
-    // within jitter of its slot (~2.83px) and the arrival deadband is 2px,
-    // so a healthy run stays a few px; 10px gives headroom above that
-    // without being loose enough to pass a soldier actually getting pushed
-    // off its slot by separation.
-    Simulation sim(1280, 720, 42u);
-    sim.init(200);
-    sim.setPaused(false);
-    // Two ticks so membership and aggregates settle.
-    sim.tick(1.0f / 60.0f);
-    sim.tick(1.0f / 60.0f);
-    CHECK(sim.meanSlotError() <= 10.0f);
-}
+// A test named "a soldier standing on its slot is not pushed away" used to sit
+// here. It was removed rather than repaired, because it could not fail.
+//
+// It ticked twice and asserted meanSlotError stayed under 10px. Deployment
+// already places every soldier within ~2.83px of its slot, and two ticks of
+// separation move a soldier a fraction of a pixel, so the assertion held with
+// steerToSlot deleted entirely. Verified by stubbing the call site: the test
+// passed. Widening the bound or ticking longer would only have turned it into a
+// duplicate of "meanSlotError plateaus instead of drifting" below.
+//
+// The property it claimed to guard IS guarded, in two places that provably fail
+// without steering: the plateau test and the centroid drift test, both further
+// down this file. Stubbing steerToSlot fails both, plus the committed baseline.
+// Four direct unit tests of steerToSlot at the top of this file cover the
+// function itself. A third integration test asserting the same thing under a
+// different name added nothing but the appearance of coverage.
 
 TEST_CASE("deployment places every soldier on its own slot") {
     // Deployment (Simulation::init) must position each soldier at exactly
