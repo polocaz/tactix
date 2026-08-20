@@ -1,110 +1,84 @@
 #include "Renderer.hpp"
 #include "Simulation.hpp"
 #include <raylib.h>
-#include <cmath>
+#include <algorithm>
 
 void drawSimulation(const Simulation& sim, float alpha) {
     // Draw simulation world boundary
     const float borderThickness = 3.0f;
     DrawRectangleLinesEx(
-        Rectangle{0, 0, static_cast<float>(sim.screenWidth), static_cast<float>(sim.screenHeight)},
+        Rectangle{0, 0, static_cast<float>(sim.worldWidth), static_cast<float>(sim.worldHeight)},
         borderThickness,
         Color{100, 150, 255, 255}
     );
 
-    // Draw graveyard
-    DrawRectangle(
-        static_cast<int>(sim.graveyard.x),
-        static_cast<int>(sim.graveyard.y),
-        static_cast<int>(sim.graveyard.width),
-        static_cast<int>(sim.graveyard.height),
-        Color{40, 35, 45, 255}  // Dark purple-gray
-    );
-    // Tombstones
-    for (int i = 0; i < 8; i++) {
-        float tx = sim.graveyard.x + 30 + (i % 3) * 60;
-        float ty = sim.graveyard.y + 40 + (i / 3) * 60;
-        DrawRectangle(static_cast<int>(tx), static_cast<int>(ty), 20, 30, Color{80, 75, 85, 255});
-        DrawRectangle(static_cast<int>(tx + 5), static_cast<int>(ty - 5), 10, 10, Color{90, 85, 95, 255});
-    }
-    DrawText("GRAVEYARD", static_cast<int>(sim.graveyard.x + 50), static_cast<int>(sim.graveyard.y + 10), 16, Color{120, 110, 130, 255});
-
     // Debug: Draw grid
     if (sim.debugGrid) {
         const float cellSize = 50.0f;
-        for (int x = 0; x < sim.screenWidth; x += static_cast<int>(cellSize)) {
-            DrawLine(x, 0, x, sim.screenHeight, Color{80, 255, 100, 180});
+        for (int x = 0; x < sim.worldWidth; x += static_cast<int>(cellSize)) {
+            DrawLine(x, 0, x, sim.worldHeight, Color{80, 255, 100, 180});
         }
-        for (int y = 0; y < sim.screenHeight; y += static_cast<int>(cellSize)) {
-            DrawLine(0, y, sim.screenWidth, y, Color{80, 255, 100, 180});
+        for (int y = 0; y < sim.worldHeight; y += static_cast<int>(cellSize)) {
+            DrawLine(0, y, sim.worldWidth, y, Color{80, 255, 100, 180});
         }
     }
 
     // Interpolated rendering with directional triangles
     // Triangles show movement direction - useful for AI visualization
-    const float agentSize = 4.0f;
-    const float wrapThreshold = static_cast<float>(sim.screenWidth) * 0.5f;  // Detect wrapping
+    for (size_t i = 0; i < sim.soldiers.count; i++) {
+        // clampToWorld only clamps and bounces (it has never wrapped a
+        // position), so interpolating from the previous tick's position is
+        // always safe here -- no large-delta special case needed.
+        const float renderX = sim.prevPosX[i] + (sim.soldiers.posX[i] - sim.prevPosX[i]) * alpha;
+        const float renderY = sim.prevPosY[i] + (sim.soldiers.posY[i] - sim.prevPosY[i]) * alpha;
 
-    for (size_t i = 0; i < sim.entities.count; i++) {
-        // Check if agent wrapped this frame (large position delta)
-        float deltaX = std::abs(sim.entities.posX[i] - sim.prevPosX[i]);
-        float deltaY = std::abs(sim.entities.posY[i] - sim.prevPosY[i]);
+        // Team identity carries in hue, unit type in shape. Reading a battle
+        // at zoomed-out scale depends on those being separable at a few pixels.
+        const bool teamA = sim.soldiers.team[i] == Team::A;
+        Color agentColor = teamA ? Color{ 90, 140, 235, 255 }   // steel blue
+                                 : Color{ 210,  95,  70, 255 }; // rust red
 
-        // If wrapped, don't interpolate (use current position to avoid stretching)
-        float renderX, renderY;
-        if (deltaX > wrapThreshold || deltaY > wrapThreshold) {
-            renderX = sim.entities.posX[i];
-            renderY = sim.entities.posY[i];
-        } else {
-            renderX = sim.prevPosX[i] + (sim.entities.posX[i] - sim.prevPosX[i]) * alpha;
-            renderY = sim.prevPosY[i] + (sim.entities.posY[i] - sim.prevPosY[i]) * alpha;
+        switch (sim.soldiers.unitType[i]) {
+            case UnitType::Archer:
+                // Slightly lighter, drawn as a small square.
+                agentColor.r = (uint8_t)std::min(255, agentColor.r + 45);
+                agentColor.g = (uint8_t)std::min(255, agentColor.g + 45);
+                agentColor.b = (uint8_t)std::min(255, agentColor.b + 45);
+                break;
+            case UnitType::Cavalry:
+                // Darker and drawn larger.
+                agentColor.r = (uint8_t)(agentColor.r * 0.7f);
+                agentColor.g = (uint8_t)(agentColor.g * 0.7f);
+                agentColor.b = (uint8_t)(agentColor.b * 0.7f);
+                break;
+            default:
+                break;
         }
 
-        // Calculate triangle vertices pointing in direction of movement
-        float dx = sim.entities.dirX[i];
-        float dy = sim.entities.dirY[i];
+        const float size = (sim.soldiers.unitType[i] == UnitType::Cavalry) ? 6.0f : 4.0f;
 
-        // Front vertex (pointing forward)
-        float frontX = renderX + dx * agentSize;
-        float frontY = renderY + dy * agentSize;
-
-        // Perpendicular for base vertices
-        float perpX = -dy;
-        float perpY = dx;
-
-        // Base vertices
-        float baseLeft_X = renderX - perpX * (agentSize * 0.4f);
-        float baseLeft_Y = renderY - perpY * (agentSize * 0.4f);
-        float baseRight_X = renderX + perpX * (agentSize * 0.4f);
-        float baseRight_Y = renderY + perpY * (agentSize * 0.4f);
-
-        // Color based on agent type and state
-        Color agentColor;
-        if (sim.entities.state[i] == AgentState::Dead) {
-            // Corpses are dark red/brown
-            agentColor = Color{120, 40, 40, 255};
-        } else if (sim.entities.state[i] == AgentState::Bitten) {
-            // Bitten civilians - color shifts from white → yellow → sickly green
-            float progress = sim.entities.infectionProgress[i];
-            uint8_t r = static_cast<uint8_t>(220 - progress * 70);   // 220 → 150
-            uint8_t g = static_cast<uint8_t>(220 - progress * 20);   // 220 → 200
-            uint8_t b = static_cast<uint8_t>(220 - progress * 120);  // 220 → 100
-            agentColor = Color{r, g, b, 255};
-        } else if (sim.entities.type[i] == AgentType::Civilian) {
-            agentColor = Color{220, 220, 220, 255};  // Light gray/white
-        } else if (sim.entities.type[i] == AgentType::Zombie) {
-            agentColor = Color{50, 200, 50, 255};     // Green
-        } else {  // Hero
-            // Color heroes based on health (blue gradient)
-            uint8_t health = sim.entities.health[i];
-            uint8_t brightness = 100 + (health * 30);  // Brighter with more health
-            agentColor = Color{50, 100, brightness, 255};
-        }
-
-        // Corpses are rendered as small circles instead of triangles
-        if (sim.entities.state[i] == AgentState::Dead) {
-            DrawCircle(static_cast<int>(renderX), static_cast<int>(renderY), agentSize * 0.8f, agentColor);
+        if (sim.soldiers.unitType[i] == UnitType::Archer) {
+            DrawRectangleV(Vector2{ renderX - 2.0f, renderY - 2.0f },
+                           Vector2{ 4.0f, 4.0f }, agentColor);
         } else {
+            // Calculate triangle vertices pointing in direction of movement
+            float dx = sim.soldiers.dirX[i];
+            float dy = sim.soldiers.dirY[i];
+
+            // Front vertex (pointing forward)
+            float frontX = renderX + dx * size;
+            float frontY = renderY + dy * size;
+
+            // Perpendicular for base vertices
+            float perpX = -dy;
+            float perpY = dx;
+
+            // Base vertices
+            float baseLeft_X = renderX - perpX * (size * 0.4f);
+            float baseLeft_Y = renderY - perpY * (size * 0.4f);
+            float baseRight_X = renderX + perpX * (size * 0.4f);
+            float baseRight_Y = renderY + perpY * (size * 0.4f);
+
             DrawTriangle(
                 Vector2{frontX, frontY},
                 Vector2{baseLeft_X, baseLeft_Y},
@@ -112,19 +86,6 @@ void drawSimulation(const Simulation& sim, float alpha) {
                 agentColor
             );
         }
-    }
-
-    // Draw gunshot lines (visualize shooting)
-    for (const auto& line : sim.gunshotLines) {
-        // Fade based on lifetime (0.15s total)
-        float alpha_val = line.lifetime / 0.15f;
-        uint8_t alpha_byte = static_cast<uint8_t>(alpha_val * 255.0f);
-        DrawLineEx(
-            Vector2{line.fromX, line.fromY},
-            Vector2{line.toX, line.toY},
-            0.8f,  // Thin line
-            Color{255, 255, 0, alpha_byte}  // Bright yellow, fading
-        );
     }
 
     // Draw buildings

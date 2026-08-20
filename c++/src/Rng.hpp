@@ -7,14 +7,18 @@
 // Rule when replacing a GetRandomValue call site: add an enumerator named for
 // what the draw produces. Never reuse one unless the two sites are provably
 // unreachable within the same agent-tick.
+//
+// Enumerator VALUES are hashed directly into bits() below, so they are part
+// of every draw's input and, transitively, of stateDigest(). Never reorder
+// or delete an enumerator, including ones with no production reader today
+// (e.g. SpawnPosX/Y, SpawnVelX/Y) -- doing so silently reshuffles the values
+// of every enumerator declared after it and moves the digest for no reason.
+// Only ever append a new one immediately before Count.
 enum class RngUse : uint32_t {
     SpawnPosX = 1,
     SpawnPosY,
     SpawnVelX,
     SpawnVelY,
-    SpawnPatrolX,
-    SpawnPatrolY,
-    SpawnHeroType,
     ObstacleBuildingX,
     ObstacleBuildingY,
     ObstacleBuildingW,
@@ -27,55 +31,9 @@ enum class RngUse : uint32_t {
     SeparationTreePushX,    // pushed out of a tree (reachable in the same
     SeparationTreePushY,    // agent-tick as the building push, so distinct)
 
-    // init(): civilian spawned next to a building
-    SpawnNearBuildingOffsetX,
-    SpawnNearBuildingOffsetY,
-    // init(): zombies in the graveyard
-    SpawnZombiePosX,
-    SpawnZombiePosY,
-    SpawnZombieVelX,
-    SpawnZombieVelY,
-    // init(): heroes along the top
-    SpawnHeroPosX,
-    SpawnHeroPosY,
-    SpawnHeroVelX,
-    SpawnHeroVelY,
-
-    // setAgentCount(): agents appended after startup
-    AddCivilianPosX,
-    AddCivilianPosY,
-    AddCivilianVelX,
-    AddCivilianVelY,
-    AddZombiePosX,
-    AddZombiePosY,
-    AddZombieVelX,
-    AddZombieVelY,
-    AddHeroPosX,
-    AddHeroPosY,
-    AddHeroVelX,
-    AddHeroVelY,
-
-    // updateBehaviorsChunk()
-    FleeStrategyChoice,     // panic vs. run to a hero
-    HeroAimDelay,           // 0.3-0.6s before the shot
-    PatrolRetargetX,        // new patrol destination on arrival
-    PatrolRetargetY,
-
-    // updateInfections()
-    InfectionDeathReanimationDelay,  // corpse timer after dying of a bite
-    ReanimateVelX,                   // kick given to a freshly risen zombie
-    ReanimateVelY,
-    CombatDurationHero,              // 1-2s when the victim is a hero
-    CombatDurationCivilian,          // 2-4s otherwise
-
-    // resolveCivilianVsZombieCombat()
-    CivilianCombatRoll,              // 0-99 outcome roll
-    PyrrhicInfectionDuration,        // killed the zombie but was bitten
-    BittenEscapeInfectionDuration,   // escaped but was bitten
-    CombatDeathReanimationDelay,     // corpse timer after losing the fight
-
-    // resolveHeroVsZombieCombat()
-    HeroCombatRoll,                  // 0-99 outcome roll
+    // Deployment
+    DeployJitterX,
+    DeployJitterY,
 
     // Keep this trailing sentinel last.
     Count

@@ -15,12 +15,14 @@ struct WorkCounters {
     std::atomic<uint64_t> cellsVisited{0};        // grid cells touched by queries
     std::atomic<uint64_t> gridInsertions{0};      // entities inserted into the grid
     std::atomic<uint64_t> jobsDispatched{0};      // jobs submitted to the job system
+    std::atomic<uint64_t> squadDecisions{0};      // squad-tier decisions evaluated
 
     void reset() {
         candidatesExamined.store(0, std::memory_order_relaxed);
         cellsVisited.store(0, std::memory_order_relaxed);
         gridInsertions.store(0, std::memory_order_relaxed);
         jobsDispatched.store(0, std::memory_order_relaxed);
+        squadDecisions.store(0, std::memory_order_relaxed);
     }
 
     void add(std::atomic<uint64_t>& field, uint64_t n) {

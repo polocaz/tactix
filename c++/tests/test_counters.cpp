@@ -8,13 +8,13 @@
 
 namespace {
 struct CounterSnapshot {
-    uint64_t candidatesExamined, cellsVisited, gridInsertions, jobsDispatched;
+    uint64_t candidatesExamined, cellsVisited, gridInsertions, jobsDispatched, squadDecisions;
     uint64_t stateDigest;
 };
 
 CounterSnapshot snapshot(const WorkCounters& c, uint64_t digest) {
-    return { c.candidatesExamined.load(), c.cellsVisited.load(),
-             c.gridInsertions.load(),     c.jobsDispatched.load(), digest };
+    return { c.candidatesExamined.load(), c.cellsVisited.load(),   c.gridInsertions.load(),
+             c.jobsDispatched.load(),     c.squadDecisions.load(), digest };
 }
 
 CounterSnapshot runAndCount(uint32_t threads, uint32_t seed = 42u) {
@@ -82,6 +82,7 @@ TEST_CASE("counters are non-zero for a real run") {
     CHECK(c.cellsVisited > 0ull);
     CHECK(c.gridInsertions > 0ull);
     CHECK(c.jobsDispatched > 0ull);
+    CHECK(c.squadDecisions > 0ull);
 }
 
 TEST_CASE("counters are identical regardless of thread count") {
@@ -91,6 +92,7 @@ TEST_CASE("counters are identical regardless of thread count") {
     CHECK(single.cellsVisited       == many.cellsVisited);
     CHECK(single.gridInsertions     == many.gridInsertions);
     CHECK(single.jobsDispatched     == many.jobsDispatched);
+    CHECK(single.squadDecisions     == many.squadDecisions);
     CHECK(single.stateDigest        == many.stateDigest);
 }
 
@@ -101,6 +103,7 @@ TEST_CASE("counters reproduce across runs") {
     CHECK(a.cellsVisited       == b.cellsVisited);
     CHECK(a.gridInsertions     == b.gridInsertions);
     CHECK(a.jobsDispatched     == b.jobsDispatched);
+    CHECK(a.squadDecisions     == b.squadDecisions);
     CHECK(a.stateDigest        == b.stateDigest);
 }
 
@@ -116,5 +119,6 @@ TEST_CASE("work counters and state digest match the committed baseline") {
     CHECK(actual.cellsVisited       == requireKey(expected, "cellsVisited"));
     CHECK(actual.gridInsertions     == requireKey(expected, "gridInsertions"));
     CHECK(actual.jobsDispatched     == requireKey(expected, "jobsDispatched"));
+    CHECK(actual.squadDecisions     == requireKey(expected, "squadDecisions"));
     CHECK(actual.stateDigest        == requireKey(expected, "stateDigest"));
 }

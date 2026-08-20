@@ -10,28 +10,33 @@
 
 int main() {
     // 1. Setup Window
+    // Window is what you look through; the world is what you look at.
     const int screenWidth = 1280;
     const int screenHeight = 720;
-    
+    const int worldWidth = 2400;
+    const int worldHeight = 1600;
+
     spdlog::info("Initializing Tactix Engine...");
-    
+
     // macOS Retina fix: Set config flags before window creation
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
-    
-    InitWindow(screenWidth, screenHeight, "Tactix - High-Performance Agent Simulation");
+
+    InitWindow(screenWidth, screenHeight, "Tactix - Medieval Skirmish");
     SetTargetFPS(144);  // Render at high FPS, simulation runs at fixed 60 TPS
 
     // 2. Setup ImGui (via rlImGui bridge)
     rlImGuiSetup(true);
 
-    // 3. Setup Camera for zoom/pan
+    // 3. Setup Camera for zoom/pan, fitted to show the whole world on startup.
+    const float fitZoom = std::min((float)screenWidth / worldWidth,
+                                    (float)screenHeight / worldHeight);
     Camera2D camera = { 0 };
-    camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+    camera.target = Vector2{ worldWidth / 2.0f, worldHeight / 2.0f };
     camera.offset = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
-    camera.zoom = 1.0f;
+    camera.zoom = fitZoom;
 
-    Simulation sim(screenWidth, screenHeight);
+    Simulation sim(worldWidth, worldHeight);
     size_t agentCount = 100;
     sim.init(agentCount);
 
@@ -39,7 +44,7 @@ int main() {
     const float FIXED_DT = 1.0f / 60.0f;  // 60 ticks per second
     float accumulator = 0.0f;
     auto lastTime = std::chrono::steady_clock::now();
-    float timeScale = 0.5f;  // Time scaling: start at half speed to observe infection dynamics
+    float timeScale = 0.5f;  // Time scaling: start at half speed to observe formation dynamics
 
     // Metrics
     float tickTimes[60] = {0};  // Rolling window for tick time
@@ -80,10 +85,11 @@ int main() {
             camera.target.y += delta.y;
         }
         
-        // Reset camera with middle mouse button
+        // Reset camera with middle mouse button, back to the fitted view.
         if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
-            camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
-            camera.zoom = 1.0f;
+            camera.target = Vector2{ worldWidth / 2.0f, worldHeight / 2.0f };
+            camera.offset = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+            camera.zoom = fitZoom;
         }
         
         // Time scale keyboard controls
@@ -140,7 +146,7 @@ int main() {
         // ----------- IMGUI -----------
         rlImGuiBegin();
 
-        ImGui::Begin("Tactix - Zombie Simulation");
+        ImGui::Begin("Tactix - Medieval Skirmish");
         
         // Pause state
         if (sim.isPaused()) {
@@ -150,26 +156,17 @@ int main() {
         }
         ImGui::Separator();
         
-        // Agent count control
+        // Agent count control. Changing the slider restarts the simulation at the
+        // new count rather than growing/shrinking it live (see Simulation::reset).
         int agentCountInt = static_cast<int>(agentCount);
         if (ImGui::SliderInt("Total Agents", &agentCountInt, 100, 10000)) {
             agentCount = static_cast<size_t>(agentCountInt);
-            sim.setAgentCount(agentCount);
+            sim.reset(agentCount);
         }
-        ImGui::Text("Active Agents: %zu", sim.getAgentCount());
-        
-        // Population breakdown
-        ImGui::Separator();
-        ImGui::Text("Population Breakdown:");
-        size_t civilianCount = sim.getCivilianCount();
-        size_t zombieCount = sim.getZombieCount();
-        size_t heroCount = sim.getHeroCount();
-        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "  Civilians: %zu (%.1f%%)", 
-                          civilianCount, (civilianCount / (float)sim.getAgentCount()) * 100.0f);
-        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "  Zombies: %zu (%.1f%%)", 
-                          zombieCount, (zombieCount / (float)sim.getAgentCount()) * 100.0f);
-        ImGui::TextColored(ImVec4(0.2f, 0.4f, 0.9f, 1.0f), "  Heroes: %zu (%.1f%%)", 
-                          heroCount, (heroCount / (float)sim.getAgentCount()) * 100.0f);
+        ImGui::Text("Soldiers: %zu  Squads: %zu", sim.getAgentCount(), sim.getSquadCount());
+        ImGui::Text("Team A: %zu   Team B: %zu",
+                    sim.getTeamCount(Team::A), sim.getTeamCount(Team::B));
+        ImGui::Text("World: %d x %d", worldWidth, worldHeight);
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());
