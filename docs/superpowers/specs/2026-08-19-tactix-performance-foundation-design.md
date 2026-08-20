@@ -39,10 +39,15 @@ reading an ImGui overlay. None of it is reproducible by a third party.
 This is the single highest-priority problem. Unverifiable claims are worse than modest
 ones, because a reviewer who checks finds the gap.
 
-### 2.2 Data race on the RNG (live bug)
+### 2.2 Data races on shared mutable state (live bugs)
 
-`Simulation.cpp` calls raylib's `GetRandomValue` 51 times in the tick path, including
-from inside functions dispatched to worker threads:
+Two independent data races were on the tick path. The first was found during design
+(reading the tree at `b196a68`); the second was found only during implementation, when
+the determinism test added for the first race kept failing after the first race was
+fixed.
+
+**Race 1 — the RNG.** `Simulation.cpp` calls raylib's `GetRandomValue` 51 times in the
+tick path, including from inside functions dispatched to worker threads:
 
 - `updateSeparationChunk` — lines 388, 389, 409, 410
 - `updateBehaviorsChunk` — lines 740, 953, 995, 996
@@ -52,6 +57,26 @@ synchronization. Seven worker threads mutate that shared state concurrently ever
 tick. This is undefined behavior today. It will rarely manifest as a crash; it
 manifests as a silently corrupted random stream and non-reproducible runs — which
 would make any benchmark built on top of it meaningless.
+
+**Race 2 — the struggle-animation clock (discovered during implementation).**
+`updateBehaviorsChunk` also kept a function-local `static float elapsedTime`,
+incremented by `1.0f / 60.0f` once per fighting agent, from every worker thread, with
+no synchronization. This was not visible from a static read of the tree the way the RNG
+call sites were — it was surfaced only when the thread-invariance test written to catch
+Race 1 kept failing after `GetRandomValue` was replaced with a stateless per-agent hash.
+The `static` was silently losing increments to concurrent, unsynchronized writes from
+different threads, so the animation phase — and therefore the digested state — depended
+on however the OS happened to schedule that tick's workers. It was replaced with a value
+derived from the tick counter (`rng.tick * (1.0f / 60.0f)`), which is also what the
+surrounding comment had always claimed the variable was. Fixed in the same commit as
+Race 1 (`784833c`); see that commit message for the full account.
+
+Both races made the same category of thing true: shared mutable state written from
+worker threads with no synchronization, silently non-deterministic rather than crashing.
+Neither is exotic, and the second one being missed at design time is itself informative —
+a data race with no observable symptom other than "the determinism test fails
+intermittently" does not announce itself in a code read; it takes a test built to detect
+exactly that class of bug.
 
 ### 2.3 Coupling is narrower than it looks
 
@@ -274,7 +299,8 @@ three assertions. Do not weaken the digest itself (e.g. by rounding before hashi
 a tolerance-based comparison would silently accept the class of scheduling bug this
 test exists to catch.
 
-The thread-count test is the one that would have caught the §2.2 race immediately, and
+The thread-count test is the one that would have caught the §2.2 races immediately — and
+during implementation it did, catching the second one after the first was fixed — and
 is the standing regression test for every future concurrent structure, including the
 Phase H GPU port.
 
