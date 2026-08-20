@@ -50,15 +50,17 @@ jobs:
   tsan:
     name: ThreadSanitizer (Linux)
     runs-on: ubuntu-latest
-    # KNOWN, PRE-EXISTING RACE, DEFERRED: JobSystem::waitAll() reads jobQueue.empty() holding
-    # only waitMutex, not queueMutex, which TSan will very likely flag. That race predates this
-    # CI job, is understood, and is deferred to a later phase rather than fixed here (fixing it
-    # is a behavioural change outside this wave's scope). continue-on-error is used instead of a
-    # suppressions file so the job's real output (pass/fail per test, and any *other* races it
-    # finds) is never silently discarded -- a suppressions file would hide those too, since TSan
-    # suppresses by source location/frame, not by "we already knew about this one." Once
-    # waitAll() is fixed, remove this continue-on-error and let the job gate normally.
-    continue-on-error: true
+    # This job GATES. It previously carried continue-on-error for a known race in
+    # JobSystem::waitAll(), whose predicate read jobQueue.empty() while holding only
+    # waitMutex. That read is now gone (it was redundant with the activeJobs count),
+    # so there is nothing left to excuse.
+    #
+    # Gating here matters more than it looks: the simulation's whole determinism
+    # guarantee rests on no parallel phase mutating another agent, and several tick
+    # phases are still empty stubs that later work fills in. The digest test catches
+    # a violation only when the race happens to change a result; TSan catches it on
+    # the access itself. Do not reintroduce continue-on-error to get a red build
+    # green. A race here is a real defect, not CI noise.
     steps:
       - uses: actions/checkout@v4
 
