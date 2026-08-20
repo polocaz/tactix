@@ -64,6 +64,127 @@ TEST_CASE("deployment places every soldier on its own slot") {
     CHECK(sawTeamB);
 }
 
+// The four cases below call steerToSlot directly, constructing SoldierHot
+// and SquadHot by hand (the pattern test_squads.cpp uses), rather than going
+// through Simulation. They exist because the plateau test and the drift
+// test below CANNOT tell a working steerToSlot from a no-op: deployment now
+// places every soldier within jitter of its slot by calling
+// slotWorldPosition directly, so with steerToSlot deleted entirely,
+// soldiers simply stand where they spawned -- zero drift, a perfect
+// plateau, every bound trivially satisfied, and the headline behaviour of
+// this task absent. These tests isolate convergence from deployment
+// accuracy by starting a soldier well away from its slot and checking
+// steerToSlot's output directly.
+
+TEST_CASE("steerToSlot points toward the slot when displaced") {
+    // Kills a no-op steerToSlot (velocity would stay zero) and a sign error
+    // in the rotation or the (dx, dy) direction (velocity would point away
+    // from the slot instead of toward it).
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.centroidX[0] = 100.0f; q.centroidY[0] = 100.0f;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    q.memberCount[0] = 1;  // a single-member squad's only slot sits exactly on the centroid
+
+    SoldierHot s;
+    s.spawn(40.0f, 20.0f, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    // Displaced (60, 80) from its slot, magnitude 100px: well outside the
+    // approach-easing zone (speed*dt*4 = 3px for infantry at 60fps).
+    steerToSlot(s, q, 0, 1.0f / 60.0f);
+
+    const float speedSq = s.velX[0] * s.velX[0] + s.velY[0] * s.velY[0];
+    CHECK(speedSq > 0.0f);
+
+    const float toSlotX = 60.0f, toSlotY = 80.0f;
+    const float dot = s.velX[0] * toSlotX + s.velY[0] * toSlotY;
+    CHECK(dot > 0.0f);
+}
+
+TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
+    // Guards against steering that points the right way but crawls: past
+    // the approach-easing zone, velocity magnitude must equal the unit's
+    // rated speed exactly, not some fraction of it.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Cavalry);
+    q.centroidX[0] = 0.0f; q.centroidY[0] = 0.0f;
+    q.facingX[0] = 0.0f; q.facingY[0] = 1.0f;
+    q.memberCount[0] = 1;
+
+    SoldierHot s;
+    s.spawn(100.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Cavalry, 0);
+    steerToSlot(s, q, 0, 1.0f / 60.0f);
+
+    const float speed = std::sqrt(s.velX[0] * s.velX[0] + s.velY[0] * s.velY[0]);
+    CHECK(speed == doctest::Approx(kUnitStats[(int)UnitType::Cavalry].speed));
+}
+
+TEST_CASE("steerToSlot zeroes velocity for a soldier already on its slot") {
+    // Guards the arrival deadband, which is what stops 10000 soldiers
+    // shimmering in place once they arrive. Only implicitly covered
+    // elsewhere: deployment starts soldiers near their slot but this is the
+    // only test that puts one EXACTLY on it and checks the result is a hard
+    // zero, not a tiny noisy nonzero velocity.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.centroidX[0] = 50.0f; q.centroidY[0] = 50.0f;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    q.memberCount[0] = 1;
+
+    SoldierHot s;
+    // Spawned with a deliberately nonzero velocity: a no-op steerToSlot
+    // would leave this untouched, so this is what makes the assertion
+    // below load-bearing rather than trivially true of an unstarted
+    // soldier that already has zero velocity.
+    s.spawn(50.0f, 50.0f, 3.0f, -4.0f, Team::A, UnitType::Infantry, 0);  // exactly on its slot
+    steerToSlot(s, q, 0, 1.0f / 60.0f);
+
+    CHECK(s.velX[0] == 0.0f);
+    CHECK(s.velY[0] == 0.0f);
+}
+
+TEST_CASE("repeated steerToSlot monotonically closes the distance") {
+    // The actual "soldiers close the distance to their slots" property,
+    // isolated from deployment accuracy. Starts a soldier 100px from its
+    // slot and integrates position by hand (velocity times dt), calling
+    // steerToSlot every step -- no Simulation involved, so this cannot be
+    // satisfied by deployment alone the way the plateau test below can.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.centroidX[0] = 200.0f; q.centroidY[0] = 200.0f;
+    q.facingX[0] = 0.0f; q.facingY[0] = -1.0f;
+    q.memberCount[0] = 1;
+
+    SoldierHot s;
+    s.spawn(200.0f - 60.0f, 200.0f - 80.0f, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    const float dt = 1.0f / 60.0f;
+
+    auto distToSlot = [&]() {
+        const float dx = 200.0f - s.posX[0];
+        const float dy = 200.0f - s.posY[0];
+        return std::sqrt(dx * dx + dy * dy);
+    };
+
+    float prevDist = distToSlot();
+    REQUIRE(prevDist == doctest::Approx(100.0f));
+
+    bool reachedDeadband = false;
+    for (int i = 0; i < 400; ++i) {
+        steerToSlot(s, q, 0, dt);
+        s.posX[0] += s.velX[0] * dt;
+        s.posY[0] += s.velY[0] * dt;
+
+        const float dist = distToSlot();
+        if (i < 20) {
+            // Strictly decreasing while well outside the deadband: no
+            // overshoot, no stall, no oscillation.
+            CHECK(dist < prevDist);
+        }
+        prevDist = dist;
+        if (dist <= 2.0f) { reachedDeadband = true; break; }
+    }
+    CHECK(reachedDeadband);
+}
+
 TEST_CASE("meanSlotError plateaus instead of drifting") {
     // This used to assert convergence toward zero error. That assumption
     // does not hold: generateObstacles() scatters 8 buildings and 30 trees
