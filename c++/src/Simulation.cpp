@@ -1,7 +1,6 @@
 #include "platform.h"
 #include "Simulation.hpp"
 #include "Squads.hpp"
-#include "Formation.hpp"
 #include "Soldiers.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
@@ -77,14 +76,15 @@ void Simulation::init(size_t soldierCount) {
             const uint32_t members = (uint32_t)std::min<size_t>(
                 kSquadSize, perTeam - (size_t)sq * kSquadSize);
             for (uint32_t k = 0; k < members; ++k) {
-                const Vec2 slot = formationSlot(shapeForUnit(unit), (uint16_t)k, members);
-                // Facing is +/-1 on X, so the local-to-world rotation reduces
-                // to a sign flip. Task 8 uses the general rotation.
+                // Spawn exactly on the slot steerToSlot will target, using the
+                // same rotation (slotWorldPosition), so tick 1 moves nobody.
+                // Squad centroid/facing above must be set before this call.
                 const uint32_t agent = (uint32_t)entities.count;
                 const float jx = (float)rng.range(agent, RngUse::DeployJitterX, -2, 2);
                 const float jy = (float)rng.range(agent, RngUse::DeployJitterY, -2, 2);
-                const float px = squadX + facing * slot.y + jx;
-                const float py = squadY + slot.x + jy;
+                const Vec2 slot = slotWorldPosition(squads, squadId, (uint16_t)k, members);
+                const float px = slot.x + jx;
+                const float py = slot.y + jy;
 
                 entities.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
                                0.0f, 0.0f, team, unit, squadId);
@@ -94,6 +94,13 @@ void Simulation::init(size_t soldierCount) {
             }
         }
     }
+
+    // Populate memberCount/memberStart (otherwise left at zero until the
+    // first tick) so slotWorldPosition, used both above and by tests that
+    // check placement immediately after init, sees each squad's real size.
+    // Deployment already assigned distinct slotIndex 0..members-1 per squad,
+    // so this reproduces exactly what the first tick would compute anyway.
+    rebuildSquadMembers(entities, squads, squadMembers);
 
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
                  entities.count, squads.count, screenWidth, screenHeight);
@@ -118,15 +125,19 @@ float Simulation::teamCentroidX(Team t) const {
     return n ? (float)(sum / (double)n) : 0.0f;
 }
 
+float Simulation::slotError(size_t i) const {
+    const uint16_t s = entities.squadId[i];
+    const Vec2 t = slotWorldPosition(squads, s, entities.slotIndex[i],
+                                     squads.memberCount[s]);
+    const float dx = t.x - entities.posX[i];
+    const float dy = t.y - entities.posY[i];
+    return std::sqrt(dx * dx + dy * dy);
+}
+
 float Simulation::meanSlotError() const {
     double sum = 0.0;
     for (size_t i = 0; i < entities.count; ++i) {
-        const uint16_t s = entities.squadId[i];
-        const Vec2 t = slotWorldPosition(squads, s, entities.slotIndex[i],
-                                         squads.memberCount[s]);
-        const float dx = t.x - entities.posX[i];
-        const float dy = t.y - entities.posY[i];
-        sum += std::sqrt(dx * dx + dy * dy);
+        sum += slotError(i);
     }
     return entities.count ? (float)(sum / (double)entities.count) : 0.0f;
 }

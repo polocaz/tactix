@@ -96,7 +96,11 @@ public:
     float  teamCentroidX(Team t) const;
     float  soldierX(size_t i) const { return entities.posX[i]; }
     float  soldierY(size_t i) const { return entities.posY[i]; }
+    Team   soldierTeam(size_t i) const { return entities.team[i]; }
     bool   everySoldierHasASquadSlot() const;
+
+    // Distance from one soldier to its own formation slot (Task 8).
+    float  slotError(size_t i) const;
 
     // Mean distance from each soldier to its assigned formation slot
     // (Task 8). Used by tests to check steering converges over time.
