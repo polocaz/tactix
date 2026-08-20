@@ -29,14 +29,23 @@ void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
         members[squads.memberStart[s] + cursor[s]++] = (uint32_t)i;
     }
 
-    // Order each squad's range by previous slotIndex. Keys are unique within
-    // a squad, so std::sort is deterministic here despite not being stable.
+    // Order each squad's range by previous slotIndex. Keys are NOT unique
+    // within a squad -- every soldier spawns with slotIndex 0, so on the
+    // first rebuild an entire squad ties. std::sort is introsort, not a
+    // stable sort: on an all-equal range its output permutation is
+    // implementation-defined, and libstdc++ and MSVC STL do not agree on it.
+    // Tie-breaking on the soldier index (unique by construction) makes the
+    // comparator a strict total order, so the sorted permutation is the same
+    // on every platform regardless of algorithm.
     for (size_t s = 0; s < squadCount; ++s) {
         const uint32_t start = squads.memberStart[s];
         const uint32_t n = squads.memberCount[s];
         std::sort(members.begin() + start, members.begin() + start + n,
                   [&soldiers](uint32_t a, uint32_t b) {
-                      return soldiers.slotIndex[a] < soldiers.slotIndex[b];
+                      if (soldiers.slotIndex[a] != soldiers.slotIndex[b]) {
+                          return soldiers.slotIndex[a] < soldiers.slotIndex[b];
+                      }
+                      return a < b;
                   });
         for (uint32_t k = 0; k < n; ++k) {
             soldiers.slotIndex[members[start + k]] = (uint16_t)k;

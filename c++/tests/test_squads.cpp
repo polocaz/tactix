@@ -70,24 +70,54 @@ TEST_CASE("slotIndex is reassigned densely from zero") {
 }
 
 TEST_CASE("officer succession goes to the previously adjacent soldier") {
-    // Slots 0,1,2 held by soldiers 7,3,5. Remove the officer (soldier 7) and
-    // the next slot holder must be soldier 3, not whichever survivor happens
-    // to sit first in the array.
-    SoldierHot s = makeSoldiers({0, 0, 0}, {1, 2, 0});
+    // Soldier 0 holds slot 2, soldier 1 holds slot 0 (the officer), soldier 2
+    // holds slot 1. After the officer (soldier 1) dies, the survivors are
+    // soldier 0 (slot 2, array index 0) and soldier 2 (slot 1, array index
+    // 2): the one with the LOWER previous slot sits LATER in the array. That
+    // inversion is deliberate -- it is what makes this test discriminate slot
+    // order from array-position order. An algorithm that (wrongly) sorted by
+    // array position would put soldier 0 first; the correct algorithm, which
+    // sorts by previous slotIndex, must put soldier 2 first.
+    SoldierHot s = makeSoldiers({0, 0, 0}, {2, 0, 1});
     //                index:     0  1  2
-    //                slot:      1  2  0   -> order is 2, 0, 1
+    //                slot:      2  0  1   -> order is 1, 2, 0
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
     rebuildSquadMembers(s, q, members);
-    REQUIRE(members[0] == 2);  // soldier 2 is the officer
+    REQUIRE(members[0] == 1);  // soldier 1 is the officer
 
     // Kill the officer and rebuild.
-    s.state[2] = SoldierState::Dead;
+    s.state[1] = SoldierState::Dead;
     rebuildSquadMembers(s, q, members);
 
     CHECK(q.memberCount[0] == 2);
-    CHECK(members[0] == 0);  // soldier 0 held slot 1, so it inherits slot 0
-    CHECK(s.slotIndex[0] == 0);
+    // Array-position ordering would wrongly pick soldier 0 first (it comes
+    // first in the backing array). Slot ordering must pick soldier 2 first,
+    // since it held the lower previous slot (1 < 2).
+    CHECK(members[0] == 2);
+    CHECK(members[1] == 0);
+    CHECK(s.slotIndex[2] == 0);
+    CHECK(s.slotIndex[0] == 1);
+}
+
+TEST_CASE("equal previous slotIndex ties break on soldier index, not std::sort's whim") {
+    // Every soldier spawns with slotIndex 0, so on the first-ever rebuild an
+    // entire squad's sort keys are equal. std::sort is introsort, not a
+    // stable sort: with an all-equal range its output permutation is
+    // implementation-defined, and libstdc++ and MSVC STL disagree on it. The
+    // comparator must tie-break on soldier index so the result is the same
+    // on every platform. If the tie-break is removed, this is the case that
+    // catches it (though the exact wrong permutation is library-specific).
+    SoldierHot s = makeSoldiers({0, 0, 0, 0}, {0, 0, 0, 0});
+    SquadHot q = makeSquads(1);
+    std::vector<uint32_t> members;
+
+    rebuildSquadMembers(s, q, members);
+
+    CHECK(members[0] == 0);
+    CHECK(members[1] == 1);
+    CHECK(members[2] == 2);
+    CHECK(members[3] == 3);
 }
 
 TEST_CASE("an empty squad has a zero-length range") {
