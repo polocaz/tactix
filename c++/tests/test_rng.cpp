@@ -66,11 +66,27 @@ TEST_CASE("range handles a single-value span") {
     CHECK(r.range(0u, RngUse::SpawnVelX, 5, 5) == 5);
 }
 
-TEST_CASE("unit stays within [0,1)") {
-    Rng r{42u, 0u};
-    for (uint32_t i = 0; i < 20000; ++i) {
-        float v = r.unit(i, RngUse::SpawnPatrolX);
-        CHECK(v >= 0.0f);
-        CHECK(v < 1.0f);
+// The RngUse enum's own comment promises pairwise distinctness across ALL ~55 enumerators
+// ("Two draws for the same agent on the same tick must never share an enumerator, or they
+// return the same value"), not just the one SpawnPosX/SpawnPosY pair the earlier test above
+// checks. An implementation that ignored `use` for 53 of 55 enumerators (e.g. accidentally
+// hashing only a handful of distinct bit patterns) would still pass that earlier test.
+TEST_CASE("no two RngUse enumerators collide, for any agent/tick") {
+    const uint32_t useCount = static_cast<uint32_t>(RngUse::Count) - 1;  // exclude the sentinel
+    int collisions = 0;
+    int totalPairs = 0;
+    for (uint32_t agentIndex : {0u, 1u, 7u, 999u}) {
+        Rng r{42u, 3u};
+        for (uint32_t a = 1; a <= useCount; ++a) {
+            for (uint32_t b = a + 1; b <= useCount; ++b) {
+                ++totalPairs;
+                if (r.bits(agentIndex, static_cast<RngUse>(a)) ==
+                    r.bits(agentIndex, static_cast<RngUse>(b))) {
+                    ++collisions;
+                }
+            }
+        }
     }
+    CHECK(totalPairs > 0);
+    CHECK(collisions == 0);
 }

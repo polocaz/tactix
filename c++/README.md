@@ -9,7 +9,7 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 ## 🎯 Current Status: Phase 4.5 Complete - Tactical Survival Simulation ✅
 
 **Performance Target:** 10,000 agents @ 60 ticks/sec with full AI and environment  
-**Achieved:** ~1.6ms tick time (10.7% of 15ms budget) @ 144 FPS with 7 worker threads  
+**Measured numbers:** see the root [`README.md`](../README.md#current-numbers) "Current numbers" section — the single source of truth for reproducible performance figures, each backed by a documented `tactix_bench` command.  
 **Latest:** Group behaviors, ranged combat, environment obstacles, hard collision physics
 
 ### Implemented Features
@@ -18,7 +18,7 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 - ✅ **Fixed Timestep Accumulator** - Deterministic 60 TPS simulation with interpolated rendering
 - ✅ **Structure of Arrays (SoA) Layout** - Cache-friendly memory organization (~32 bytes/agent)
 - ✅ **Performance Metrics Dashboard** - Real-time tick time monitoring with 60-frame rolling average
-- ✅ **Interpolated Rendering** - Smooth 144 FPS visuals from 60 TPS simulation
+- ✅ **Interpolated Rendering** - Smooth visuals from 60 TPS simulation (render FPS unmeasured; see root README)
 
 #### Phase 2: Spatial Partitioning
 - ✅ **Uniform Grid Hash** - O(1) spatial queries with 50-pixel cells
@@ -32,8 +32,8 @@ Tactix showcases systems programming expertise through cache-friendly memory lay
 - ✅ **Parallel Entity Updates** - 256-agent chunks distributed across workers
 - ✅ **Barrier Synchronization** - waitAll() for phase completion
 - ✅ **Thread Metrics** - Jobs/frame, worker count, speedup tracking
-- ✅ **10,000 Agent Simulation** - 3.5x speedup from parallelization
-- ✅ **Rendering Optimization** - Directional triangles, 144 FPS @ 10k agents
+- ✅ **10,000 Agent Simulation** - parallelized across worker threads (speedup unverified; see root README)
+- ✅ **Rendering Optimization** - Directional triangles show agent movement (render FPS unmeasured; see root README)
 
 #### Phase 4: AI State Machine & Memory System
 - ✅ **Five-State AI** - Idle, Patrol, Fleeing, Pursuing, Searching with memory persistence
@@ -166,19 +166,22 @@ cmake -DCMAKE_BUILD_TYPE=Debug ..
 
 ## 📊 Performance Metrics
 
-| Metric | Phase 1 Target | Phase 2 Target | Phase 3 Target | Actual |
-|--------|----------------|----------------|----------------|--------|
-| Agent Count | 1,000 | 5,000 | 10,000 | 10,000 |
-| Tick Rate | 60 TPS | 60 TPS | 60 TPS | 60 TPS (fixed) |
-| Tick Time | < 1.5 ms | < 7.5 ms | < 15 ms | ~1.6 ms ✅ |
-| Worker Threads | N/A | N/A | 4-8 | 7 (M1/M2) |
-| Jobs/Frame | N/A | N/A | ~80 | 80 (40×2 phases) |
-| Speedup | N/A | N/A | 3-4x | ~3.5x ✅ |
-| Spatial Hash | N/A | < 2 ms | < 2 ms | ~0.5-1 ms ✅ |
-| Memory per Agent | 24 bytes | 24 bytes | 24 bytes | 32 bytes (dirX/Y added) |
-| Render FPS | 100-144+ | 100-144+ | 60+ | 144 FPS ✅ |
+Targets only — actual measured numbers live in one place, the root
+[`README.md`](../README.md#current-numbers) "Current numbers" section, each backed by a
+reproducible `tactix_bench` command. Do not add measured figures here; update the root README
+instead.
 
-*Tested on: Apple M1/M2 (arm64)*
+| Metric | Phase 1 Target | Phase 2 Target | Phase 3 Target |
+|--------|----------------|----------------|-----------------|
+| Agent Count | 1,000 | 5,000 | 10,000 |
+| Tick Rate | 60 TPS | 60 TPS | 60 TPS |
+| Tick Time | < 1.5 ms | < 7.5 ms | < 15 ms |
+| Worker Threads | N/A | N/A | 4-8 |
+| Jobs/Frame | N/A | N/A | ~80 |
+| Speedup | N/A | N/A | 3-4x |
+| Spatial Hash | N/A | < 2 ms | < 2 ms |
+| Memory per Agent | 24 bytes | 24 bytes | 24 bytes |
+| Render FPS | 100-144+ | 100-144+ | 60+ |
 
 **Performance Win:** Spatial partitioning reduces collision checks from O(n²) = 25M to O(n) = ~500k (**50x faster**) ⚡
 
@@ -201,7 +204,7 @@ tactix/
 │   ├── JobSystem.cpp      # Job queue & barrier synchronization
 │   ├── Rng.hpp            # Stateless per-agent hash RNG (deterministic, thread-safe)
 │   ├── DetMath.hpp        # Platform-independent transcendentals (deterministic tick math)
-│   ├── StateDigest.hpp    # Order-independent hash of simulation state, for determinism tests
+│   ├── StateDigest.hpp    # FNV-1a hash over an index-ordered walk of simulation state (order-dependent), for determinism tests
 │   └── WorkCounters.hpp   # Deterministic work counters, gated in CI
 ├── bench/                 # tactix_bench: headless benchmark harness (main.cpp + BenchStats.hpp)
 ├── tests/                 # doctest suite (multiple files): determinism, thread invariance, counter baseline

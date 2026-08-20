@@ -1,5 +1,7 @@
 ﻿# Build
+build/
 c++/build/
+c++/build-debug/
 c++/cmake-build-debug/
 c++/CMakeFiles/
 c++/CMakeCache.txt

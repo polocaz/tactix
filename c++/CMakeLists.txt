@@ -5,6 +5,20 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Single-config generators (Makefiles, Ninja) otherwise default to an
+# unoptimised, un-flagged build, silently producing meaningless benchmark
+# numbers when configured with a bare `cmake -B build`. Multi-config
+# generators (Visual Studio, Xcode) select config at build time via
+# `--config` instead and have no single CMAKE_BUILD_TYPE, and must be left
+# alone -- forcing CMAKE_BUILD_TYPE there doesn't affect the actual build,
+# but is still the wrong thing to set. GENERATOR_IS_MULTI_CONFIG is only
+# reliably populated once project()/enable_language() has run, so this check
+# has to come after project(), unlike CMAKE_CXX_STANDARD etc above.
+get_property(TACTIX_IS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT CMAKE_BUILD_TYPE AND NOT TACTIX_IS_MULTI_CONFIG)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # Determinism requires a 64-bit target: 32-bit x86 evaluates float
 # expressions at 80-bit x87 precision and rounds unpredictably on spill.
 if(CMAKE_SIZEOF_VOID_P LESS 8)
@@ -60,6 +74,17 @@ else()
     target_compile_options(tactix_fp_flags INTERFACE -ffp-contract=off)
 endif()
 
+# --- Warnings for first-party code only ---
+# Deliberately no -Werror: pre-existing warnings must not break the build.
+# Not applied to vendored imgui/rlImGui sources (see below), to keep the
+# signal limited to code this project actually owns.
+add_library(tactix_warnings INTERFACE)
+if(MSVC)
+    target_compile_options(tactix_warnings INTERFACE /W4)
+else()
+    target_compile_options(tactix_warnings INTERFACE -Wall -Wextra)
+endif()
+
 # --- Simulation core: MUST NOT link raylib ---
 # Explicit source list, not GLOB: GLOB does not re-run reliably on file
 # addition and silently produces stale builds.
@@ -70,11 +95,12 @@ add_library(tactix_sim STATIC
 )
 target_include_directories(tactix_sim PUBLIC src)
 target_link_libraries(tactix_sim PUBLIC tactix_fp_flags spdlog::spdlog_header_only)
+target_link_libraries(tactix_sim PRIVATE tactix_warnings)
 
 # --- Headless benchmark harness: MUST NOT link raylib ---
 add_executable(tactix_bench bench/main.cpp)
 target_include_directories(tactix_bench PRIVATE bench)
-target_link_libraries(tactix_bench PRIVATE tactix_sim)
+target_link_libraries(tactix_bench PRIVATE tactix_sim tactix_warnings)
 
 # --- GUI application ---
 add_executable(tactix
@@ -88,6 +114,10 @@ add_executable(tactix
 )
 target_include_directories(tactix PRIVATE ${imgui_SOURCE_DIR} ${rlimgui_SOURCE_DIR})
 target_link_libraries(tactix PRIVATE tactix_sim raylib)
+# Warnings only on first-party sources of this target; the vendored
+# imgui/rlImGui sources above are compiled without them.
+set_source_files_properties(src/main.cpp src/Renderer.cpp PROPERTIES
+    COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall;-Wextra>")
 
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR})
 
@@ -101,7 +131,7 @@ add_executable(tactix_tests
     tests/test_determinism.cpp
     tests/test_counters.cpp
 )
-target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest)
+target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE
     TACTIX_BASELINE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/baseline")
 add_test(NAME unit COMMAND tactix_tests)

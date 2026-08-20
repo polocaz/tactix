@@ -1,7 +1,14 @@
 # Tactix - Development Roadmap
 
+> **Note:** the tick-time, FPS, and speedup figures throughout this file (e.g. `~1.6ms`,
+> `144 FPS`, `3.5x`) are historical, pre-dating the deterministic benchmark harness, and were
+> never reproducible from a documented command. They are kept here only as development history.
+> For current, measured numbers see the root [`README.md`](../../README.md#current-numbers)
+> "Current numbers" section.
+
 **Project Status:** Phase 4.5 Complete - Tactical Survival Simulation  
-**Current Achievement:** 10,000 agents @ 60 TPS, ~1.6ms tick, 144 FPS with full AI & environment  
+**Current Achievement:** 10,000 agents @ 60 TPS with full AI & environment (see note above for
+tick time/FPS figures)  
 **Latest Features:** Group behaviors, ranged combat, obstacle collision, pause controls
 
 **Timeline:** 7 weeks (part-time) | **Target Platform:** Windows/macOS/Linux

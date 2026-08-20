@@ -2,6 +2,7 @@
 #include "Simulation.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
+#include <cassert>
 #include <cmath>
 #include <chrono>
 #include "spdlog/spdlog.h"
@@ -853,8 +854,21 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt, Rng rn
             
             for (uint32_t neighborIdx : localNeighbors) {
                 AgentType neighborType = entities.type[neighborIdx];
+                // CONCURRENCY INVARIANT: neighborIdx may belong to a different worker's chunk
+                // and be concurrently written by that chunk's updateBehaviorsChunk() call this
+                // same tick (writes to entities.state[] happen at ~814,817,829,893,895,926,977,
+                // 1029,1042 above/below). That is safe here ONLY because the sole use of
+                // neighborState is the `== AgentState::Dead` check below: no chunk function ever
+                // writes AgentState::Dead (see the asserts guarding each state write, and the
+                // early "skip dead agents" continue near the top of updateBehaviorsChunk), and a
+                // Dead agent is never rewritten to a live state. So "is this agent Dead" is
+                // invariant across the entire parallel phase regardless of interleaving or
+                // worker/thread count, which is what makes this read race-free without a lock
+                // and preserves the seed -> bit-identical-state guarantee at any thread count.
+                // Do NOT read any other field of a neighbor's AgentState-adjacent data here
+                // without re-checking this reasoning.
                 AgentState neighborState = entities.state[neighborIdx];
-                
+
                 // Skip dead agents - zombies prefer live prey
                 if (neighborState == AgentState::Dead) continue;
                 
@@ -1146,6 +1160,17 @@ void Simulation::updateBehaviorsChunk(size_t start, size_t end, float dt, Rng rn
             entities.velX[i] = (entities.velX[i] / speed) * maxSpeed;
             entities.velY[i] = (entities.velY[i] / speed) * maxSpeed;
         }
+
+        // Debug-only guard for the concurrency invariant documented at the
+        // `entities.state[neighborIdx]` read above: this parallel chunk function must never
+        // write AgentState::Dead, since other worker threads may be concurrently reading a
+        // neighbor's state and rely on "is it Dead" being stable for the whole parallel phase.
+        // (Only updateInfections(), which runs single-threaded after this phase's jobSystem
+        // .waitAll(), is allowed to write Dead.) If this fires, the determinism guarantee is
+        // broken and needs a real fix, not a silenced assert.
+        assert(entities.state[i] != AgentState::Dead &&
+               "updateBehaviorsChunk must never write AgentState::Dead (breaks the "
+               "cross-thread invariant that neighbor Dead-state reads rely on)");
     }
 }
 
@@ -1491,13 +1516,20 @@ void Simulation::resolveCivilianVsZombieCombat(size_t zombieIdx, size_t civilian
                                                 const Rng& rng) {
     // Calculate outcome probabilities based on group sizes
     float survivalBonus = std::min(0.30f, civilianAllies * 0.15f);
-    float hordePenalty = std::min(0.25f, zombieAllies * 0.08f);
-    
+
     float killChance = 0.15f + survivalBonus;
     float killButBittenChance = 0.10f + (survivalBonus * 0.5f);
     float bittenEscapeChance = 0.30f;
-    float deathChance = 0.45f + hordePenalty - survivalBonus;
-    
+    // "Civilian dies" is the effective remainder of the cascade below (the final `else`), not a
+    // named branch keyed on its own probability. A `deathChance` value (and the `hordePenalty`
+    // that fed it, from zombieAllies) used to be computed here but were never read; removed --
+    // pure, side-effect-free computations, so removing them does not change behaviour. NOTE
+    // (known, deliberately unfixed): killChance + killButBittenChance + bittenEscapeChance can
+    // sum above 1.0 for high civilianAllies/low zombieAllies, which saturates the cascade so the
+    // death `else` branch becomes unreachable. See branch review notes; not fixed in this wave
+    // because it changes behaviour. `zombieAllies` is otherwise unused in this function now --
+    // kept in the signature rather than restructuring the call sites.
+
     // Roll outcome. Keyed on the civilian: every write below targets it, and a
     // civilian resolves at most one combat per tick.
     int roll = rng.range((uint32_t)civilianIdx, RngUse::CivilianCombatRoll, 0, 99);
