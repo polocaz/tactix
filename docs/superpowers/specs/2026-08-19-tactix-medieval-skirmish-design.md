@@ -12,7 +12,7 @@ is retained unchanged.
 ## 1. Goal
 
 Replace the current scenario with two symmetric armies whose squads make tactical
-decisions — formations, flanking, charges, routing — while keeping the project's stated
+decisions (formations, flanking, charges, routing) while keeping the project's stated
 purpose intact: **the scenario exists to put pressure on memory layout, spatial queries,
 and parallelism.**
 
@@ -42,8 +42,8 @@ Findings are from reading the tree at commit `22533ae`.
 The world is 1280x720 (`main.cpp:13`), but every patrol destination is drawn from a
 1800x1000 box:
 
-- `Simulation.hpp:100-101` — `SpawnPatrolX` over `50..1850`, `SpawnPatrolY` over `50..1030`
-- `Simulation.cpp:1069-1070` — `PatrolRetargetX/Y` over the same ranges
+- `Simulation.hpp:100-101`: `SpawnPatrolX` over `50..1850`, `SpawnPatrolY` over `50..1030`
+- `Simulation.cpp:1069-1070`: `PatrolRetargetX/Y` over the same ranges
 
 Roughly half of all patrol targets are off the right edge and a third are below the
 bottom edge. Combined with the 100px wall-avoidance blend at `Simulation.cpp:1102-1155`,
@@ -64,8 +64,8 @@ a formation: there is no facing, no slot assignment, and no shared decision.
 ### 2.3 Ranged combat is a placeholder
 
 `Simulation.cpp:224-270` recovers "who shot whom" by reading agent indices back out of
-`lastSeenX` and `lastSeenY` — the same two fields the memory and search behaviors use for
-world positions — and detects that a shot occurred by testing `shootCooldown > 1.45f`
+`lastSeenX` and `lastSeenY`, the same two fields the memory and search behaviors use for
+world positions. It detects that a shot occurred by testing `shootCooldown > 1.45f`
 against the 1.5f value written at `Simulation.cpp:1016`.
 
 Consequences:
@@ -173,7 +173,7 @@ counting sort keyed on `squadId` (bounded by the squad count, so O(n + k)).
 
 **Soldiers are not reordered.** Sorting the soldier arrays themselves by squad would make
 each squad's members cache-contiguous, but it means permuting ~15 arrays x 10,000 entries
-per tick — roughly 600 KB of shuffled writes against 40 KB for the index array.
+per tick, roughly 600 KB of shuffled writes against 40 KB for the index array.
 
 This is recorded as an explicit experiment rather than an assumption:
 **measure whether sorting soldier arrays by squad beats the index array**, using
@@ -192,8 +192,8 @@ invariant for the duration of the phase.*
 
 Today that invariant is hand-reasoned and documented in a 12-line comment at
 `Simulation.cpp:857`, which argues that `AgentState::Dead` is the only safe cross-thread
-read because no parallel chunk ever writes it. That reasoning is correct but fragile —
-it has to be re-derived by hand every time a field is added.
+read because no parallel chunk ever writes it. That reasoning is correct but fragile.
+It has to be re-derived by hand every time a field is added.
 
 This design replaces it with a structural guarantee: **no parallel phase ever mutates
 another agent.** All cross-agent mutation is deferred to a single-threaded resolution
@@ -205,12 +205,12 @@ Each phase is separated by a `jobSystem.waitAll()` barrier.
 
 | # | Phase | Parallel over | Writes | Reads |
 |---|-------|---------------|--------|-------|
-| 1 | Rebuild spatial hash + influence grid | — (serial) | grid, influence | soldier positions |
+| 1 | Rebuild spatial hash + influence grid | no (serial) | grid, influence | soldier positions |
 | 2 | Squad aggregate | squads | own squad | own members' positions |
 | 3 | Squad decide | squads | own squad's order/target/facing | influence grid, all squad aggregates |
 | 4 | Soldier steer + intent | soldiers | own soldier | own squad's order, neighbors' positions |
 | 5 | Projectile integrate + hit intent | projectiles | own projectile | spatial hash |
-| 6 | Resolution | — (serial) | all | all |
+| 6 | Resolution | no (serial) | all | all |
 | 7 | Movement integration | soldiers | own soldier | own soldier |
 
 ### 5.3 Why phase 1 is serial
@@ -221,7 +221,7 @@ floating-point addition is not associative. The grid is ~1600 cells fed by 10,00
 which is cheap enough that this is not a meaningful cost.
 
 If it later becomes one, the fix is per-worker tile accumulation followed by a merge in
-fixed tile order — deterministic, but not worth building before it is measured.
+fixed tile order. That is deterministic, but not worth building before it is measured.
 
 ### 5.4 Why phase 3 may read across squads
 
@@ -276,7 +276,7 @@ Each order is scored by a weighted sum and the argmax is taken. Inputs:
 - Own morale and discipline
 - Nearest enemy squad: centroid, facing, strength
 - Local force balance sampled from the influence grid
-- Rear-arc threat: whether an enemy squad lies within our rear arc — that is, whether
+- Rear-arc threat: whether an enemy squad lies within our rear arc, that is, whether
   *we* are the ones being flanked
 
 ### 6.3 Hysteresis
@@ -312,7 +312,7 @@ contact:
 
 | Hook | High discipline | Low discipline |
 |------|-----------------|----------------|
-| Formation slot | Steer to the exact slot | Slot target blends toward squad centroid — a mob, not a line |
+| Formation slot | Steer to the exact slot | Slot target blends toward squad centroid, a mob rather than a line |
 | Archer targeting | All archers fire at the squad's assigned target (concentrated volley) | Per-soldier roll; on failure the archer picks its own nearest visible enemy |
 | Charge | Uniform speed, arrives as a wall | Per-soldier speed variance; the fastest arrive first and are defeated piecemeal |
 | Rout threshold | Holds at much lower morale | Breaks early |
@@ -349,7 +349,7 @@ unit's cohesion outright.
 
 Officers carry additional weight in ordinary target selection, so the AI aims at them
 without needing a dedicated order. An explicit "decapitation" order in the scorer is
-**out of scope** — it adds a branch and another weight set before the base scorer has
+**out of scope**, because it adds a branch and another weight set before the base scorer has
 been observed running.
 
 ---
@@ -426,11 +426,11 @@ something the AI has to be coaxed into.
 
 Independently toggleable layers:
 
-- **Squad hulls** — convex hull per squad, tinted by team, alpha by morale
-- **Order arrows** — one arrow per squad showing its order and target
-- **Formation facing** — a tick mark on the hull
-- **Influence heatmap** — the phase-1 grid, colored by team dominance
-- **Projectiles** — arrows drawn as segments along their velocity
+- **Squad hulls**: convex hull per squad, tinted by team, alpha by morale
+- **Order arrows**: one arrow per squad showing its order and target
+- **Formation facing**: a tick mark on the hull
+- **Influence heatmap**: the phase-1 grid, colored by team dominance
+- **Projectiles**: arrows drawn as segments along their velocity
 
 Zoomed out reads intent; zoomed in reads individual combat. The overlays double as the
 debugging tool for the scorer: when a flank looks wrong, the heatmap and order arrows show
@@ -459,7 +459,7 @@ shape.
 
 Added:
 
-- Formation slots are stable — same squad, count, and facing yields identical offsets
+- Formation slots are stable: same squad, count, and facing yields identical offsets
 - A squad flanked in its rear arc loses morale and eventually routs
 - Officer death applies the discipline penalty and slot 0 is reassigned
 - Arrow spread is deterministic and bounded by max range
@@ -476,7 +476,7 @@ is a calibration knob, not a defect.
 
 **Phases 1 and 6 are serial, and phase 6 grows.** Resolution does considerably more than
 today's `updateInfections`. If it becomes the bottleneck at 10,000 agents, the fix is
-parallel intent resolution with a deterministic merge — but that is not to be built before
+parallel intent resolution with a deterministic merge, but that is not to be built before
 `tactix_bench` shows it is needed.
 
 **Discipline touches five systems.** That is five tuning knobs introduced at once. They are
@@ -492,7 +492,7 @@ together.
 - An explicit decapitation order in the scorer (see § 7.3)
 - More than three unit types
 - Swept-segment projectile collision (see § 8.2)
-- Terrain affecting movement cost or line of sight — obstacles remain blockers only
+- Terrain affecting movement cost or line of sight. Obstacles remain blockers only
 - Sorting soldier arrays by squad (deferred to a measured experiment, see § 4.4)
 
 ---
