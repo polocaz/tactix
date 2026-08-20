@@ -10,28 +10,33 @@
 
 int main() {
     // 1. Setup Window
+    // Window is what you look through; the world is what you look at.
     const int screenWidth = 1280;
     const int screenHeight = 720;
-    
+    const int worldWidth = 2400;
+    const int worldHeight = 1600;
+
     spdlog::info("Initializing Tactix Engine...");
-    
+
     // macOS Retina fix: Set config flags before window creation
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_WINDOW_RESIZABLE);
-    
-    InitWindow(screenWidth, screenHeight, "Tactix - High-Performance Agent Simulation");
+
+    InitWindow(screenWidth, screenHeight, "Tactix - Medieval Skirmish");
     SetTargetFPS(144);  // Render at high FPS, simulation runs at fixed 60 TPS
 
     // 2. Setup ImGui (via rlImGui bridge)
     rlImGuiSetup(true);
 
-    // 3. Setup Camera for zoom/pan
+    // 3. Setup Camera for zoom/pan, fitted to show the whole world on startup.
+    const float fitZoom = std::min((float)screenWidth / worldWidth,
+                                    (float)screenHeight / worldHeight);
     Camera2D camera = { 0 };
-    camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+    camera.target = Vector2{ worldWidth / 2.0f, worldHeight / 2.0f };
     camera.offset = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
-    camera.zoom = 1.0f;
+    camera.zoom = fitZoom;
 
-    Simulation sim(screenWidth, screenHeight);
+    Simulation sim(worldWidth, worldHeight);
     size_t agentCount = 100;
     sim.init(agentCount);
 
@@ -80,10 +85,11 @@ int main() {
             camera.target.y += delta.y;
         }
         
-        // Reset camera with middle mouse button
+        // Reset camera with middle mouse button, back to the fitted view.
         if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
-            camera.target = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
-            camera.zoom = 1.0f;
+            camera.target = Vector2{ worldWidth / 2.0f, worldHeight / 2.0f };
+            camera.offset = Vector2{ screenWidth / 2.0f, screenHeight / 2.0f };
+            camera.zoom = fitZoom;
         }
         
         // Time scale keyboard controls

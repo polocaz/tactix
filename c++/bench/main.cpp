@@ -60,6 +60,8 @@ int main(int argc, char** argv) {
     const int ticks   = intArg(argc, argv, "--ticks", 2000);
     const int seed    = intArg(argc, argv, "--seed", 42);
     const int threads = intArg(argc, argv, "--threads", 0);
+    const int width   = intArg(argc, argv, "--width", 1280);
+    const int height  = intArg(argc, argv, "--height", 720);
     const bool json   = hasFlag(argc, argv, "--json");
 
     if (agents <= 0 || ticks <= 0) {
@@ -77,8 +79,12 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "error: --threads must be between 0 and 1024\n");
         return 2;
     }
+    if (width < 128 || height < 128 || width > 100000 || height > 100000) {
+        std::fprintf(stderr, "error: --width and --height must be between 128 and 100000\n");
+        return 2;
+    }
 
-    Simulation sim(1280, 720,
+    Simulation sim(width, height,
                    static_cast<uint32_t>(seed),
                    static_cast<uint32_t>(threads));
     sim.init(static_cast<size_t>(agents));
@@ -115,6 +121,8 @@ int main(int argc, char** argv) {
             "  \"ticks\": %d,\n"
             "  \"seed\": %d,\n"
             "  \"threads\": %d,\n"
+            "  \"width\": %d,\n"
+            "  \"height\": %d,\n"
             "  \"p50Ms\": %.4f,\n"
             "  \"p95Ms\": %.4f,\n"
             "  \"p99Ms\": %.4f,\n"
@@ -125,7 +133,7 @@ int main(int argc, char** argv) {
             "  \"jobsDispatched\": %llu,\n"
             "  \"stateDigest\": \"%016llx\"\n"
             "}\n",
-            agents, ticks, seed, threads,
+            agents, ticks, seed, threads, width, height,
             p.p50, p.p95, p.p99, p.max,
             (unsigned long long)c.candidatesExamined.load(),
             (unsigned long long)c.cellsVisited.load(),
@@ -133,7 +141,8 @@ int main(int argc, char** argv) {
             (unsigned long long)c.jobsDispatched.load(),
             (unsigned long long)digest);
     } else {
-        std::printf("agents=%d ticks=%d seed=%d threads=%d\n", agents, ticks, seed, threads);
+        std::printf("agents=%d ticks=%d seed=%d threads=%d width=%d height=%d\n",
+                    agents, ticks, seed, threads, width, height);
         std::printf("tick ms   p50=%.4f  p95=%.4f  p99=%.4f  max=%.4f\n",
                     p.p50, p.p95, p.p99, p.max);
         std::printf("digest    %016llx\n", (unsigned long long)digest);
