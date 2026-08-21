@@ -167,6 +167,7 @@ int main() {
         ImGui::Text("Team A: %zu   Team B: %zu",
                     sim.getTeamCount(Team::A), sim.getTeamCount(Team::B));
         ImGui::Text("World: %d x %d", worldWidth, worldHeight);
+        ImGui::Text("Arrows in flight: %zu", sim.getProjectileCount());
         ImGui::Separator();
         
         ImGui::Text("Render FPS: %d", GetFPS());

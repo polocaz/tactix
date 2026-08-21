@@ -4,30 +4,35 @@
 #include <cmath>
 
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
-                         std::vector<uint32_t>& members) {
+                         std::vector<uint32_t>& members,
+                         std::vector<uint32_t>& countsScratch,
+                         std::vector<uint32_t>& cursorScratch) {
     const size_t squadCount = squads.count;
 
     // Counting pass. Dead soldiers are excluded so that a squad's range holds
     // only live members; plan 2's compaction removes them from the array.
-    std::vector<uint32_t> counts(squadCount, 0u);
+    // countsScratch/cursorScratch are caller-owned so this serial, once-a-
+    // tick call does not heap-allocate two vectors every tick -- assign()
+    // reuses existing capacity instead of freeing and reallocating.
+    countsScratch.assign(squadCount, 0u);
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.state[i] == SoldierState::Dead) continue;
-        counts[soldiers.squadId[i]]++;
+        countsScratch[soldiers.squadId[i]]++;
     }
 
     uint32_t running = 0;
     for (size_t s = 0; s < squadCount; ++s) {
         squads.memberStart[s] = running;
-        squads.memberCount[s] = counts[s];
-        running += counts[s];
+        squads.memberCount[s] = countsScratch[s];
+        running += countsScratch[s];
     }
 
     members.assign(running, 0u);
-    std::vector<uint32_t> cursor(squadCount, 0u);
+    cursorScratch.assign(squadCount, 0u);
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.state[i] == SoldierState::Dead) continue;
         const uint16_t s = soldiers.squadId[i];
-        members[squads.memberStart[s] + cursor[s]++] = (uint32_t)i;
+        members[squads.memberStart[s] + cursorScratch[s]++] = (uint32_t)i;
     }
 
     // Order each squad's range by previous slotIndex. Keys are NOT unique
@@ -76,10 +81,97 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
         squads.centroidY[s] = sumY / (float)n;
     }
 
-    // Plan 3 derives facing from the order objective. Until then a squad
-    // holds its deployed facing; renormalize so formation rotation in Task 8
-    // can assume unit length.
+    // Facing is derived from the order's objective (spec 6.6), but NOT here:
+    // this function runs in phase 2, parallel across squads, while every
+    // squad's own centroid above is still being written by its own
+    // concurrent job. Reading another squad's centroid at that point would
+    // race with that squad's write. selectTargetSquad below does the same
+    // derivation safely, in phase 3, after phase 2's barrier has made every
+    // centroid read-only for the rest of the tick.
     normalizeFacing(squads, s);
+}
+
+void selectTargetSquad(SquadHot& squads, size_t s) {
+    if (squads.memberCount[s] == 0) return;
+
+    float bestDistSq = 1e30f;
+    uint16_t best = squads.targetSquad[s];
+    bool found = false;
+
+    // Walked in ascending index order so ties resolve identically on every
+    // thread and platform.
+    for (size_t e = 0; e < squads.count; ++e) {
+        if (squads.team[e] == squads.team[s]) continue;
+        if (squads.memberCount[e] == 0) continue;
+        const float dx = squads.centroidX[e] - squads.centroidX[s];
+        const float dy = squads.centroidY[e] - squads.centroidY[s];
+        const float d = dx * dx + dy * dy;
+        if (d < bestDistSq) {
+            bestDistSq = d;
+            best = (uint16_t)e;
+            found = true;
+        }
+    }
+
+    if (found) {
+        squads.targetSquad[s] = best;
+        squads.order[s] = (uint8_t)SquadOrder::Advance;
+
+        // Spec 6.6: facing comes from the order's objective, not from
+        // averaging soldier directions (noisy for a loose formation) and not
+        // from centroid velocity (undefined when stationary). Safe here,
+        // unlike in updateSquadAggregate above: phase 3 runs after phase 2's
+        // barrier, so every squad's centroid -- including the target's -- is
+        // finalized and read-only for the rest of the tick, and this writes
+        // only squad s's own facing.
+        const float dx = squads.centroidX[best] - squads.centroidX[s];
+        const float dy = squads.centroidY[best] - squads.centroidY[s];
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len > 1e-6f) {
+            squads.facingX[s] = dx / len;
+            squads.facingY[s] = dy / len;
+        }
+    } else {
+        // Every enemy squad is wiped out. Hold rather than advancing on a
+        // stale target; keep the last facing.
+        squads.order[s] = (uint8_t)SquadOrder::Hold;
+    }
+}
+
+void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
+                         const std::vector<uint32_t>& members, size_t s) {
+    squads.targetSoldier[s] = UINT32_MAX;
+
+    const float range = kUnitStats[(int)squads.unitType[s]].range;
+    if (range <= 0.0f) return;  // melee units acquire their own targets
+
+    const uint16_t t = squads.targetSquad[s];
+    if (t >= squads.count || squads.memberCount[t] == 0) return;
+    // targetSquad initialises to 0 for every squad (SquadHot::spawn), and
+    // phase 2 (which calls this) runs before phase 3 (selectTargetSquad,
+    // which corrects it). On a squad's very first decide, targetSquad is
+    // still that spawn default, so without this check a team A squad other
+    // than squad 0 would acquire a same-team targetSoldier from squad 0
+    // whenever it happened to be in range -- and spawnArrows would then
+    // shoot it at its own side.
+    if (squads.team[t] == squads.team[s]) return;
+
+    const float cx = squads.centroidX[s];
+    const float cy = squads.centroidY[s];
+    const float rangeSq = range * range;
+
+    // members is ordered by slotIndex within each squad, so the first member in
+    // range is the lowest-slotIndex one. No sort or comparison needed.
+    const uint32_t start = squads.memberStart[t];
+    for (uint32_t k = 0; k < squads.memberCount[t]; ++k) {
+        const uint32_t idx = members[start + k];
+        const float dx = soldiers.posX[idx] - cx;
+        const float dy = soldiers.posY[idx] - cy;
+        if (dx * dx + dy * dy <= rangeSq) {
+            squads.targetSoldier[s] = idx;
+            return;
+        }
+    }
 }
 
 void normalizeFacing(SquadHot& squads, size_t s) {

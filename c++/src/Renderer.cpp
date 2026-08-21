@@ -2,6 +2,7 @@
 #include "Simulation.hpp"
 #include <raylib.h>
 #include <algorithm>
+#include <cmath>
 
 void drawSimulation(const Simulation& sim, float alpha) {
     // Draw simulation world boundary
@@ -55,6 +56,16 @@ void drawSimulation(const Simulation& sim, float alpha) {
                 break;
         }
 
+        // Health reads as brightness, so a worn-down line is visible before it
+        // breaks rather than only when it vanishes.
+        const uint8_t maxHp = kUnitStats[(int)sim.soldiers.unitType[i]].maxHealth;
+        if (maxHp > 1) {
+            const float frac = 0.45f + 0.55f * ((float)sim.soldiers.health[i] / (float)maxHp);
+            agentColor.r = (uint8_t)(agentColor.r * frac);
+            agentColor.g = (uint8_t)(agentColor.g * frac);
+            agentColor.b = (uint8_t)(agentColor.b * frac);
+        }
+
         const float size = (sim.soldiers.unitType[i] == UnitType::Cavalry) ? 6.0f : 4.0f;
 
         if (sim.soldiers.unitType[i] == UnitType::Archer) {
@@ -86,6 +97,20 @@ void drawSimulation(const Simulation& sim, float alpha) {
                 agentColor
             );
         }
+    }
+
+    // Arrows are drawn along their velocity rather than as dots, so a volley
+    // reads as direction and not as speckle.
+    for (size_t i = 0; i < sim.projectiles.count; ++i) {
+        const float vx = sim.projectiles.velX[i];
+        const float vy = sim.projectiles.velY[i];
+        const float len = std::sqrt(vx * vx + vy * vy);
+        if (len < 1e-4f) continue;
+        const float sx = sim.projectiles.posX[i];
+        const float sy = sim.projectiles.posY[i];
+        const float ex = sx - (vx / len) * 6.0f;
+        const float ey = sy - (vy / len) * 6.0f;
+        DrawLineV(Vector2{sx, sy}, Vector2{ex, ey}, Color{235, 225, 190, 255});
     }
 
     // Draw buildings

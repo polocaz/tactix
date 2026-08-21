@@ -24,6 +24,15 @@ SquadHot makeSquads(uint32_t n) {
     }
     return q;
 }
+
+// rebuildSquadMembers takes its counts/cursor scratch buffers by reference
+// (caller-owned, so production code can reuse their capacity across ticks --
+// see Squads.hpp). Tests do not care about reusing that capacity, so this
+// wrapper supplies fresh ones each call.
+void rebuild(SoldierHot& s, SquadHot& q, std::vector<uint32_t>& members) {
+    std::vector<uint32_t> countsScratch, cursorScratch;
+    rebuildSquadMembers(s, q, members, countsScratch, cursorScratch);
+}
 } // namespace
 
 TEST_CASE("members are grouped by squad") {
@@ -31,7 +40,7 @@ TEST_CASE("members are grouped by squad") {
     SquadHot q = makeSquads(2);
     std::vector<uint32_t> members;
 
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     CHECK(q.memberCount[0] == 2);
     CHECK(q.memberCount[1] == 2);
@@ -51,7 +60,7 @@ TEST_CASE("within-squad order follows previous slotIndex, not array position") {
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
 
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     CHECK(members[0] == 2);
     CHECK(members[1] == 1);
@@ -63,7 +72,7 @@ TEST_CASE("slotIndex is reassigned densely from zero") {
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
 
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     CHECK(s.slotIndex[members[0]] == 0);
     CHECK(s.slotIndex[members[1]] == 1);
@@ -84,12 +93,12 @@ TEST_CASE("officer succession goes to the previously adjacent soldier") {
     //                slot:      2  0  1   -> order is 1, 2, 0
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
     REQUIRE(members[0] == 1);  // soldier 1 is the officer
 
     // Kill the officer and rebuild.
     s.state[1] = SoldierState::Dead;
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     CHECK(q.memberCount[0] == 2);
     // Array-position ordering would wrongly pick soldier 0 first (it comes
@@ -138,7 +147,7 @@ TEST_CASE("equal previous slotIndex ties break on soldier index, not std::sort's
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
 
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     REQUIRE(members.size() == kCount);
     for (uint32_t i = 0; i < kCount; ++i) {
@@ -151,7 +160,7 @@ TEST_CASE("an empty squad has a zero-length range") {
     SquadHot q = makeSquads(2);
     std::vector<uint32_t> members;
 
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     CHECK(q.memberCount[0] == 0);
     CHECK(q.memberCount[1] == 2);
@@ -162,8 +171,8 @@ TEST_CASE("rebuilding twice is idempotent") {
     SquadHot q = makeSquads(2);
     std::vector<uint32_t> first, second;
 
-    rebuildSquadMembers(s, q, first);
-    rebuildSquadMembers(s, q, second);
+    rebuild(s, q, first);
+    rebuild(s, q, second);
 
     CHECK(first == second);
 }
@@ -174,7 +183,7 @@ TEST_CASE("centroid is the mean of member positions") {
     s.spawn(30.0f, 40.0f, 0, 0, Team::A, UnitType::Infantry, 0);
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     updateSquadAggregate(s, q, members, 0);
 
@@ -188,7 +197,7 @@ TEST_CASE("an empty squad keeps its previous centroid rather than producing NaN"
     q.centroidX[0] = 123.0f;
     q.centroidY[0] = 456.0f;
     std::vector<uint32_t> members;
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     updateSquadAggregate(s, q, members, 0);
 
@@ -203,11 +212,64 @@ TEST_CASE("facing stays normalized") {
     q.facingX[0] = 3.0f;   // deliberately not unit length
     q.facingY[0] = 4.0f;
     std::vector<uint32_t> members;
-    rebuildSquadMembers(s, q, members);
+    rebuild(s, q, members);
 
     updateSquadAggregate(s, q, members, 0);
 
     const float len = std::sqrt(q.facingX[0] * q.facingX[0] +
                                 q.facingY[0] * q.facingY[0]);
     CHECK(len == doctest::Approx(1.0f));
+}
+
+TEST_CASE("selectTargetSoldier does not acquire a same-team target on a squad's very first decide") {
+    // SquadHot::spawn defaults targetSquad to 0 for every squad, and phase 2
+    // (which calls selectTargetSoldier) runs before phase 3 (selectTargetSquad,
+    // which corrects targetSquad). On a real first tick, squad 0 is whichever
+    // squad spawned first -- team A's leading squad -- so every OTHER team A
+    // squad's still-default targetSquad == 0 points at its own team. This
+    // reproduces that exact transient directly: no explicit targetSquad set,
+    // it is left at its spawn default.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Archer);  // squad 0
+    q.spawn(Team::A, UnitType::Archer);  // squad 1: targetSquad defaults to 0, same team
+
+    SoldierHot s;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);  // squad 0's only member
+
+    std::vector<uint32_t> members;
+    rebuild(s, q, members);
+    updateSquadAggregate(s, q, members, 0);
+    // Squad 1 sits well within archer range (280px) of squad 0's centroid --
+    // without the team check, this is exactly the case that fires an arrow
+    // at squad 1's own side.
+    q.centroidX[1] = 100.0f;
+    q.centroidY[1] = 100.0f;
+
+    selectTargetSoldier(s, q, members, 1);
+
+    CHECK(q.targetSoldier[1] == UINT32_MAX);
+}
+
+TEST_CASE("selectTargetSoldier can acquire a target beyond an individual soldier's own sight") {
+    // The whole justification for the squad tier: a target further away
+    // than any individual soldier could perceive on its own (kSeekRadius).
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Archer);   // squad 0, us
+    q.spawn(Team::B, UnitType::Infantry); // squad 1, enemy
+    q.targetSquad[0] = 1;
+
+    SoldierHot s;
+    s.spawn(0.0f, 0.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    // 200px: beyond kSeekRadius (150), within archer range (280).
+    s.spawn(200.0f, 0.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    REQUIRE(200.0f > kSeekRadius);
+
+    std::vector<uint32_t> members;
+    rebuild(s, q, members);
+    updateSquadAggregate(s, q, members, 0);
+    updateSquadAggregate(s, q, members, 1);
+
+    selectTargetSoldier(s, q, members, 0);
+
+    CHECK(q.targetSoldier[0] == 1);
 }

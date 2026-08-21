@@ -241,49 +241,70 @@ TEST_CASE("meanSlotError plateaus instead of drifting") {
     CHECK(at400 <= 15.0f);
 }
 
-TEST_CASE("a squad's centroid does not drift with no orders given") {
-    // Regression test for a bug where updateSquadAggregate's centroid (the
-    // mean of member positions) and formationSlot's front-anchored local
-    // origin were different points: slotWorldPosition used the raw,
-    // non-recentered offsets, so a squad's slot targets moved every time its
-    // centroid was recomputed, and the whole squad walked backward (away
-    // from its facing) without end. Measured before the fix: one team A
-    // squad's centroid moved ~191px and one team B squad's moved ~191px in
-    // opposite directions over 300 ticks, both clamped against the map edge.
-    // meanSlotError alone cannot see this: the squad chases its own
-    // receding target at a constant lag, so the mean error stays small even
-    // as the squad translates. This checks the centroid position directly.
-    Simulation sim(1280, 720, 42u);
-    sim.init(500);
+// Formerly "a squad's centroid does not drift with no orders given", which
+// asserted near-zero centroid movement over 300 ticks on the premise that
+// phaseSquadDecide was still a stub and no order ever moved a squad on
+// purpose. This task (squads advance on the nearest enemy squad) removes
+// that premise: every squad now gets a live Advance order, and its centroid
+// is *supposed* to move, so the old assertion fails by design, not by
+// regression.
+//
+// The mechanism it guarded is unrelated to Advance, though, and stays real:
+// a squad's centroid is the MEAN of member positions (updateSquadAggregate),
+// while formationSlot's local origin is the formation's front-center, a
+// different point. Without formationMeanOffset recentring that gap away,
+// slot targets shift every time the centroid is recomputed and the whole
+// squad walks off without end even on Hold. meanSlotError does NOT catch
+// this: a soldier chases its own receding target at a roughly constant lag,
+// so mean per-soldier error stays small the entire time the squad is
+// marching off the map -- which is exactly why the original ~191px/300-tick
+// bug was found by measuring centroid displacement, not the error plateau.
+// The replacement below does the same: build a Hold squad in isolation, run
+// steerToSlot by hand, and watch the centroid, not the per-soldier error.
+TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's fixed point") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.order[0] = (uint8_t)SquadOrder::Hold;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    const float startX = 500.0f, startY = 300.0f;
+    q.centroidX[0] = startX; q.centroidY[0] = startY;
 
-    size_t squadA = SIZE_MAX, squadB = SIZE_MAX;
-    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
-        if (squadA == SIZE_MAX && sim.squadTeam(s) == Team::A) squadA = s;
-        if (squadB == SIZE_MAX && sim.squadTeam(s) == Team::B) squadB = s;
+    constexpr uint32_t kMembers = 12;
+    q.memberCount[0] = kMembers;
+
+    SoldierHot soldiers;
+    for (uint32_t k = 0; k < kMembers; ++k) {
+        // Placed exactly on its slot, as deployment does, so any movement
+        // that follows is the drift under test, not arrival transient.
+        const Vec2 slot = slotWorldPosition(q, 0, (uint16_t)k, kMembers);
+        soldiers.spawn(slot.x, slot.y, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+        soldiers.slotIndex[k] = (uint16_t)k;
     }
-    REQUIRE(squadA != SIZE_MAX);
-    REQUIRE(squadB != SIZE_MAX);
 
-    const float a0x = sim.squadCentroidX(squadA), a0y = sim.squadCentroidY(squadA);
-    const float b0x = sim.squadCentroidX(squadB), b0y = sim.squadCentroidY(squadB);
+    const float dt = 1.0f / 60.0f;
+    for (int tick = 0; tick < 300; ++tick) {
+        for (uint32_t k = 0; k < kMembers; ++k) {
+            steerToSlot(soldiers, q, k, dt);
+            soldiers.posX[k] += soldiers.velX[k] * dt;
+            soldiers.posY[k] += soldiers.velY[k] * dt;
+        }
+        // Recompute the centroid exactly as updateSquadAggregate does: the
+        // mean of member positions, summed in index order.
+        float sumX = 0.0f, sumY = 0.0f;
+        for (uint32_t k = 0; k < kMembers; ++k) {
+            sumX += soldiers.posX[k];
+            sumY += soldiers.posY[k];
+        }
+        q.centroidX[0] = sumX / (float)kMembers;
+        q.centroidY[0] = sumY / (float)kMembers;
+    }
 
-    sim.setPaused(false);
-    for (int i = 0; i < 300; ++i) sim.tick(1.0f / 60.0f);
-
-    // phaseSquadDecide is still a stub (plan 3), so no order ever moves a
-    // squad on purpose here -- any drift is the bug this guards against.
-    const float dAx = sim.squadCentroidX(squadA) - a0x;
-    const float dAy = sim.squadCentroidY(squadA) - a0y;
-    const float dBx = sim.squadCentroidX(squadB) - b0x;
-    const float dBy = sim.squadCentroidY(squadB) - b0y;
-
-    // Measured after the formationMeanOffset fix plus shrinking the
-    // separation radius to sit below kSlotSpacing: ~2.07px (team A) and
-    // ~2.16px (team B). 5px gives more than double that headroom while
-    // staying far under both the ~8-8.6px this measured with the old 25px
-    // separation radius and the ~191px the original bug produced -- tight
-    // enough to catch a real regression in either mechanism.
-    constexpr float kDriftBound = 5.0f;
-    CHECK(std::sqrt(dAx * dAx + dAy * dAy) <= kDriftBound);
-    CHECK(std::sqrt(dBx * dBx + dBy * dBy) <= kDriftBound);
+    const float dx = q.centroidX[0] - startX;
+    const float dy = q.centroidY[0] - startY;
+    // A Hold squad gets no advance lead, so its centroid is a fixed point by
+    // construction. 5px is headroom for float accumulation over 300 ticks,
+    // not room for controlled movement -- see the load-bearing check in the
+    // commit message: stubbing formationMeanOffset to {0,0} reproduces the
+    // original bug and fails this bound by roughly two orders of magnitude.
+    CHECK(std::sqrt(dx * dx + dy * dy) <= 5.0f);
 }
