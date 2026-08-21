@@ -13,6 +13,12 @@ void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
                  ProjectileHot& out, const Rng& rng) {
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (!soldiers.intentFire[i]) continue;
+        // Resolution steps 1-2 (melee, then projectile hits) can zero this
+        // soldier's health earlier in the SAME tick, but state is not set to
+        // Dead until recordCasualties (step 4), which runs after this. Without
+        // this guard a soldier killed this tick still looses an arrow here --
+        // matches the same guard in applyMeleeIntents (Combat.cpp).
+        if (soldiers.health[i] == 0) continue;
 
         const uint16_t sq = soldiers.squadId[i];
         if (sq >= squads.count) continue;
