@@ -19,12 +19,12 @@ CounterSnapshot snapshot(const WorkCounters& c, uint64_t digest) {
              digest };
 }
 
-CounterSnapshot runAndCount(uint32_t threads, uint32_t seed = 42u) {
+CounterSnapshot runAndCount(uint32_t threads, uint32_t seed = 42u, int ticks = 200) {
     Simulation sim(1280, 720, seed, threads);
     sim.init(2000);
     sim.setPaused(false);
     sim.resetCounters();
-    for (int i = 0; i < 200; ++i) {
+    for (int i = 0; i < ticks; ++i) {
         sim.tick(1.0f / 60.0f);
     }
     return snapshot(sim.counters(), sim.stateDigest());
@@ -79,7 +79,11 @@ uint64_t requireKey(const std::map<std::string, uint64_t>& values, const std::st
 } // namespace
 
 TEST_CASE("counters are non-zero for a real run") {
-    const CounterSnapshot c = runAndCount(1u);
+    // 700 ticks, not the default 200: at 200 ticks no archer has a legitimate
+    // (cross-team, in-range) target yet -- see counters-2k-700.txt's header --
+    // so projectileHitTests would be 0 at 200 ticks now that squads no
+    // longer acquire a same-team target on tick 1's transient.
+    const CounterSnapshot c = runAndCount(1u, 42u, 700);
     CHECK(c.candidatesExamined > 0ull);
     CHECK(c.cellsVisited > 0ull);
     CHECK(c.gridInsertions > 0ull);
@@ -119,6 +123,27 @@ TEST_CASE("counters reproduce across runs") {
 TEST_CASE("work counters and state digest match the committed baseline") {
     const auto expected = loadBaseline(std::string(TACTIX_BASELINE_DIR) + "/counters-2k-200.txt");
     const CounterSnapshot actual = runAndCount(1u);
+
+    CHECK(actual.candidatesExamined  == requireKey(expected, "candidatesExamined"));
+    CHECK(actual.cellsVisited        == requireKey(expected, "cellsVisited"));
+    CHECK(actual.gridInsertions      == requireKey(expected, "gridInsertions"));
+    CHECK(actual.jobsDispatched      == requireKey(expected, "jobsDispatched"));
+    CHECK(actual.squadDecisions      == requireKey(expected, "squadDecisions"));
+    CHECK(actual.projectileHitTests  == requireKey(expected, "projectileHitTests"));
+    CHECK(actual.stateDigest         == requireKey(expected, "stateDigest"));
+}
+
+// counters-2k-200.txt never reaches combat: at 2000 agents on the default
+// field, no soldier has died by tick 200 (first death measured at tick 448).
+// It is the ONLY artifact comparing ubuntu and windows output, so without
+// this second baseline, melee resolution, casualty recording, officer
+// capture, and compactDead had NO cross-platform reference at all. 700 ticks
+// is comfortably past first contact (448) while staying cheap: this run
+// completes in a little over a second single-threaded. See that file's
+// header for how to regenerate it -- same rules as counters-2k-200.txt.
+TEST_CASE("work counters and state digest match the committed post-contact baseline") {
+    const auto expected = loadBaseline(std::string(TACTIX_BASELINE_DIR) + "/counters-2k-700.txt");
+    const CounterSnapshot actual = runAndCount(1u, 42u, 700);
 
     CHECK(actual.candidatesExamined  == requireKey(expected, "candidatesExamined"));
     CHECK(actual.cellsVisited        == requireKey(expected, "cellsVisited"));

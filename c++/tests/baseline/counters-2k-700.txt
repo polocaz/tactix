@@ -1,6 +1,6 @@
-# Deterministic work counters and state digest: 2000 agents, 200 ticks, seed 42, 1 thread.
+# Deterministic work counters and state digest: 2000 agents, 700 ticks, seed 42, 1 thread.
 # Machine-independent by construction. Regenerate with:
-#   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
+#   tactix_bench --agents 2000 --ticks 700 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
 # from that command's JSON output -- stateDigest below is hex, exactly as
@@ -10,12 +10,13 @@
 # the wrong slot (or in the wrong base) fails the test loudly instead of
 # silently.
 #
-# projectileHitTests is 0 in THIS file as of the finding-1 fix to
-# selectTargetSoldier (Squads.cpp): squads no longer acquire a same-team
-# target on tick 1's transient, and at 2000 agents on the default 1280x720
-# field no enemy soldier is within archer range yet at 200 ticks -- first
-# death is at tick 448, first genuine target acquisition later still. See
-# counters-2k-700.txt for a baseline that actually reaches combat.
+# 700 ticks, not 200: counters-2k-200.txt never reaches combat (at 2000
+# agents on the default 1280x720 field, no soldier has died by tick 200 --
+# first death measured at tick 448) and it is the ONLY artifact comparing
+# ubuntu and windows output. Without a baseline past first contact, melee
+# resolution, casualty recording, officer capture, and compactDead had NO
+# cross-platform reference at all. 700 is comfortably past 448 while staying
+# cheap to run.
 #
 # An intentional optimisation SHOULD change candidatesExamined/cellsVisited/
 # gridInsertions/jobsDispatched/squadDecisions/projectileHitTests. Update
@@ -49,10 +50,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=225587420
-cellsVisited=7133820
-gridInsertions=400000
-jobsDispatched=4400
-squadDecisions=16000
-projectileHitTests=0
-stateDigest=340def1e896e679a
+candidatesExamined=754121910
+cellsVisited=24672369
+gridInsertions=1379509
+jobsDispatched=16036
+squadDecisions=56000
+projectileHitTests=68969
+stateDigest=aacc2bda85ed3a37
