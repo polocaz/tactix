@@ -52,3 +52,9 @@ constexpr float   kArrowSpeed      = 200.0f;  // px/s
 constexpr float   kArrowLifetime   = 3.0f;    // seconds before it falls short
 constexpr uint8_t kArrowDamage     = 1;
 constexpr float   kSoldierRadius   = 4.0f;    // for hit tests
+
+// Melee. Reach is deliberately close to kSlotSpacing so that two formations
+// have to actually touch before anyone swings.
+constexpr float   kMeleeReach    = 14.0f;  // px
+constexpr uint8_t kMeleeDamage   = 1;
+constexpr float   kMeleeCooldown = 0.8f;   // seconds between swings

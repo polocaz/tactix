@@ -100,6 +100,8 @@ public:
     float  soldierY(size_t i) const { return soldiers.posY[i]; }
     Team   soldierTeam(size_t i) const { return soldiers.team[i]; }
     UnitType soldierUnitType(size_t i) const { return soldiers.unitType[i]; }
+    uint32_t soldierIntentTarget(size_t i) const { return soldiers.intentTarget[i]; }
+    uint8_t  soldierHealth(size_t i) const { return soldiers.health[i]; }
     bool   everySoldierHasASquadSlot() const;
 
     // Per-squad accessors (Task 8). Used to check a squad's centroid does

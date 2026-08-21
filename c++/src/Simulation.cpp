@@ -5,6 +5,7 @@
 #include "Formation.hpp"
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
+#include "Combat.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -548,6 +549,10 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             soldiers.velX[i] = (soldiers.velX[i] / speed) * maxSpeed;
             soldiers.velY[i] = (soldiers.velY[i] / speed) * maxSpeed;
         }
+
+        // Melee target selection (Task 3). Writes only soldiers.intentTarget[i]
+        // and reuses localNeighbors, the buffer separation just filled above.
+        selectMeleeTarget(soldiers, spatialHash, i, localNeighbors);
     }
 }
 
@@ -634,6 +639,12 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
         if (speed > 0.1f) {  // Only update if moving
             soldiers.dirX[i] = soldiers.velX[i] / speed;
             soldiers.dirY[i] = soldiers.velY[i] / speed;
+        }
+
+        // Decay the melee attack cooldown (Task 3). This phase already
+        // writes only its own soldier, so it is safe to do here too.
+        if (soldiers.attackCooldown[i] > 0.0f) {
+            soldiers.attackCooldown[i] -= dt;
         }
     }
 }
