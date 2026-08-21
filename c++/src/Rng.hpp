@@ -35,6 +35,9 @@ enum class RngUse : uint32_t {
     DeployJitterX,
     DeployJitterY,
 
+    // Plan 2: archery
+    ArrowSpread,
+
     // Keep this trailing sentinel last.
     Count
 };

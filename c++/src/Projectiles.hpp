@@ -1,7 +1,11 @@
 #pragma once
 #include "Units.hpp"
+#include "Squads.hpp"
+#include "Rng.hpp"
 #include <cstdint>
 #include <vector>
+
+struct SoldierHot;  // defined in Simulation.hpp
 
 // Arrows in flight. A third SoA array alongside SoldierHot and SquadHot, with
 // a very different lifetime pattern: entries are created and destroyed
@@ -45,3 +49,9 @@ struct ProjectileHot {
         count = 0;
     }
 };
+
+// Resolution step 3 (spec 5.5). Converts intentFire flags into arrows, in
+// ascending soldier index order so the projectile array's contents do not
+// depend on thread scheduling.
+void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
+                 ProjectileHot& out, const Rng& rng);

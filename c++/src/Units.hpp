@@ -58,3 +58,8 @@ constexpr float   kSoldierRadius   = 4.0f;    // for hit tests
 constexpr float   kMeleeReach    = 14.0f;  // px
 constexpr uint8_t kMeleeDamage   = 1;
 constexpr float   kMeleeCooldown = 0.8f;   // seconds between swings
+
+// Shot accuracy. Spread is carried in integer milliradians because Rng::range
+// is integer-only; passing float bounds to it does not compile.
+constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
+constexpr float kArcherCooldown      = 1.5f;  // seconds between shots

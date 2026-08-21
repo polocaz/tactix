@@ -461,7 +461,7 @@ void Simulation::phaseProjectiles(float) {
     // Plan 2 fills this in.
 }
 
-void Simulation::phaseResolution(const Rng&) {
+void Simulation::phaseResolution(const Rng& rng) {
     // Spec 5.5. The order is load-bearing and each step notes what it needs.
     // Single-threaded on purpose: this is the ONLY place cross-agent mutation
     // is permitted anywhere in the tick.
@@ -470,7 +470,13 @@ void Simulation::phaseResolution(const Rng&) {
 
     applyMeleeIntents(soldiers);                            // step 1
     // step 2 (projectile hits) arrives in task 9
-    // step 3 (arrow spawn) arrives in task 7
+    spawnArrows(soldiers, squads, projectiles, rng);         // step 3
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        if (soldiers.intentFire[i]) {
+            soldiers.attackCooldown[i] = kArcherCooldown;
+            soldiers.intentFire[i] = 0;
+        }
+    }
     recordCasualties(soldiers, casualties, officerDied);    // step 4
     // step 5 (morale and discipline) is plan 3; casualties and officerDied are
     // recorded now precisely so it has something to read when it arrives.
@@ -613,6 +619,19 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         // Melee target selection (Task 3). Writes only soldiers.intentTarget[i]
         // and reuses localNeighbors, the buffer separation just filled above.
         selectMeleeTarget(soldiers, spatialHash, i, localNeighbors);
+
+        // Archers fire at whatever their squad handed them, subject to cooldown.
+        // Writing only our own flag keeps this parallel-safe; resolution turns
+        // flags into arrows.
+        soldiers.intentFire[i] = 0;
+        if (soldiers.unitType[i] == UnitType::Archer &&
+            soldiers.attackCooldown[i] <= 0.0f &&
+            soldiers.state[i] != SoldierState::Dead) {
+            const uint16_t sq = soldiers.squadId[i];
+            if (sq < squads.count && squads.targetSoldier[sq] != UINT32_MAX) {
+                soldiers.intentFire[i] = 1;
+            }
+        }
     }
 }
 
