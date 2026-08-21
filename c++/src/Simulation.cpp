@@ -382,7 +382,6 @@ void Simulation::phaseSquadAggregate() {
         jobSystem.submit([this, start, end]() {
             for (size_t s = start; s < end; ++s) {
                 updateSquadAggregate(soldiers, squads, squadMembers, s);
-                workCounters.add(workCounters.squadDecisions, 1);
             }
         });
         workCounters.add(workCounters.jobsDispatched, 1);
@@ -390,8 +389,20 @@ void Simulation::phaseSquadAggregate() {
 }
 
 void Simulation::phaseSquadDecide(const Rng&) {
-    // Plan 3 fills this in. Every squad currently holds the Advance order it
-    // was deployed with.
+    // Plan 3 replaces the body of selectTargetSquad with a weighted scorer over
+    // seven orders, plus hysteresis and a decide stagger. The dispatch shape
+    // here does not change.
+    const size_t chunkSize = 32;
+    for (size_t start = 0; start < squads.count; start += chunkSize) {
+        const size_t end = std::min(start + chunkSize, squads.count);
+        jobSystem.submit([this, start, end]() {
+            for (size_t s = start; s < end; ++s) {
+                selectTargetSquad(squads, s);
+                workCounters.add(workCounters.squadDecisions, 1);
+            }
+        });
+        workCounters.add(workCounters.jobsDispatched, 1);
+    }
 }
 
 void Simulation::phaseProjectiles(float) {

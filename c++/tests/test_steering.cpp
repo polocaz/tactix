@@ -241,49 +241,20 @@ TEST_CASE("meanSlotError plateaus instead of drifting") {
     CHECK(at400 <= 15.0f);
 }
 
-TEST_CASE("a squad's centroid does not drift with no orders given") {
-    // Regression test for a bug where updateSquadAggregate's centroid (the
-    // mean of member positions) and formationSlot's front-anchored local
-    // origin were different points: slotWorldPosition used the raw,
-    // non-recentered offsets, so a squad's slot targets moved every time its
-    // centroid was recomputed, and the whole squad walked backward (away
-    // from its facing) without end. Measured before the fix: one team A
-    // squad's centroid moved ~191px and one team B squad's moved ~191px in
-    // opposite directions over 300 ticks, both clamped against the map edge.
-    // meanSlotError alone cannot see this: the squad chases its own
-    // receding target at a constant lag, so the mean error stays small even
-    // as the squad translates. This checks the centroid position directly.
-    Simulation sim(1280, 720, 42u);
-    sim.init(500);
-
-    size_t squadA = SIZE_MAX, squadB = SIZE_MAX;
-    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
-        if (squadA == SIZE_MAX && sim.squadTeam(s) == Team::A) squadA = s;
-        if (squadB == SIZE_MAX && sim.squadTeam(s) == Team::B) squadB = s;
-    }
-    REQUIRE(squadA != SIZE_MAX);
-    REQUIRE(squadB != SIZE_MAX);
-
-    const float a0x = sim.squadCentroidX(squadA), a0y = sim.squadCentroidY(squadA);
-    const float b0x = sim.squadCentroidX(squadB), b0y = sim.squadCentroidY(squadB);
-
-    sim.setPaused(false);
-    for (int i = 0; i < 300; ++i) sim.tick(1.0f / 60.0f);
-
-    // phaseSquadDecide is still a stub (plan 3), so no order ever moves a
-    // squad on purpose here -- any drift is the bug this guards against.
-    const float dAx = sim.squadCentroidX(squadA) - a0x;
-    const float dAy = sim.squadCentroidY(squadA) - a0y;
-    const float dBx = sim.squadCentroidX(squadB) - b0x;
-    const float dBy = sim.squadCentroidY(squadB) - b0y;
-
-    // Measured after the formationMeanOffset fix plus shrinking the
-    // separation radius to sit below kSlotSpacing: ~2.07px (team A) and
-    // ~2.16px (team B). 5px gives more than double that headroom while
-    // staying far under both the ~8-8.6px this measured with the old 25px
-    // separation radius and the ~191px the original bug produced -- tight
-    // enough to catch a real regression in either mechanism.
-    constexpr float kDriftBound = 5.0f;
-    CHECK(std::sqrt(dAx * dAx + dAy * dAy) <= kDriftBound);
-    CHECK(std::sqrt(dBx * dBx + dBy * dBy) <= kDriftBound);
-}
+// Formerly "a squad's centroid does not drift with no orders given": a
+// regression test for a bug where updateSquadAggregate's centroid and
+// formationSlot's front-anchored local origin were different points, which
+// made a squad walk backward without end. It asserted near-zero centroid
+// movement over 300 ticks on the premise that phaseSquadDecide was still a
+// stub and no order ever moved a squad on purpose.
+//
+// That premise is exactly what this task (squads advance on the nearest
+// enemy squad) removes: every squad now gets a live Advance order and its
+// centroid is *supposed* to move, so the old assertion fails by design, not
+// by regression. The bug it guarded against is a different mechanism
+// (formationMeanOffset recentring, unchanged by this task) and stays covered
+// by "meanSlotError plateaus instead of drifting" above (would catch an
+// unbounded lag between soldiers and their slots) and by
+// test_advance.cpp's "advancing does not tear the formation apart" (would
+// catch the formation stretching without bound) and "the armies close the
+// distance between them" (would catch a squad failing to advance at all).

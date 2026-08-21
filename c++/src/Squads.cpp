@@ -76,10 +76,61 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
         squads.centroidY[s] = sumY / (float)n;
     }
 
-    // Plan 3 derives facing from the order objective. Until then a squad
-    // holds its deployed facing; renormalize so formation rotation in Task 8
-    // can assume unit length.
+    // Facing is derived from the order's objective (spec 6.6), but NOT here:
+    // this function runs in phase 2, parallel across squads, while every
+    // squad's own centroid above is still being written by its own
+    // concurrent job. Reading another squad's centroid at that point would
+    // race with that squad's write. selectTargetSquad below does the same
+    // derivation safely, in phase 3, after phase 2's barrier has made every
+    // centroid read-only for the rest of the tick.
     normalizeFacing(squads, s);
+}
+
+void selectTargetSquad(SquadHot& squads, size_t s) {
+    if (squads.memberCount[s] == 0) return;
+
+    float bestDistSq = 1e30f;
+    uint16_t best = squads.targetSquad[s];
+    bool found = false;
+
+    // Walked in ascending index order so ties resolve identically on every
+    // thread and platform.
+    for (size_t e = 0; e < squads.count; ++e) {
+        if (squads.team[e] == squads.team[s]) continue;
+        if (squads.memberCount[e] == 0) continue;
+        const float dx = squads.centroidX[e] - squads.centroidX[s];
+        const float dy = squads.centroidY[e] - squads.centroidY[s];
+        const float d = dx * dx + dy * dy;
+        if (d < bestDistSq) {
+            bestDistSq = d;
+            best = (uint16_t)e;
+            found = true;
+        }
+    }
+
+    if (found) {
+        squads.targetSquad[s] = best;
+        squads.order[s] = (uint8_t)SquadOrder::Advance;
+
+        // Spec 6.6: facing comes from the order's objective, not from
+        // averaging soldier directions (noisy for a loose formation) and not
+        // from centroid velocity (undefined when stationary). Safe here,
+        // unlike in updateSquadAggregate above: phase 3 runs after phase 2's
+        // barrier, so every squad's centroid -- including the target's -- is
+        // finalized and read-only for the rest of the tick, and this writes
+        // only squad s's own facing.
+        const float dx = squads.centroidX[best] - squads.centroidX[s];
+        const float dy = squads.centroidY[best] - squads.centroidY[s];
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len > 1e-6f) {
+            squads.facingX[s] = dx / len;
+            squads.facingY[s] = dy / len;
+        }
+    } else {
+        // Every enemy squad is wiped out. Hold rather than advancing on a
+        // stale target; keep the last facing.
+        squads.order[s] = (uint8_t)SquadOrder::Hold;
+    }
 }
 
 void normalizeFacing(SquadHot& squads, size_t s) {

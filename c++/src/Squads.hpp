@@ -53,6 +53,14 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
                           const std::vector<uint32_t>& members,
                           size_t squadIndex);
 
+// Picks the nearest enemy squad by centroid distance. Parallel-safe: writes
+// only the squad it is given, reads other squads' centroids, which phase 2
+// already finished writing.
+//
+// Plan 3 replaces this with the weighted scorer. The FIELD it writes stays the
+// same, so only the choice changes, not the plumbing.
+void selectTargetSquad(SquadHot& squads, size_t squadIndex);
+
 // Normalizes a squad's facing vector in place, falling back to (1, 0) for a
 // zero-length input rather than producing NaN. Shared by deployment
 // (Simulation::init, which must establish the unit-length invariant slot

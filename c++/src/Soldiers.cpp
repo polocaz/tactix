@@ -23,9 +23,17 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
     // squad-right, which is facing rotated 90 degrees clockwise.
     const float rightX =  fy;
     const float rightY = -fx;
+
+    // While advancing, aim the whole formation slightly ahead of where it
+    // stands. Soldiers chase that, the centroid follows them, and the squad
+    // marches. Holding squads get no lead, so the centroid stays a fixed point
+    // exactly as formationMeanOffset arranged.
+    const float lead = (squads.order[s] == (uint8_t)SquadOrder::Advance)
+                     ? kAdvanceLead : 0.0f;
+
     return Vec2{
-        squads.centroidX[s] + local.x * rightX + local.y * fx,
-        squads.centroidY[s] + local.x * rightY + local.y * fy
+        squads.centroidX[s] + local.x * rightX + (local.y + lead) * fx,
+        squads.centroidY[s] + local.x * rightY + (local.y + lead) * fy
     };
 }
 

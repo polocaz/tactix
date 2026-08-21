@@ -137,6 +137,7 @@ add_executable(tactix_tests
     tests/test_squads.cpp
     tests/test_deployment.cpp
     tests/test_steering.cpp
+    tests/test_advance.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE
