@@ -18,3 +18,16 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
 // ascending soldier index order. Single-threaded: this is the only place a
 // soldier may write another soldier's health.
 void applyMeleeIntents(SoldierHot& soldiers);
+
+// Resolution step 4 (spec 5.5). Runs BEFORE compaction, because the officer is
+// identified by slotIndex 0 and compaction reassigns slots.
+void recordCasualties(SoldierHot& soldiers,
+                      std::vector<uint32_t>& casualties,
+                      std::vector<uint8_t>& officerDied);
+
+// Resolution step 6 (spec 5.5). Swap-with-back removal of Dead soldiers. This
+// INVALIDATES every soldier index, so it must run after every step that reads
+// one.
+void compactDead(SoldierHot& soldiers,
+                 std::vector<float>& prevPosX,
+                 std::vector<float>& prevPosY);

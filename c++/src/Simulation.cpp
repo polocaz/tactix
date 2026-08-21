@@ -263,6 +263,8 @@ void Simulation::reset(size_t count) {
     squads.memberCount.clear();
     squads.count = 0;
     squadMembers.clear();
+    casualties.clear();
+    officerDied.clear();
 
     projectiles.clear();
 
@@ -329,7 +331,6 @@ void Simulation::tick(float dt) {
     // bit-reproducible. Atomics from workers would not be.
     rebuildSpatialHash();
     rebuildInfluence();
-    rebuildSquadMembers(soldiers, squads, squadMembers);
 
     // Phase 2: parallel over squads. Writes only its own squad.
     phaseSquadAggregate();
@@ -416,11 +417,17 @@ void Simulation::phaseResolution(const Rng&) {
     // Spec 5.5. The order is load-bearing and each step notes what it needs.
     // Single-threaded on purpose: this is the ONLY place cross-agent mutation
     // is permitted anywhere in the tick.
-    applyMeleeIntents(soldiers);   // step 1
+    casualties.assign(squads.count, 0u);
+    officerDied.assign(squads.count, 0u);
+
+    applyMeleeIntents(soldiers);                            // step 1
     // step 2 (projectile hits) arrives in task 9
     // step 3 (arrow spawn) arrives in task 7
-    // step 4 (casualties) and 6 (compaction) arrive in task 5
-    // step 5 (morale and discipline) is plan 3
+    recordCasualties(soldiers, casualties, officerDied);    // step 4
+    // step 5 (morale and discipline) is plan 3; casualties and officerDied are
+    // recorded now precisely so it has something to read when it arrives.
+    compactDead(soldiers, prevPosX, prevPosY);              // step 6
+    rebuildSquadMembers(soldiers, squads, squadMembers);    // step 7
 }
 
 void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {

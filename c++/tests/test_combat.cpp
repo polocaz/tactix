@@ -205,3 +205,92 @@ TEST_CASE("an out of range index is ignored rather than read") {
     applyMeleeIntents(s);  // must not read past the end
     CHECK(s.health[1] == kUnitStats[(int)UnitType::Infantry].maxHealth);
 }
+
+TEST_CASE("a soldier reduced to zero health is marked dead and counted") {
+    SoldierHot s = makeDuel();
+    s.health[1] = 0;
+    std::vector<uint32_t> casualties(2, 0u);
+    std::vector<uint8_t> officerDied(2, 0u);
+
+    recordCasualties(s, casualties, officerDied);
+
+    CHECK(s.state[1] == SoldierState::Dead);
+    CHECK(casualties[s.squadId[1]] == 1);
+}
+
+TEST_CASE("officer death is captured before compaction destroys the evidence") {
+    // The officer is whoever holds slotIndex 0. Once compaction runs, that
+    // soldier is gone and the next man has inherited the slot, so the flag has
+    // to be set while the corpse still holds it.
+    SoldierHot s;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.slotIndex[0] = 0;   // officer
+    s.slotIndex[1] = 1;
+    s.health[0] = 0;
+
+    std::vector<uint32_t> casualties(1, 0u);
+    std::vector<uint8_t> officerDied(1, 0u);
+    recordCasualties(s, casualties, officerDied);
+
+    CHECK(officerDied[0] == 1);
+}
+
+TEST_CASE("a non officer death does not raise the officer flag") {
+    SoldierHot s;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.slotIndex[0] = 0;
+    s.slotIndex[1] = 1;
+    s.health[1] = 0;
+
+    std::vector<uint32_t> casualties(1, 0u);
+    std::vector<uint8_t> officerDied(1, 0u);
+    recordCasualties(s, casualties, officerDied);
+
+    CHECK(officerDied[0] == 0);
+    CHECK(casualties[0] == 1);
+}
+
+TEST_CASE("compaction removes the dead and keeps every array the same length") {
+    SoldierHot s;
+    for (int k = 0; k < 5; ++k) {
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    }
+    std::vector<float> prevX(5, 0.0f), prevY(5, 0.0f);
+    s.state[1] = SoldierState::Dead;
+    s.state[3] = SoldierState::Dead;
+
+    compactDead(s, prevX, prevY);
+
+    CHECK(s.count == 3);
+    CHECK(s.posX.size() == 3);
+    CHECK(s.health.size() == 3);
+    CHECK(s.intentTarget.size() == 3);
+    CHECK(prevX.size() == 3);
+    for (size_t i = 0; i < s.count; ++i) {
+        CHECK(s.state[i] != SoldierState::Dead);
+    }
+}
+
+TEST_CASE("compacting an army with no dead changes nothing") {
+    SoldierHot s;
+    for (int k = 0; k < 4; ++k) {
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    }
+    std::vector<float> prevX(4, 0.0f), prevY(4, 0.0f);
+
+    compactDead(s, prevX, prevY);
+
+    CHECK(s.count == 4);
+    CHECK(s.posX[3] == doctest::Approx(103.0f));
+}
+
+TEST_CASE("soldiers actually die in a running battle") {
+    Simulation sim(2400, 1600, 42u);
+    sim.init(500);
+    sim.setPaused(false);
+    const size_t before = sim.getAgentCount();
+    for (int i = 0; i < 1800; ++i) sim.tick(1.0f / 60.0f);
+    CHECK(sim.getAgentCount() < before);
+}

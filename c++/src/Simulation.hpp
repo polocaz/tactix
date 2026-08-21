@@ -155,6 +155,11 @@ private:
     SquadHot squads;
     std::vector<uint32_t> squadMembers;
 
+    // Per-squad scratch, cleared at the start of every resolution phase. Plan 3
+    // consumes both to drive morale and the officer-death discipline penalty.
+    std::vector<uint32_t> casualties;
+    std::vector<uint8_t>  officerDied;
+
     // Projectiles in flight
     ProjectileHot projectiles;
 
