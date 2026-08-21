@@ -485,7 +485,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     officerDied.assign(squads.count, 0u);
 
     applyMeleeIntents(soldiers);                            // step 1
-    // step 2 (projectile hits) arrives in task 9
+    applyProjectileHits(projectiles, soldiers);             // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
@@ -496,6 +496,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     recordCasualties(soldiers, casualties, officerDied);    // step 4
     // step 5 (morale and discipline) is plan 3; casualties and officerDied are
     // recorded now precisely so it has something to read when it arrives.
+    compactProjectiles(projectiles);
     compactDead(soldiers, prevPosX, prevPosY);              // step 6
     rebuildSquadMembers(soldiers, squads, squadMembers);    // step 7
 }

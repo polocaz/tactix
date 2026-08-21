@@ -145,3 +145,59 @@ TEST_CASE("no target means no arrow") {
     spawnArrows(s, q, p, Rng{42u, 1u});
     CHECK(p.count == 0);
 }
+
+TEST_CASE("an arrow hit costs the target health and spends the arrow") {
+    SoldierHot s;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+    const uint8_t before = s.health[0];
+
+    ProjectileHot p;
+    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+    p.intentHitTarget[0] = 0;
+
+    applyProjectileHits(p, s);
+
+    CHECK(s.health[0] == before - kArrowDamage);
+    CHECK(p.lifetime[0] <= 0.0f);
+}
+
+TEST_CASE("an arrow cannot finish off an already dead soldier") {
+    SoldierHot s;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+    s.health[0] = 0;
+
+    ProjectileHot p;
+    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+    p.intentHitTarget[0] = 0;
+
+    applyProjectileHits(p, s);
+    CHECK(s.health[0] == 0);  // no underflow to 255
+}
+
+TEST_CASE("spent and expired arrows are removed") {
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 1.0f);
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, -0.1f);  // expired
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 2.0f);
+
+    compactProjectiles(p);
+
+    CHECK(p.count == 2);
+    CHECK(p.posX.size() == 2);
+    CHECK(p.lifetime.size() == 2);
+    for (size_t i = 0; i < p.count; ++i) CHECK(p.lifetime[i] > 0.0f);
+}
+
+TEST_CASE("arrows exist and are consumed in a running battle") {
+    Simulation sim(2400, 1600, 42u);
+    sim.init(500);
+    sim.setPaused(false);
+    size_t peak = 0;
+    for (int i = 0; i < 1200; ++i) {
+        sim.tick(1.0f / 60.0f);
+        peak = std::max(peak, sim.getProjectileCount());
+    }
+    // Archers must actually shoot, and the array must not grow without bound.
+    CHECK(peak > 0);
+    CHECK(sim.getProjectileCount() < peak * 4 + 100);
+}

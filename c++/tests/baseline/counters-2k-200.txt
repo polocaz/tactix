@@ -45,7 +45,7 @@
 candidatesExamined=225248538
 cellsVisited=7334544
 gridInsertions=400000
-jobsDispatched=4798
+jobsDispatched=4762
 squadDecisions=16000
-projectileHitTests=49750
-stateDigest=aeed5c51bdcd132d
+projectileHitTests=45250
+stateDigest=97a6950e588e12c2

@@ -126,3 +126,53 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     }
     p.intentHitTarget[i] = best;
 }
+
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers) {
+    for (size_t i = 0; i < p.count; ++i) {
+        const uint32_t t = p.intentHitTarget[i];
+        if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
+        if (soldiers.health[t] == 0) continue;  // no underflow, no overkill
+
+        soldiers.health[t] = (soldiers.health[t] > p.damage[i])
+                           ? (uint8_t)(soldiers.health[t] - p.damage[i])
+                           : (uint8_t)0;
+
+        // An arrow that lands is spent. Marking it expired lets one compaction
+        // pass remove both hits and misses that ran out of flight time.
+        p.lifetime[i] = 0.0f;
+        p.intentHitTarget[i] = UINT32_MAX;
+    }
+}
+
+void compactProjectiles(ProjectileHot& p) {
+    size_t i = 0;
+    while (i < p.count) {
+        if (p.lifetime[i] > 0.0f) {
+            ++i;
+            continue;
+        }
+        const size_t last = p.count - 1;
+        if (i != last) {
+            p.posX[i] = p.posX[last];
+            p.posY[i] = p.posY[last];
+            p.velX[i] = p.velX[last];
+            p.velY[i] = p.velY[last];
+            p.team[i] = p.team[last];
+            p.damage[i] = p.damage[last];
+            p.lifetime[i] = p.lifetime[last];
+            p.intentHitTarget[i] = p.intentHitTarget[last];
+            // Do not advance i: the entry swapped in is unexamined.
+        } else {
+            ++i;
+        }
+        p.posX.pop_back();
+        p.posY.pop_back();
+        p.velX.pop_back();
+        p.velY.pop_back();
+        p.team.pop_back();
+        p.damage.pop_back();
+        p.lifetime.pop_back();
+        p.intentHitTarget.pop_back();
+        p.count--;
+    }
+}
