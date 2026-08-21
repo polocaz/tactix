@@ -2,6 +2,7 @@
 #include "Units.hpp"
 #include "Squads.hpp"
 #include "Rng.hpp"
+#include "SpatialHash.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -55,3 +56,19 @@ struct ProjectileHot {
 // depend on thread scheduling.
 void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
                  ProjectileHot& out, const Rng& rng);
+
+// Closest-approach test between a segment and a circle. Used instead of
+// sampling the arrow's endpoint each tick, because tunnelling depends on
+// RELATIVE velocity, not arrow speed alone: an arrow at 200px/s against
+// cavalry crossing at 95px/s covers about 4.9px of relative displacement per
+// tick against a 4px radius, so a point test would let arrows pass straight
+// through a galloping target.
+bool segmentHitsCircle(float x0, float y0, float x1, float y1,
+                       float cx, float cy, float r);
+
+// Phase 5 (spec 5.4 step 5). Moves one arrow by dt and writes its
+// intentHitTarget for resolution to consume. Parallel-safe: touches only
+// projectile index i and reads soldiers, never writes them.
+void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
+                         const SpatialHash& hash, size_t i, float dt,
+                         std::vector<uint32_t>& scratch);

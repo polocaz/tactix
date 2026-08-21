@@ -16,6 +16,7 @@ struct WorkCounters {
     std::atomic<uint64_t> gridInsertions{0};      // entities inserted into the grid
     std::atomic<uint64_t> jobsDispatched{0};      // jobs submitted to the job system
     std::atomic<uint64_t> squadDecisions{0};      // squad-tier decisions evaluated
+    std::atomic<uint64_t> projectileHitTests{0};  // arrow-vs-soldier segment tests run
 
     void reset() {
         candidatesExamined.store(0, std::memory_order_relaxed);
@@ -23,6 +24,7 @@ struct WorkCounters {
         gridInsertions.store(0, std::memory_order_relaxed);
         jobsDispatched.store(0, std::memory_order_relaxed);
         squadDecisions.store(0, std::memory_order_relaxed);
+        projectileHitTests.store(0, std::memory_order_relaxed);
     }
 
     void add(std::atomic<uint64_t>& field, uint64_t n) {

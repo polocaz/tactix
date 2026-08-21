@@ -9,12 +9,14 @@
 namespace {
 struct CounterSnapshot {
     uint64_t candidatesExamined, cellsVisited, gridInsertions, jobsDispatched, squadDecisions;
+    uint64_t projectileHitTests;
     uint64_t stateDigest;
 };
 
 CounterSnapshot snapshot(const WorkCounters& c, uint64_t digest) {
-    return { c.candidatesExamined.load(), c.cellsVisited.load(),   c.gridInsertions.load(),
-             c.jobsDispatched.load(),     c.squadDecisions.load(), digest };
+    return { c.candidatesExamined.load(),  c.cellsVisited.load(),      c.gridInsertions.load(),
+             c.jobsDispatched.load(),      c.squadDecisions.load(),    c.projectileHitTests.load(),
+             digest };
 }
 
 CounterSnapshot runAndCount(uint32_t threads, uint32_t seed = 42u) {
@@ -28,8 +30,8 @@ CounterSnapshot runAndCount(uint32_t threads, uint32_t seed = 42u) {
     return snapshot(sim.counters(), sim.stateDigest());
 }
 
-// Deliberately a flat key=value file, not JSON: gating needs five values,
-// and adding a JSON parser to read five values would be silly.
+// Deliberately a flat key=value file, not JSON: gating needs six values,
+// and adding a JSON parser to read six values would be silly.
 //
 // stateDigest is hex (matches tactix_bench --json's "%016llx" output
 // verbatim, so it copy-pastes with no mental conversion); every other key
@@ -83,28 +85,31 @@ TEST_CASE("counters are non-zero for a real run") {
     CHECK(c.gridInsertions > 0ull);
     CHECK(c.jobsDispatched > 0ull);
     CHECK(c.squadDecisions > 0ull);
+    CHECK(c.projectileHitTests > 0ull);
 }
 
 TEST_CASE("counters are identical regardless of thread count") {
     const CounterSnapshot single = runAndCount(1u);
     const CounterSnapshot many   = runAndCount(8u);
-    CHECK(single.candidatesExamined == many.candidatesExamined);
-    CHECK(single.cellsVisited       == many.cellsVisited);
-    CHECK(single.gridInsertions     == many.gridInsertions);
-    CHECK(single.jobsDispatched     == many.jobsDispatched);
-    CHECK(single.squadDecisions     == many.squadDecisions);
-    CHECK(single.stateDigest        == many.stateDigest);
+    CHECK(single.candidatesExamined  == many.candidatesExamined);
+    CHECK(single.cellsVisited        == many.cellsVisited);
+    CHECK(single.gridInsertions      == many.gridInsertions);
+    CHECK(single.jobsDispatched      == many.jobsDispatched);
+    CHECK(single.squadDecisions      == many.squadDecisions);
+    CHECK(single.projectileHitTests  == many.projectileHitTests);
+    CHECK(single.stateDigest         == many.stateDigest);
 }
 
 TEST_CASE("counters reproduce across runs") {
     const CounterSnapshot a = runAndCount(4u);
     const CounterSnapshot b = runAndCount(4u);
-    CHECK(a.candidatesExamined == b.candidatesExamined);
-    CHECK(a.cellsVisited       == b.cellsVisited);
-    CHECK(a.gridInsertions     == b.gridInsertions);
-    CHECK(a.jobsDispatched     == b.jobsDispatched);
-    CHECK(a.squadDecisions     == b.squadDecisions);
-    CHECK(a.stateDigest        == b.stateDigest);
+    CHECK(a.candidatesExamined  == b.candidatesExamined);
+    CHECK(a.cellsVisited        == b.cellsVisited);
+    CHECK(a.gridInsertions      == b.gridInsertions);
+    CHECK(a.jobsDispatched      == b.jobsDispatched);
+    CHECK(a.squadDecisions      == b.squadDecisions);
+    CHECK(a.projectileHitTests  == b.projectileHitTests);
+    CHECK(a.stateDigest         == b.stateDigest);
 }
 
 // The committed baseline (c++/tests/baseline/counters-2k-200.txt) is the
@@ -115,10 +120,11 @@ TEST_CASE("work counters and state digest match the committed baseline") {
     const auto expected = loadBaseline(std::string(TACTIX_BASELINE_DIR) + "/counters-2k-200.txt");
     const CounterSnapshot actual = runAndCount(1u);
 
-    CHECK(actual.candidatesExamined == requireKey(expected, "candidatesExamined"));
-    CHECK(actual.cellsVisited       == requireKey(expected, "cellsVisited"));
-    CHECK(actual.gridInsertions     == requireKey(expected, "gridInsertions"));
-    CHECK(actual.jobsDispatched     == requireKey(expected, "jobsDispatched"));
-    CHECK(actual.squadDecisions     == requireKey(expected, "squadDecisions"));
-    CHECK(actual.stateDigest        == requireKey(expected, "stateDigest"));
+    CHECK(actual.candidatesExamined  == requireKey(expected, "candidatesExamined"));
+    CHECK(actual.cellsVisited        == requireKey(expected, "cellsVisited"));
+    CHECK(actual.gridInsertions      == requireKey(expected, "gridInsertions"));
+    CHECK(actual.jobsDispatched      == requireKey(expected, "jobsDispatched"));
+    CHECK(actual.squadDecisions      == requireKey(expected, "squadDecisions"));
+    CHECK(actual.projectileHitTests  == requireKey(expected, "projectileHitTests"));
+    CHECK(actual.stateDigest         == requireKey(expected, "stateDigest"));
 }

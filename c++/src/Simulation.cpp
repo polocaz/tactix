@@ -457,8 +457,24 @@ void Simulation::phaseSquadDecide(const Rng&) {
     }
 }
 
-void Simulation::phaseProjectiles(float) {
-    // Plan 2 fills this in.
+void Simulation::phaseProjectiles(float dt) {
+    // Parallel over projectiles. Each job writes only its own projectile's
+    // fields (posX/posY/lifetime/intentHitTarget) and reads soldiers, which
+    // is safe here because soldier positions are written in phases 4 and 7,
+    // not phase 5.
+    const size_t chunkSize = 128;
+    for (size_t start = 0; start < projectiles.count; start += chunkSize) {
+        const size_t end = std::min(start + chunkSize, projectiles.count);
+        jobSystem.submit([this, start, end, dt]() {
+            std::vector<uint32_t> scratch;
+            scratch.reserve(64);
+            for (size_t i = start; i < end; ++i) {
+                integrateProjectile(projectiles, soldiers, spatialHash, i, dt, scratch);
+                workCounters.add(workCounters.projectileHitTests, 1);
+            }
+        });
+        workCounters.add(workCounters.jobsDispatched, 1);
+    }
 }
 
 void Simulation::phaseResolution(const Rng& rng) {

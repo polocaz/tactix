@@ -83,6 +83,56 @@ TEST_CASE("spread is bounded and deterministic") {
     CHECK(std::fabs(angle) < 0.5f);
 }
 
+TEST_CASE("a segment through a circle is a hit") {
+    CHECK(segmentHitsCircle(0.0f, 0.0f, 10.0f, 0.0f, 5.0f, 0.0f, 1.0f));
+}
+
+TEST_CASE("a segment passing beside a circle is a miss") {
+    CHECK_FALSE(segmentHitsCircle(0.0f, 0.0f, 10.0f, 0.0f, 5.0f, 50.0f, 1.0f));
+}
+
+TEST_CASE("a segment stopping short of a circle is a miss") {
+    CHECK_FALSE(segmentHitsCircle(0.0f, 0.0f, 1.0f, 0.0f, 50.0f, 0.0f, 1.0f));
+}
+
+TEST_CASE("a swept test catches a target a point test would tunnel through") {
+    // This is the case that forced the swept test. An arrow at 200px/s and a
+    // cavalryman crossing at 95px/s give a relative displacement of about
+    // 4.9px per tick against a 4px radius, so sampling only the endpoints
+    // misses a target the arrow demonstrably passed through.
+    const float x0 = 0.0f, y0 = 0.0f;
+    const float x1 = 4.9f, y1 = 0.0f;
+    const float cx = 2.45f, cy = 0.0f;
+    const float r = kSoldierRadius * 0.5f;
+
+    // A point test sampling either endpoint alone would miss: the segment's
+    // midpoint sits exactly on the target's centre, so both the start and
+    // the end of the tick's movement are equidistant from it and that
+    // distance exceeds the radius. Checking both endpoints (not just one)
+    // is what actually demonstrates neither point test would catch this --
+    // relying on the symmetry of this particular case to imply the second
+    // from the first would leave that half of the claim unverified.
+    const float d0 = std::sqrt((cx - x0) * (cx - x0) + (cy - y0) * (cy - y0));
+    const float d1 = std::sqrt((cx - x1) * (cx - x1) + (cy - y1) * (cy - y1));
+    CHECK(d0 > r);
+    CHECK(d1 > r);
+
+    // The swept test still finds it: the segment passes directly through
+    // the target's centre even though neither endpoint is inside it.
+    CHECK(segmentHitsCircle(x0, y0, x1, y1, cx, cy, r));
+}
+
+TEST_CASE("an arrow expires when its lifetime runs out") {
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f);
+    SoldierHot s;
+    SpatialHash hash(1280.0f, 720.0f, 50.0f);
+    std::vector<uint32_t> scratch;
+
+    integrateProjectile(p, s, hash, 0, 1.0f / 60.0f, scratch);
+    CHECK(p.lifetime[0] <= 0.0f);
+}
+
 TEST_CASE("no target means no arrow") {
     SoldierHot s;
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
