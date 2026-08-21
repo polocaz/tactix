@@ -117,6 +117,85 @@ TEST_CASE("both armies contain all three unit types even at a small agent count"
     }
 }
 
+namespace {
+void countByTeam(const Simulation& sim, uint32_t (&a)[kUnitTypeCount], uint32_t (&b)[kUnitTypeCount]) {
+    for (uint32_t u = 0; u < kUnitTypeCount; ++u) { a[u] = 0; b[u] = 0; }
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        uint32_t* c = (sim.soldierTeam(i) == Team::A) ? a : b;
+        c[(int)sim.soldierUnitType(i)]++;
+    }
+}
+} // namespace
+
+TEST_CASE("both armies have identical unit-type composition at 100 agents") {
+    // 100 is the GUI's default agent count AND its slider minimum -- exactly
+    // 2 squads per team. The measured failure point for finding 3: a naive
+    // 60/85 percent split puts archerStart and cavalryStart on the same
+    // bucket at squadsPerTeam == 2, so the old formula fielded Infantry +
+    // Cavalry with ZERO archers, even though the whole point of scaling
+    // composition by squad count was for a user watching the default battle
+    // to see archers.
+    Simulation sim(1280, 720, 42u);
+    sim.init(100);
+
+    uint32_t a[kUnitTypeCount], b[kUnitTypeCount];
+    countByTeam(sim, a, b);
+    for (uint32_t u = 0; u < kUnitTypeCount; ++u) CHECK(a[u] == b[u]);
+    CHECK(a[(int)UnitType::Archer] > 0);
+    CHECK(a[(int)UnitType::Infantry] > 0);
+}
+
+TEST_CASE("both armies have matching unit-type composition at 101 agents despite the odd split") {
+    // 101 is the measured failure point for the SECOND finding-3 defect:
+    // team A gets floor(101/2) = 50 soldiers, team B gets 51. 50 is an exact
+    // multiple of kSquadSize (25), so team A needs 2 squads while team B's
+    // extra soldier tips it to 3 -- squadsPerTeamA=2, squadsPerTeamB=3. The
+    // old code fed each team its OWN squadsPerTeam into unitTypeForSquad, so
+    // squad index 1 came out Cavalry for team A (squadsPerTeam==2 special
+    // case) but Archer for team B (squadsPerTeam==3), giving the two armies
+    // entirely different rosters -- a violation of the spec's two-symmetric-
+    // armies requirement, independent of the zero-archer bug above.
+    //
+    // The fix derives ONE shared squadsPerTeam (the larger of the two) and
+    // uses it for both teams' composition, so squad index N always means the
+    // same type on both sides; team A just does not reach as high an index.
+    // Deploying every one of the 101 agents (see "an odd soldier count
+    // deploys the full count requested" above) means the one leftover
+    // soldier unavoidably lands in exactly one bucket on team B alone, so
+    // exact equality does not hold for that single bucket -- allow it a
+    // difference of at most 1, and require every other bucket to match
+    // exactly.
+    Simulation sim(1280, 720, 42u);
+    sim.init(101);
+
+    uint32_t a[kUnitTypeCount], b[kUnitTypeCount];
+    countByTeam(sim, a, b);
+    uint32_t totalDiff = 0;
+    for (uint32_t u = 0; u < kUnitTypeCount; ++u) {
+        const uint32_t diff = (a[u] > b[u]) ? (a[u] - b[u]) : (b[u] - a[u]);
+        CHECK(diff <= 1);
+        totalDiff += diff;
+    }
+    CHECK(totalDiff == 1);  // exactly the one leftover soldier from the odd total
+}
+
+TEST_CASE("both armies field all three unit types at 150 agents (3 squads per team)") {
+    // 150 agents = 75/team = exactly 3 squads per team on both sides (no odd
+    // split), the smallest count where unitTypeForSquad's 3+ branch (as
+    // opposed to the 2-squad special case above) is exercised for both
+    // teams, and the case finding 3 gives as the CORRECT baseline all three
+    // unit-type tests are measured against.
+    Simulation sim(1280, 720, 42u);
+    sim.init(150);
+
+    uint32_t a[kUnitTypeCount], b[kUnitTypeCount];
+    countByTeam(sim, a, b);
+    for (uint32_t u = 0; u < kUnitTypeCount; ++u) {
+        CHECK(a[u] > 0);
+        CHECK(b[u] == a[u]);
+    }
+}
+
 TEST_CASE("deployment is deterministic for a seed") {
     Simulation a(1280, 720, 7u);
     Simulation b(1280, 720, 7u);

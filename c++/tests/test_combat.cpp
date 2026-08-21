@@ -455,58 +455,19 @@ TEST_CASE("soldiers actually die in a running battle") {
     CHECK(sim.getAgentCount() < before);
 }
 
-// NOTE: the brief specified sim.init(500) and 600 ticks for both tests
-// below. Both held, once Simulation::init's composition bug (see
-// unitTypeForSquad in Simulation.cpp) was fixed rather than routed around:
-// the old `bucket = sq % 20` formula needed 13+ squads per team (~601
-// agents) before an archer ever appeared, so 500 agents deployed zero
-// archers and zero cavalry -- structurally, not "late" -- and this test
-// could not have passed at any tick count. With composition scaling by
-// squadsPerTeam instead, 500 agents deploys 20 squads (10/team) with real
-// archers on both sides.
-//
-// 600 ticks still is not enough, though: squads spend the march closing
-// distance with no enemy soldier within archer range (280px) at all, so
-// targetSoldier is UINT32_MAX almost everywhere until real contact
-// approaches. (Tick 0 itself is a separate, harmless transient -- every
-// squad spawns with targetSquad = 0, i.e. itself, until phase 3 has run
-// once, so an archer squad can briefly "acquire" a same-team soldier at
-// tick 0 specifically. Not the behaviour under test.) Measured the first
-// genuine long-range acquisition at 500 agents: tick 1333. Bumped the loop
-// from 600 to 1400 ticks for margin past that.
-TEST_CASE("an archer squad acquires a target beyond its soldiers' own sight") {
-    Simulation sim(2400, 1600, 42u);
-    sim.init(500);
-    sim.setPaused(false);
-    for (int i = 0; i < 1400; ++i) sim.tick(1.0f / 60.0f);
-
-    bool sawLongRangeAcquisition = false;
-    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
-        const uint32_t t = sim.squadTargetSoldier(s);
-        if (t == UINT32_MAX) continue;
-        REQUIRE(t < sim.getAgentCount());
-
-        const float dx = sim.soldierX(t) - sim.squadCentroidX(s);
-        const float dy = sim.soldierY(t) - sim.squadCentroidY(s);
-        const float dist = std::sqrt(dx * dx + dy * dy);
-
-        // The whole justification for the squad tier: a target further away
-        // than any individual soldier could perceive.
-        if (dist > kSeekRadius) sawLongRangeAcquisition = true;
-    }
-    CHECK(sawLongRangeAcquisition);
-}
-
-// Same 500-soldier, 1400-tick reasoning as above.
-TEST_CASE("a squad never acquires a target on its own team") {
-    Simulation sim(2400, 1600, 42u);
-    sim.init(500);
-    sim.setPaused(false);
-    for (int i = 0; i < 1400; ++i) sim.tick(1.0f / 60.0f);
-
-    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
-        const uint32_t t = sim.squadTargetSoldier(s);
-        if (t == UINT32_MAX) continue;
-        CHECK(sim.soldierTeam(t) != sim.squadTeam(s));
-    }
-}
+// The two properties formerly tested here -- long-range acquisition beyond
+// an individual soldier's own sight, and never acquiring a same-team target
+// -- used to be checked by running a full 500-soldier, 1400-tick battle and
+// reading Simulation::squadTargetSoldier() afterward. That accessor no
+// longer works for this: phaseResolution now clears squads.targetSoldier to
+// UINT32_MAX at the end of every tick (see the comment there), because a
+// value left over from before compaction is a stale index into the OLD
+// soldier numbering, not a value with any meaning after the tick completes.
+// A caller reading squadTargetSoldier() between ticks always sees
+// UINT32_MAX now -- correct, but it means these two properties can no longer
+// be observed through a live Simulation from outside a tick. Both are
+// covered directly against selectTargetSoldier() instead, in test_squads.cpp
+// ("selectTargetSoldier does not acquire a same-team target on a squad's
+// very first decide" and "...can acquire a target beyond an individual
+// soldier's own sight"), which exercise the exact same logic without relying
+// on a window that no longer exists from the outside.
