@@ -252,6 +252,86 @@ TEST_CASE("a non officer death does not raise the officer flag") {
     CHECK(casualties[0] == 1);
 }
 
+namespace {
+// Every SoldierHot vector must stay exactly count long. Listing them
+// explicitly is deliberate: when a field is added to SoldierHot, this
+// list is the one place a compiler will not remind you to update, so
+// it is written out rather than hidden behind a loop. prevPosX and
+// prevPosY live on Simulation, not SoldierHot, so they are checked
+// separately at the call site.
+void checkArraysConsistent(const SoldierHot& s) {
+    CHECK(s.posX.size() == s.count);
+    CHECK(s.posY.size() == s.count);
+    CHECK(s.velX.size() == s.count);
+    CHECK(s.velY.size() == s.count);
+    CHECK(s.dirX.size() == s.count);
+    CHECK(s.dirY.size() == s.count);
+    CHECK(s.team.size() == s.count);
+    CHECK(s.unitType.size() == s.count);
+    CHECK(s.state.size() == s.count);
+    CHECK(s.squadId.size() == s.count);
+    CHECK(s.slotIndex.size() == s.count);
+    CHECK(s.health.size() == s.count);
+    CHECK(s.attackCooldown.size() == s.count);
+    CHECK(s.intentTarget.size() == s.count);
+    CHECK(s.intentFire.size() == s.count);
+}
+
+// Gives soldier k a distinctive value in every one of the 15 SoldierHot
+// fields plus prevPosX/prevPosY (all 17 arrays compactDead must move
+// together), each one independently encoding the same original k. Matching
+// vector lengths alone cannot catch a swap that moved 14 fields correctly
+// and dropped the 15th, because the sizes still agree; this fingerprint is
+// what actually defends the swap block, by making a single left-behind
+// field detectable after the fact.
+void spawnFingerprinted(SoldierHot& s, int k) {
+    s.spawn(100.0f + (float)k, 200.0f + (float)k, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    const size_t i = s.count - 1;
+    s.velX[i]           = 300.0f + (float)k;
+    s.velY[i]           = 400.0f + (float)k;
+    s.dirX[i]           = 500.0f + (float)k;
+    s.dirY[i]           = 600.0f + (float)k;
+    s.team[i]           = (k % 2 == 0) ? Team::A : Team::B;
+    s.unitType[i]        = (UnitType)(k % (int)kUnitTypeCount);
+    s.state[i]           = SoldierState::Forming;
+    s.squadId[i]         = (uint16_t)k;
+    s.slotIndex[i]       = (uint16_t)k;
+    s.health[i]          = (uint8_t)(k + 1);
+    s.attackCooldown[i]  = 700.0f + (float)k;
+    s.intentTarget[i]    = (uint32_t)(1000 + k);
+    s.intentFire[i]      = (uint8_t)(k % 2);
+}
+
+// Decodes k from posX and asserts every other field, including prevPosX/
+// prevPosY, still encodes that SAME k. Any field that moved independently of
+// the rest (a swap line for one vector silently dropped, or applied to the
+// wrong vector) shows up here as a mismatch even though every vector is
+// still the right length.
+void checkFingerprintIntact(const SoldierHot& s, size_t i,
+                            const std::vector<float>& prevX,
+                            const std::vector<float>& prevY) {
+    const int k = (int)std::lround(s.posX[i] - 100.0f);
+    CAPTURE(i);
+    CAPTURE(k);
+    CHECK(s.posY[i]          == doctest::Approx(200.0f + k));
+    CHECK(s.velX[i]           == doctest::Approx(300.0f + k));
+    CHECK(s.velY[i]           == doctest::Approx(400.0f + k));
+    CHECK(s.dirX[i]           == doctest::Approx(500.0f + k));
+    CHECK(s.dirY[i]           == doctest::Approx(600.0f + k));
+    CHECK(s.team[i]           == ((k % 2 == 0) ? Team::A : Team::B));
+    CHECK((int)s.unitType[i]  == k % (int)kUnitTypeCount);
+    CHECK(s.state[i]          == SoldierState::Forming);
+    CHECK(s.squadId[i]        == (uint16_t)k);
+    CHECK(s.slotIndex[i]      == (uint16_t)k);
+    CHECK(s.health[i]         == (uint8_t)(k + 1));
+    CHECK(s.attackCooldown[i] == doctest::Approx(700.0f + k));
+    CHECK(s.intentTarget[i]   == (uint32_t)(1000 + k));
+    CHECK(s.intentFire[i]     == (uint8_t)(k % 2));
+    CHECK(prevX[i]            == doctest::Approx(800.0f + k));
+    CHECK(prevY[i]            == doctest::Approx(900.0f + k));
+}
+} // namespace
+
 TEST_CASE("compaction removes the dead and keeps every array the same length") {
     SoldierHot s;
     for (int k = 0; k < 5; ++k) {
@@ -264,10 +344,9 @@ TEST_CASE("compaction removes the dead and keeps every array the same length") {
     compactDead(s, prevX, prevY);
 
     CHECK(s.count == 3);
-    CHECK(s.posX.size() == 3);
-    CHECK(s.health.size() == 3);
-    CHECK(s.intentTarget.size() == 3);
+    checkArraysConsistent(s);
     CHECK(prevX.size() == 3);
+    CHECK(prevY.size() == 3);
     for (size_t i = 0; i < s.count; ++i) {
         CHECK(s.state[i] != SoldierState::Dead);
     }
@@ -283,7 +362,88 @@ TEST_CASE("compacting an army with no dead changes nothing") {
     compactDead(s, prevX, prevY);
 
     CHECK(s.count == 4);
+    checkArraysConsistent(s);
+    CHECK(prevX.size() == 4);
+    CHECK(prevY.size() == 4);
     CHECK(s.posX[3] == doctest::Approx(103.0f));
+}
+
+TEST_CASE("compaction moves every field together, not just lengths") {
+    // Kills two non-adjacent, non-tail soldiers so the swap-with-back loop
+    // has to pull survivors in from the back more than once. The lengths
+    // alone (previous test) cannot tell a correct swap from one that left a
+    // field behind; the fingerprint can.
+    SoldierHot s;
+    std::vector<float> prevX, prevY;
+    const int N = 6;
+    for (int k = 0; k < N; ++k) {
+        spawnFingerprinted(s, k);
+        prevX.push_back(800.0f + (float)k);
+        prevY.push_back(900.0f + (float)k);
+    }
+    s.state[1] = SoldierState::Dead;
+    s.state[3] = SoldierState::Dead;
+
+    compactDead(s, prevX, prevY);
+
+    CHECK(s.count == (size_t)(N - 2));
+    checkArraysConsistent(s);
+    CHECK(prevX.size() == s.count);
+    CHECK(prevY.size() == s.count);
+    for (size_t i = 0; i < s.count; ++i) {
+        checkFingerprintIntact(s, i, prevX, prevY);
+    }
+}
+
+TEST_CASE("compaction handles the dead soldier being the last element") {
+    // i reaches the last slot with last == i, taking the "already at the
+    // back, just pop" branch rather than the swap branch. Easy to fencepost.
+    SoldierHot s;
+    std::vector<float> prevX, prevY;
+    const int N = 5;
+    for (int k = 0; k < N; ++k) {
+        spawnFingerprinted(s, k);
+        prevX.push_back(800.0f + (float)k);
+        prevY.push_back(900.0f + (float)k);
+    }
+    s.state[N - 1] = SoldierState::Dead;
+
+    compactDead(s, prevX, prevY);
+
+    CHECK(s.count == (size_t)(N - 1));
+    checkArraysConsistent(s);
+    CHECK(prevX.size() == s.count);
+    CHECK(prevY.size() == s.count);
+    for (size_t i = 0; i < s.count; ++i) {
+        checkFingerprintIntact(s, i, prevX, prevY);
+    }
+}
+
+TEST_CASE("compaction handles two adjacent dead soldiers at the end") {
+    // Soldier N-2 dies and gets swapped with N-1 -- which is ALSO dead. If
+    // the loop advanced i after that swap it would miss re-examining the
+    // freshly swapped-in corpse. Both tail soldiers must still be gone and
+    // every survivor still intact.
+    SoldierHot s;
+    std::vector<float> prevX, prevY;
+    const int N = 6;
+    for (int k = 0; k < N; ++k) {
+        spawnFingerprinted(s, k);
+        prevX.push_back(800.0f + (float)k);
+        prevY.push_back(900.0f + (float)k);
+    }
+    s.state[N - 1] = SoldierState::Dead;
+    s.state[N - 2] = SoldierState::Dead;
+
+    compactDead(s, prevX, prevY);
+
+    CHECK(s.count == (size_t)(N - 2));
+    checkArraysConsistent(s);
+    CHECK(prevX.size() == s.count);
+    CHECK(prevY.size() == s.count);
+    for (size_t i = 0; i < s.count; ++i) {
+        checkFingerprintIntact(s, i, prevX, prevY);
+    }
 }
 
 TEST_CASE("soldiers actually die in a running battle") {
