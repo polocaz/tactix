@@ -456,30 +456,29 @@ TEST_CASE("soldiers actually die in a running battle") {
 }
 
 // NOTE: the brief specified sim.init(500) and 600 ticks for both tests
-// below. Deviated on both, measured, not guessed:
+// below. Both held, once Simulation::init's composition bug (see
+// unitTypeForSquad in Simulation.cpp) was fixed rather than routed around:
+// the old `bucket = sq % 20` formula needed 13+ squads per team (~601
+// agents) before an archer ever appeared, so 500 agents deployed zero
+// archers and zero cavalry -- structurally, not "late" -- and this test
+// could not have passed at any tick count. With composition scaling by
+// squadsPerTeam instead, 500 agents deploys 20 squads (10/team) with real
+// archers on both sides.
 //
-// 1. At 500 soldiers, Simulation::init's composition formula (squadsPerTeam
-//    = ceil(250 / 25) = 10, bucket = sq % 20) never reaches the archer
-//    bucket (12..16), so zero archer squads are ever deployed -- not
-//    "late", structurally impossible regardless of tick count. Measured: 0
-//    archers of 500 soldiers. Bumped to 1000 (500/team -> squadsPerTeam =
-//    20, one full composition cycle: 12 infantry + 5 archer + 3 cavalry
-//    squads per team, the documented 60/25/15 split) so archer squads
-//    exist.
-// 2. At 1000 soldiers, squads spend the march closing distance with no
-//    soldier of the enemy squad within archer range (280px) at all, so
-//    targetSoldier is UINT32_MAX almost everywhere until real contact
-//    approaches -- there is a brief false-positive window at tick 0 only,
-//    from every squad's spawn-default targetSquad = 0 (self) before phase
-//    3 has run once, which is expected and harmless (see selectTargetSoldier's
-//    doc comment on targetSquad staleness). Measured the first tick of a
-//    genuine long-range acquisition at 1000 soldiers: tick 1196. Bumped the
-//    loop from 600 to 1300 ticks for margin past that.
+// 600 ticks still is not enough, though: squads spend the march closing
+// distance with no enemy soldier within archer range (280px) at all, so
+// targetSoldier is UINT32_MAX almost everywhere until real contact
+// approaches. (Tick 0 itself is a separate, harmless transient -- every
+// squad spawns with targetSquad = 0, i.e. itself, until phase 3 has run
+// once, so an archer squad can briefly "acquire" a same-team soldier at
+// tick 0 specifically. Not the behaviour under test.) Measured the first
+// genuine long-range acquisition at 500 agents: tick 1333. Bumped the loop
+// from 600 to 1400 ticks for margin past that.
 TEST_CASE("an archer squad acquires a target beyond its soldiers' own sight") {
     Simulation sim(2400, 1600, 42u);
-    sim.init(1000);
+    sim.init(500);
     sim.setPaused(false);
-    for (int i = 0; i < 1300; ++i) sim.tick(1.0f / 60.0f);
+    for (int i = 0; i < 1400; ++i) sim.tick(1.0f / 60.0f);
 
     bool sawLongRangeAcquisition = false;
     for (size_t s = 0; s < sim.getSquadCount(); ++s) {
@@ -498,15 +497,12 @@ TEST_CASE("an archer squad acquires a target beyond its soldiers' own sight") {
     CHECK(sawLongRangeAcquisition);
 }
 
-// Same 1000-soldier, 1300-tick bump as above and for the same reason:
-// sim.init(500) at 600 ticks deploys zero archer squads and has no
-// long-range acquisition yet either way, so targetSoldier is UINT32_MAX for
-// every squad and this check would pass vacuously.
+// Same 500-soldier, 1400-tick reasoning as above.
 TEST_CASE("a squad never acquires a target on its own team") {
     Simulation sim(2400, 1600, 42u);
-    sim.init(1000);
+    sim.init(500);
     sim.setPaused(false);
-    for (int i = 0; i < 1300; ++i) sim.tick(1.0f / 60.0f);
+    for (int i = 0; i < 1400; ++i) sim.tick(1.0f / 60.0f);
 
     for (size_t s = 0; s < sim.getSquadCount(); ++s) {
         const uint32_t t = sim.squadTargetSoldier(s);

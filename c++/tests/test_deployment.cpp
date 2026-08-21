@@ -94,6 +94,29 @@ TEST_CASE("both armies contain all three unit types") {
     }
 }
 
+TEST_CASE("both armies contain all three unit types even at a small agent count") {
+    // 500 is not a round number picked for convenience: it is the measured
+    // failure point of the bucket-cycle composition bug this guards
+    // against (sq % 20 needed 13+ squads per team, ~601 agents, before an
+    // archer ever appeared; 500 agents produced zero archers and zero
+    // cavalry on both teams). Do not raise this number "to make the test
+    // faster" -- that silently disarms the regression it exists to catch,
+    // since the GUI's agent slider starts well below 601.
+    Simulation sim(1280, 720, 42u);
+    sim.init(500);
+
+    bool sawA[kUnitTypeCount] = {false, false, false};
+    bool sawB[kUnitTypeCount] = {false, false, false};
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        bool* saw = (sim.soldierTeam(i) == Team::A) ? sawA : sawB;
+        saw[(int)sim.soldierUnitType(i)] = true;
+    }
+    for (uint32_t u = 0; u < kUnitTypeCount; ++u) {
+        CHECK(sawA[u]);
+        CHECK(sawB[u]);
+    }
+}
+
 TEST_CASE("deployment is deterministic for a seed") {
     Simulation a(1280, 720, 7u);
     Simulation b(1280, 720, 7u);

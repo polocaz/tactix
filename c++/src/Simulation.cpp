@@ -25,6 +25,32 @@ static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Composition scales with squad count rather than cycling a fixed modulo,
+// so a small army still fields all three types. The old `sq % 20` (archers
+// at bucket 12..16, cavalry at 17..19) needed 13 squads per team before the
+// first archer appeared -- about 601 agents -- which made every army below
+// that pure infantry, invisible to the GUI's agent slider and to the
+// projectile system tasks 7-9 build. Regression test at 500 agents (the
+// measured failure point) lives in test_combat.cpp.
+//
+// Below 2 squads per team the 60/25/15 split has no room: a lone squad
+// would land at or past cavalryStart (0) and come out all-cavalry, a worse
+// degenerate case than what this replaces. Floored at Infantry instead,
+// matching what a single squad already was under the old formula, so the
+// smallest possible army gets a sensible defender rather than an arbitrary
+// lone horseman.
+static UnitType unitTypeForSquad(uint32_t sq, uint32_t squadsPerTeam) {
+    if (squadsPerTeam < 2) return UnitType::Infantry;
+
+    // Integer arithmetic on purpose: unit type feeds the state digest, and
+    // no float belongs in a decision that does.
+    const uint32_t archerStart  = (squadsPerTeam * 60) / 100;
+    const uint32_t cavalryStart = (squadsPerTeam * 85) / 100;
+    if (sq >= cavalryStart) return UnitType::Cavalry;
+    if (sq >= archerStart)  return UnitType::Archer;
+    return UnitType::Infantry;
+}
+
 void Simulation::init(size_t soldierCount) {
     spdlog::info("Initializing {} agents", soldierCount);
     // init() runs before any tick, so tick 0 is reserved for setup draws.
@@ -68,8 +94,6 @@ void Simulation::init(size_t soldierCount) {
         // world edge -- exactly the distance from baseX to that edge, so a
         // column offset (below) can never carry a squad past it.
         const float colBandDepth = (t == 0) ? baseX : (w - baseX);
-        // Vertical band squads stack down: h*0.1 to h*0.9.
-        const float rowBand = h * 0.8f;
 
         // Pass 1: every squad's shape and member count is knowable without
         // touching a soldier, so scan them first for the largest formation
@@ -80,16 +104,42 @@ void Simulation::init(size_t soldierCount) {
         float neededRowPitch = kSlotSpacing;
         float neededColPitch = kSlotSpacing;
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = UnitType::Infantry;
-            const uint32_t bucket = sq % 20;
-            if (bucket >= 12 && bucket < 17)      unit = UnitType::Archer;
-            else if (bucket >= 17)                unit = UnitType::Cavalry;
+            UnitType unit = unitTypeForSquad(sq, squadsPerTeam);
             const uint32_t members = (uint32_t)std::min<size_t>(
                 kSquadSize, perTeam - (size_t)sq * kSquadSize);
             const Vec2 extent = formationExtent(shapeForUnit(unit), members);
             neededRowPitch = std::max(neededRowPitch, extent.x);
             neededColPitch = std::max(neededColPitch, extent.y);
         }
+
+        // Vertical band squads stack down, margined in from both edges by
+        // at least the widest squad's own footprint (neededRowPitch), not
+        // a fixed h*0.1. A fixed margin was fine while every squad was
+        // Infantry-width, but unitTypeForSquad can now put a wide Loose
+        // archer squad on the outermost row, and its width alone
+        // (kSlotSpacing * 2 wider than Line) can exceed a fixed 0.1h
+        // margin on a small field -- the squad origin would sit outside
+        // the world, soldiers would be clamped onto the edge below, and
+        // slotError would blow past its jitter bound.
+        //
+        // The full footprint, not half of it, because formationExtent's
+        // bounding box is not guaranteed centered on the centroid --
+        // formationMeanOffset only guarantees the centroid is the MEAN of
+        // member offsets, and a formation's last, partially-filled rank
+        // can pull that mean off-center. The centroid is always inside its
+        // own bounding box, though, so its distance to either edge can
+        // never exceed the box's full width -- that bound holds regardless
+        // of how asymmetric the box is. Flooring at h*0.1 keeps the old
+        // margin for the common case where it was already enough.
+        const float rowMargin = std::max(h * 0.1f, neededRowPitch);
+        // Floored at neededRowPitch, not just >0: a squad wider than the
+        // field itself would otherwise drive this negative, and casting a
+        // negative float to the uint32_t perColumn division below is
+        // undefined behaviour. The existing packedTighter path already
+        // handles "narrower than needed" (rowPitch < neededRowPitch)
+        // gracefully, so flooring here just routes this extreme case
+        // through that same, already-correct degrade instead of a new one.
+        const float rowBand = std::max(neededRowPitch, h - 2.0f * rowMargin);
 
         const uint32_t perColumn = std::max(1u, (uint32_t)(rowBand / neededRowPitch));
         const uint32_t columnsNeeded = (squadsPerTeam + perColumn - 1) / perColumn;
@@ -104,10 +154,7 @@ void Simulation::init(size_t soldierCount) {
 
         // Pass 2: place squads and spawn their soldiers.
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = UnitType::Infantry;
-            const uint32_t bucket = sq % 20;
-            if (bucket >= 12 && bucket < 17)      unit = UnitType::Archer;
-            else if (bucket >= 17)                unit = UnitType::Cavalry;
+            UnitType unit = unitTypeForSquad(sq, squadsPerTeam);
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
@@ -121,7 +168,7 @@ void Simulation::init(size_t soldierCount) {
             const uint32_t column = sq / perColumn;
             const uint32_t row = sq % perColumn;
             const float squadX = baseX - facing * (float)column * colPitch;
-            const float squadY = h * 0.1f + (float)row * rowPitch;
+            const float squadY = rowMargin + (float)row * rowPitch;
 
             squads.centroidX[squadId] = squadX;
             squads.centroidY[squadId] = squadY;
