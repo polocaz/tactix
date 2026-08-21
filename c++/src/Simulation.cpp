@@ -263,6 +263,8 @@ void Simulation::reset(size_t count) {
     squads.count = 0;
     squadMembers.clear();
 
+    projectiles.clear();
+
     prevPosX.clear();
     prevPosY.clear();
 
@@ -716,6 +718,18 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.facingY[s]);
         d.mix(squads.morale[s]);
         d.mix(squads.discipline[s]);
+    }
+
+    // Projectiles are included from the moment the array exists, so the
+    // thread-invariance gate covers them before anything starts writing them.
+    d.mix(static_cast<uint32_t>(projectiles.count));
+    for (size_t i = 0; i < projectiles.count; ++i) {
+        d.mix(projectiles.posX[i]);
+        d.mix(projectiles.posY[i]);
+        d.mix(projectiles.velX[i]);
+        d.mix(projectiles.velY[i]);
+        d.mix(static_cast<uint32_t>(projectiles.team[i]));
+        d.mix(projectiles.lifetime[i]);
     }
     return d.value();
 }

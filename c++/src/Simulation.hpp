@@ -11,6 +11,7 @@
 #include "WorkCounters.hpp"
 #include "Units.hpp"
 #include "Squads.hpp"
+#include "Projectiles.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct SoldierHot {
@@ -92,6 +93,7 @@ public:
 
     // Deployment / squad accessors (Task 5)
     size_t getSquadCount() const { return squads.count; }
+    size_t getProjectileCount() const { return projectiles.count; }
     size_t getTeamCount(Team t) const;
     float  teamCentroidX(Team t) const;
     float  soldierX(size_t i) const { return soldiers.posX[i]; }
@@ -150,6 +152,9 @@ private:
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
     std::vector<uint32_t> squadMembers;
+
+    // Projectiles in flight
+    ProjectileHot projectiles;
 
     // Previous state for interpolation
     std::vector<float> prevPosX;

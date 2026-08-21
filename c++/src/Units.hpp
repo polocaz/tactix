@@ -45,3 +45,10 @@ constexpr FormationShape shapeForUnit(UnitType u) {
         default:                return FormationShape::Line;
     }
 }
+
+// Arrow flight. Speed is deliberately modest: a faster arrow crosses more
+// ground per tick, and the swept hit test in task 8 is what keeps that honest.
+constexpr float   kArrowSpeed      = 200.0f;  // px/s
+constexpr float   kArrowLifetime   = 3.0f;    // seconds before it falls short
+constexpr uint8_t kArrowDamage     = 1;
+constexpr float   kSoldierRadius   = 4.0f;    // for hit tests

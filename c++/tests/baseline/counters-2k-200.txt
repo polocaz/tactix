@@ -46,4 +46,4 @@ cellsVisited=3457764
 gridInsertions=400000
 jobsDispatched=4400
 squadDecisions=16000
-stateDigest=c2764e93f7bb7393
+stateDigest=daa2cef7497b6a43
