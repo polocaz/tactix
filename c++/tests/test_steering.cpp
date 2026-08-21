@@ -241,20 +241,70 @@ TEST_CASE("meanSlotError plateaus instead of drifting") {
     CHECK(at400 <= 15.0f);
 }
 
-// Formerly "a squad's centroid does not drift with no orders given": a
-// regression test for a bug where updateSquadAggregate's centroid and
-// formationSlot's front-anchored local origin were different points, which
-// made a squad walk backward without end. It asserted near-zero centroid
-// movement over 300 ticks on the premise that phaseSquadDecide was still a
-// stub and no order ever moved a squad on purpose.
+// Formerly "a squad's centroid does not drift with no orders given", which
+// asserted near-zero centroid movement over 300 ticks on the premise that
+// phaseSquadDecide was still a stub and no order ever moved a squad on
+// purpose. This task (squads advance on the nearest enemy squad) removes
+// that premise: every squad now gets a live Advance order, and its centroid
+// is *supposed* to move, so the old assertion fails by design, not by
+// regression.
 //
-// That premise is exactly what this task (squads advance on the nearest
-// enemy squad) removes: every squad now gets a live Advance order and its
-// centroid is *supposed* to move, so the old assertion fails by design, not
-// by regression. The bug it guarded against is a different mechanism
-// (formationMeanOffset recentring, unchanged by this task) and stays covered
-// by "meanSlotError plateaus instead of drifting" above (would catch an
-// unbounded lag between soldiers and their slots) and by
-// test_advance.cpp's "advancing does not tear the formation apart" (would
-// catch the formation stretching without bound) and "the armies close the
-// distance between them" (would catch a squad failing to advance at all).
+// The mechanism it guarded is unrelated to Advance, though, and stays real:
+// a squad's centroid is the MEAN of member positions (updateSquadAggregate),
+// while formationSlot's local origin is the formation's front-center, a
+// different point. Without formationMeanOffset recentring that gap away,
+// slot targets shift every time the centroid is recomputed and the whole
+// squad walks off without end even on Hold. meanSlotError does NOT catch
+// this: a soldier chases its own receding target at a roughly constant lag,
+// so mean per-soldier error stays small the entire time the squad is
+// marching off the map -- which is exactly why the original ~191px/300-tick
+// bug was found by measuring centroid displacement, not the error plateau.
+// The replacement below does the same: build a Hold squad in isolation, run
+// steerToSlot by hand, and watch the centroid, not the per-soldier error.
+TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's fixed point") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.order[0] = (uint8_t)SquadOrder::Hold;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    const float startX = 500.0f, startY = 300.0f;
+    q.centroidX[0] = startX; q.centroidY[0] = startY;
+
+    constexpr uint32_t kMembers = 12;
+    q.memberCount[0] = kMembers;
+
+    SoldierHot soldiers;
+    for (uint32_t k = 0; k < kMembers; ++k) {
+        // Placed exactly on its slot, as deployment does, so any movement
+        // that follows is the drift under test, not arrival transient.
+        const Vec2 slot = slotWorldPosition(q, 0, (uint16_t)k, kMembers);
+        soldiers.spawn(slot.x, slot.y, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+        soldiers.slotIndex[k] = (uint16_t)k;
+    }
+
+    const float dt = 1.0f / 60.0f;
+    for (int tick = 0; tick < 300; ++tick) {
+        for (uint32_t k = 0; k < kMembers; ++k) {
+            steerToSlot(soldiers, q, k, dt);
+            soldiers.posX[k] += soldiers.velX[k] * dt;
+            soldiers.posY[k] += soldiers.velY[k] * dt;
+        }
+        // Recompute the centroid exactly as updateSquadAggregate does: the
+        // mean of member positions, summed in index order.
+        float sumX = 0.0f, sumY = 0.0f;
+        for (uint32_t k = 0; k < kMembers; ++k) {
+            sumX += soldiers.posX[k];
+            sumY += soldiers.posY[k];
+        }
+        q.centroidX[0] = sumX / (float)kMembers;
+        q.centroidY[0] = sumY / (float)kMembers;
+    }
+
+    const float dx = q.centroidX[0] - startX;
+    const float dy = q.centroidY[0] - startY;
+    // A Hold squad gets no advance lead, so its centroid is a fixed point by
+    // construction. 5px is headroom for float accumulation over 300 ticks,
+    // not room for controlled movement -- see the load-bearing check in the
+    // commit message: stubbing formationMeanOffset to {0,0} reproduces the
+    // original bug and fails this bound by roughly two orders of magnitude.
+    CHECK(std::sqrt(dx * dx + dy * dy) <= 5.0f);
+}
