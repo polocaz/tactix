@@ -110,6 +110,7 @@ public:
     float  squadCentroidY(size_t s) const { return squads.centroidY[s]; }
     Team   squadTeam(size_t s) const { return squads.team[s]; }
     uint16_t squadTargetSquad(size_t s) const { return squads.targetSquad[s]; }
+    uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
 
     // Distance from one soldier to its own formation slot (Task 8).
     float  slotError(size_t i) const;

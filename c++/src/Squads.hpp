@@ -61,6 +61,17 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
 // same, so only the choice changes, not the plumbing.
 void selectTargetSquad(SquadHot& squads, size_t squadIndex);
 
+// Spec 6.5. Picks the member of targetSquad with the LOWEST slotIndex that is
+// within weapon range of our centroid, or UINT32_MAX if none is.
+//
+// Recomputed every tick and never cached across ticks: compaction renumbers
+// soldiers, so a stored soldier index is stale the moment anyone dies.
+//
+// Lowest slotIndex is what makes officers preferentially targeted without a
+// special case, since the officer is whoever holds slot 0.
+void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
+                         const std::vector<uint32_t>& members, size_t squadIndex);
+
 // Normalizes a squad's facing vector in place, falling back to (1, 0) for a
 // zero-length input rather than producing NaN. Shared by deployment
 // (Simulation::init, which must establish the unit-length invariant slot

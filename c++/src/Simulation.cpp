@@ -386,6 +386,7 @@ void Simulation::phaseSquadAggregate() {
         jobSystem.submit([this, start, end]() {
             for (size_t s = start; s < end; ++s) {
                 updateSquadAggregate(soldiers, squads, squadMembers, s);
+                selectTargetSoldier(soldiers, squads, squadMembers, s);
             }
         });
         workCounters.add(workCounters.jobsDispatched, 1);

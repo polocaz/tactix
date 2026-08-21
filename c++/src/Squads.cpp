@@ -133,6 +133,34 @@ void selectTargetSquad(SquadHot& squads, size_t s) {
     }
 }
 
+void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
+                         const std::vector<uint32_t>& members, size_t s) {
+    squads.targetSoldier[s] = UINT32_MAX;
+
+    const float range = kUnitStats[(int)squads.unitType[s]].range;
+    if (range <= 0.0f) return;  // melee units acquire their own targets
+
+    const uint16_t t = squads.targetSquad[s];
+    if (t >= squads.count || squads.memberCount[t] == 0) return;
+
+    const float cx = squads.centroidX[s];
+    const float cy = squads.centroidY[s];
+    const float rangeSq = range * range;
+
+    // members is ordered by slotIndex within each squad, so the first member in
+    // range is the lowest-slotIndex one. No sort or comparison needed.
+    const uint32_t start = squads.memberStart[t];
+    for (uint32_t k = 0; k < squads.memberCount[t]; ++k) {
+        const uint32_t idx = members[start + k];
+        const float dx = soldiers.posX[idx] - cx;
+        const float dy = soldiers.posY[idx] - cy;
+        if (dx * dx + dy * dy <= rangeSq) {
+            squads.targetSoldier[s] = idx;
+            return;
+        }
+    }
+}
+
 void normalizeFacing(SquadHot& squads, size_t s) {
     const float fx = squads.facingX[s];
     const float fy = squads.facingY[s];
