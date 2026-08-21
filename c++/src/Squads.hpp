@@ -47,8 +47,15 @@ struct SquadHot {
 // requirement: it is what makes a dead officer's successor the soldier who
 // was standing next to them, instead of an arbitrary survivor whose position
 // would teleport the formation's anchor.
+//
+// countsScratch/cursorScratch are caller-owned scratch buffers, not output:
+// this runs once a tick in serial resolution, and owning them lets the
+// caller keep their capacity across ticks instead of paying two heap
+// allocations every tick.
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
-                         std::vector<uint32_t>& members);
+                         std::vector<uint32_t>& members,
+                         std::vector<uint32_t>& countsScratch,
+                         std::vector<uint32_t>& cursorScratch);
 
 // Recomputes each squad's centroid from its members. Parallel-safe: writes
 // only the squad it is given, reads only that squad's members.

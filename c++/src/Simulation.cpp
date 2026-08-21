@@ -39,13 +39,31 @@ static float clampf(float v, float lo, float hi) {
 // matching what a single squad already was under the old formula, so the
 // smallest possible army gets a sensible defender rather than an arbitrary
 // lone horseman.
+//
+// At exactly 2 squads per team -- 100 agents, the GUI's default AND its
+// slider minimum -- a naive 60/85 percent split puts archerStart and
+// cavalryStart on the same bucket (both round to 1), so squad 1 comes out
+// Cavalry and the army fields zero archers. That is precisely the case this
+// composition exists to fix: a user watching the default battle with the
+// slider untouched should see archers, not just infantry and cavalry.
+// Special-cased to Infantry + Archer (no cavalry) rather than the reverse,
+// since Infantry is the one type that must always be present (see above)
+// and Archer is the type the fix is FOR.
+//
+// At 3+ squads per team, archerStart/cavalryStart are clamped so each type
+// always claims at least one squad, instead of trusting the 60/85 percent
+// split (which can still collide at small squadsPerTeam) to land them apart.
 static UnitType unitTypeForSquad(uint32_t sq, uint32_t squadsPerTeam) {
     if (squadsPerTeam < 2) return UnitType::Infantry;
+    if (squadsPerTeam == 2) return (sq == 0) ? UnitType::Infantry : UnitType::Archer;
 
     // Integer arithmetic on purpose: unit type feeds the state digest, and
     // no float belongs in a decision that does.
-    const uint32_t archerStart  = (squadsPerTeam * 60) / 100;
-    const uint32_t cavalryStart = (squadsPerTeam * 85) / 100;
+    uint32_t archerStart  = (squadsPerTeam * 60) / 100;
+    if (archerStart < 1) archerStart = 1;
+    uint32_t cavalryStart = (squadsPerTeam * 85) / 100;
+    if (cavalryStart <= archerStart) cavalryStart = archerStart + 1;
+    if (cavalryStart >= squadsPerTeam) cavalryStart = squadsPerTeam - 1;
     if (sq >= cavalryStart) return UnitType::Cavalry;
     if (sq >= archerStart)  return UnitType::Archer;
     return UnitType::Infantry;
@@ -61,12 +79,33 @@ void Simulation::init(size_t soldierCount) {
 
     generateObstacles();
 
-    // Squad composition by count: 60% infantry, 25% archers, 15% cavalry.
+    // Squad composition by count: approximately 60% infantry, 25% archers,
+    // 15% cavalry -- "approximately" because unitTypeForSquad works in
+    // integer squad-count buckets, not soldier counts, so e.g. 500 agents
+    // (10 squads/team) lands on 60/20/20 (6 infantry, 2 archer, 2 cavalry
+    // squads), not an exact 60/25/15.
     constexpr uint32_t kSquadSize = 25;
     // Team A gets the floor half, team B the remainder, so an odd
     // soldierCount still deploys every soldier requested (off by one
     // between the two armies rather than one soldier short overall).
     const size_t perTeamA = soldierCount / 2;
+    const size_t perTeamB = soldierCount - perTeamA;
+
+    // Composition (which unit type squad index N gets) is driven by ONE
+    // shared squadsPerTeam for both teams, not each team's own. perTeamA and
+    // perTeamB can differ by one soldier when soldierCount is odd, and
+    // because squadsPerTeam is a ceiling division by kSquadSize, that single
+    // soldier can tip one team over a kSquadSize boundary while the other
+    // stays under it (e.g. 50 vs 51 soldiers -> 2 vs 3 squads/team). Feeding
+    // each team its OWN squadsPerTeam let squad index N mean a different
+    // unit type depending on which team it belonged to -- the two armies
+    // fielded different rosters, which breaks the spec's opening requirement
+    // of two symmetric armies. Using the larger of the two here means squad
+    // index N always means the same type on both sides; the smaller team
+    // simply never reaches as high an index.
+    const uint32_t squadsPerTeamA = (uint32_t)((perTeamA + kSquadSize - 1) / kSquadSize);
+    const uint32_t squadsPerTeamB = (uint32_t)((perTeamB + kSquadSize - 1) / kSquadSize);
+    const uint32_t compositionSquadsPerTeam = std::max(squadsPerTeamA, squadsPerTeamB);
 
     const float w = (float)worldWidth;
     const float h = (float)worldHeight;
@@ -83,8 +122,8 @@ void Simulation::init(size_t soldierCount) {
 
     for (int t = 0; t < 2; ++t) {
         const Team team = (t == 0) ? Team::A : Team::B;
-        const size_t perTeam = (t == 0) ? perTeamA : (soldierCount - perTeamA);
-        const uint32_t squadsPerTeam = (uint32_t)((perTeam + kSquadSize - 1) / kSquadSize);
+        const size_t perTeam = (t == 0) ? perTeamA : perTeamB;
+        const uint32_t squadsPerTeam = (t == 0) ? squadsPerTeamA : squadsPerTeamB;
         if (squadsPerTeam == 0) continue;
 
         // Team A faces right from the left margin, team B faces left.
@@ -104,7 +143,7 @@ void Simulation::init(size_t soldierCount) {
         float neededRowPitch = kSlotSpacing;
         float neededColPitch = kSlotSpacing;
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = unitTypeForSquad(sq, squadsPerTeam);
+            UnitType unit = unitTypeForSquad(sq, compositionSquadsPerTeam);
             const uint32_t members = (uint32_t)std::min<size_t>(
                 kSquadSize, perTeam - (size_t)sq * kSquadSize);
             const Vec2 extent = formationExtent(shapeForUnit(unit), members);
@@ -154,7 +193,7 @@ void Simulation::init(size_t soldierCount) {
 
         // Pass 2: place squads and spawn their soldiers.
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = unitTypeForSquad(sq, squadsPerTeam);
+            UnitType unit = unitTypeForSquad(sq, compositionSquadsPerTeam);
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
@@ -223,7 +262,7 @@ void Simulation::init(size_t soldierCount) {
     // check placement immediately after init, sees each squad's real size.
     // Deployment already assigned distinct slotIndex 0..members-1 per squad,
     // so this reproduces exactly what the first tick would compute anyway.
-    rebuildSquadMembers(soldiers, squads, squadMembers);
+    rebuildSquadMembers(soldiers, squads, squadMembers, squadMemberCounts, squadMemberCursor);
 
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
                  soldiers.count, squads.count, worldWidth, worldHeight);
@@ -310,6 +349,8 @@ void Simulation::reset(size_t count) {
     squads.memberCount.clear();
     squads.count = 0;
     squadMembers.clear();
+    squadMemberCounts.clear();
+    squadMemberCursor.clear();
     casualties.clear();
     officerDied.clear();
 
@@ -460,8 +501,8 @@ void Simulation::phaseSquadDecide(const Rng&) {
 void Simulation::phaseProjectiles(float dt) {
     // Parallel over projectiles. Each job writes only its own projectile's
     // fields (posX/posY/lifetime/intentHitTarget) and reads soldiers, which
-    // is safe here because soldier positions are written in phases 4 and 7,
-    // not phase 5.
+    // is safe here because soldier positions are written only in phase 7
+    // (phase 4 writes velocity and intents, not position), not phase 5.
     const size_t chunkSize = 128;
     for (size_t start = 0; start < projectiles.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, projectiles.count);
@@ -498,7 +539,23 @@ void Simulation::phaseResolution(const Rng& rng) {
     // recorded now precisely so it has something to read when it arrives.
     compactProjectiles(projectiles);
     compactDead(soldiers, prevPosX, prevPosY);              // step 6
-    rebuildSquadMembers(soldiers, squads, squadMembers);    // step 7
+    rebuildSquadMembers(soldiers, squads, squadMembers,     // step 7
+                       squadMemberCounts, squadMemberCursor);
+
+    // targetSoldier is only meaningful between phase 2 (where it is
+    // computed) and step 3 above (where spawnArrows consumes it).
+    // compactDead just renumbered soldiers, so any index still sitting in
+    // targetSoldier now is stale: it names a soldier under the OLD
+    // numbering, not whoever occupies that slot after compaction. Left in
+    // place, that stale index would be read by squadTargetSoldier() and by
+    // stateDigest() below as if it still meant something -- a same-team or
+    // simply wrong soldier, deterministically but meaninglessly. Clearing
+    // it here means nothing outside this tick ever observes a stale value;
+    // phase 2 recomputes it from scratch every tick anyway, so this costs
+    // nothing.
+    for (size_t s = 0; s < squads.count; ++s) {
+        squads.targetSoldier[s] = UINT32_MAX;
+    }
 }
 
 void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {

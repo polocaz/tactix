@@ -4,30 +4,35 @@
 #include <cmath>
 
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
-                         std::vector<uint32_t>& members) {
+                         std::vector<uint32_t>& members,
+                         std::vector<uint32_t>& countsScratch,
+                         std::vector<uint32_t>& cursorScratch) {
     const size_t squadCount = squads.count;
 
     // Counting pass. Dead soldiers are excluded so that a squad's range holds
     // only live members; plan 2's compaction removes them from the array.
-    std::vector<uint32_t> counts(squadCount, 0u);
+    // countsScratch/cursorScratch are caller-owned so this serial, once-a-
+    // tick call does not heap-allocate two vectors every tick -- assign()
+    // reuses existing capacity instead of freeing and reallocating.
+    countsScratch.assign(squadCount, 0u);
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.state[i] == SoldierState::Dead) continue;
-        counts[soldiers.squadId[i]]++;
+        countsScratch[soldiers.squadId[i]]++;
     }
 
     uint32_t running = 0;
     for (size_t s = 0; s < squadCount; ++s) {
         squads.memberStart[s] = running;
-        squads.memberCount[s] = counts[s];
-        running += counts[s];
+        squads.memberCount[s] = countsScratch[s];
+        running += countsScratch[s];
     }
 
     members.assign(running, 0u);
-    std::vector<uint32_t> cursor(squadCount, 0u);
+    cursorScratch.assign(squadCount, 0u);
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.state[i] == SoldierState::Dead) continue;
         const uint16_t s = soldiers.squadId[i];
-        members[squads.memberStart[s] + cursor[s]++] = (uint32_t)i;
+        members[squads.memberStart[s] + cursorScratch[s]++] = (uint32_t)i;
     }
 
     // Order each squad's range by previous slotIndex. Keys are NOT unique
@@ -142,6 +147,14 @@ void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
 
     const uint16_t t = squads.targetSquad[s];
     if (t >= squads.count || squads.memberCount[t] == 0) return;
+    // targetSquad initialises to 0 for every squad (SquadHot::spawn), and
+    // phase 2 (which calls this) runs before phase 3 (selectTargetSquad,
+    // which corrects it). On a squad's very first decide, targetSquad is
+    // still that spawn default, so without this check a team A squad other
+    // than squad 0 would acquire a same-team targetSoldier from squad 0
+    // whenever it happened to be in range -- and spawnArrows would then
+    // shoot it at its own side.
+    if (squads.team[t] == squads.team[s]) return;
 
     const float cx = squads.centroidX[s];
     const float cy = squads.centroidY[s];

@@ -110,6 +110,11 @@ public:
     float  squadCentroidY(size_t s) const { return squads.centroidY[s]; }
     Team   squadTeam(size_t s) const { return squads.team[s]; }
     uint16_t squadTargetSquad(size_t s) const { return squads.targetSquad[s]; }
+    // Only meaningful mid-tick, between phase 2 (where it is computed) and
+    // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
+    // clears it to UINT32_MAX once compaction can have invalidated it, so a
+    // caller reading this between ticks always sees UINT32_MAX, never a
+    // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
 
     // Distance from one soldier to its own formation slot (Task 8).
@@ -155,6 +160,10 @@ private:
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
     std::vector<uint32_t> squadMembers;
+    // Scratch for rebuildSquadMembers, owned here so the once-a-tick serial
+    // call reuses this capacity instead of heap-allocating every tick.
+    std::vector<uint32_t> squadMemberCounts;
+    std::vector<uint32_t> squadMemberCursor;
 
     // Per-squad scratch, cleared at the start of every resolution phase. Plan 3
     // consumes both to drive morale and the officer-death discipline penalty.
@@ -201,7 +210,15 @@ private:
     // outlives the tick() local the Rng is constructed from.
     void phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng rng);  // Parallel version
     void phaseProjectiles(float dt);  // Phase 5: integrate arrows and hit-test.
-    void phaseResolution(const Rng& rng);  // Stub: plan 2 fills this in. Only place cross-agent mutation is permitted.
+    // Phase 6 (spec 5.5). Serial; the only place cross-agent mutation is
+    // permitted anywhere in the tick. Runs melee, then projectile hits, then
+    // spawns this tick's arrows (which consumes targetSoldier), then records
+    // casualties, then compacts projectiles and dead soldiers, then rebuilds
+    // squad membership from the survivors, then clears targetSoldier now
+    // that compaction can have made it stale. The order is load-bearing:
+    // each step depends on the ones before it and would corrupt or misread
+    // data if reordered -- see the step-numbered comments in the .cpp.
+    void phaseResolution(const Rng& rng);
     void phaseMovement(float dt);
     void phaseMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
     void clampToWorld();  // Clamps positions to world bounds and bounces velocity (never wraps, despite older code's name for this)
