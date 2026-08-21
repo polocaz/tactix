@@ -413,9 +413,14 @@ void Simulation::phaseProjectiles(float) {
 }
 
 void Simulation::phaseResolution(const Rng&) {
-    // Plan 2 fills this in. Kept in the phase order now because it is the
-    // only place cross-agent mutation is permitted, and later plans must not
-    // be tempted to put that anywhere else.
+    // Spec 5.5. The order is load-bearing and each step notes what it needs.
+    // Single-threaded on purpose: this is the ONLY place cross-agent mutation
+    // is permitted anywhere in the tick.
+    applyMeleeIntents(soldiers);   // step 1
+    // step 2 (projectile hits) arrives in task 9
+    // step 3 (arrow spawn) arrives in task 7
+    // step 4 (casualties) and 6 (compaction) arrive in task 5
+    // step 5 (morale and discipline) is plan 3
 }
 
 void Simulation::phaseSoldierSteer(float dt, const Rng& rng) {

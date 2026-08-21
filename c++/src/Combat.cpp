@@ -39,3 +39,31 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
 
     soldiers.intentTarget[i] = best;
 }
+
+void applyMeleeIntents(SoldierHot& soldiers) {
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        const uint32_t t = soldiers.intentTarget[i];
+        if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
+
+        // Both ends must still be alive. The attacker may have been killed
+        // earlier in this same loop by a lower-indexed soldier, and the target
+        // may already have been finished off. Dropping the intent in either
+        // case is what makes overkill wasted rather than carried over, and it
+        // is also what stops health underflowing past zero.
+        if (soldiers.health[i] == 0) continue;
+        if (soldiers.health[t] == 0) continue;
+
+        soldiers.health[t] = (soldiers.health[t] > kMeleeDamage)
+                           ? (uint8_t)(soldiers.health[t] - kMeleeDamage)
+                           : (uint8_t)0;
+        soldiers.attackCooldown[i] = kMeleeCooldown;
+        soldiers.state[i] = SoldierState::Engaged;
+    }
+
+    // Intents are single-use. Clearing here means a stale index can never be
+    // read on a later tick, which matters because task 5's compaction
+    // renumbers soldiers.
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        soldiers.intentTarget[i] = UINT32_MAX;
+    }
+}

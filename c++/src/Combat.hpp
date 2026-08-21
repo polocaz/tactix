@@ -13,3 +13,8 @@ class SpatialHash;
 // thread count and on any platform.
 void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
                        size_t soldierIndex, std::vector<uint32_t>& scratch);
+
+// Resolution step 1 (spec 5.5). Applies every soldier's melee intent in
+// ascending soldier index order. Single-threaded: this is the only place a
+// soldier may write another soldier's health.
+void applyMeleeIntents(SoldierHot& soldiers);
