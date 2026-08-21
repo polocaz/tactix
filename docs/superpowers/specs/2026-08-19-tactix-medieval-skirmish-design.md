@@ -255,8 +255,8 @@ Each phase is separated by a `jobSystem.waitAll()` barrier.
 | 7 | Movement integration | soldiers | own soldier | own soldier |
 
 Phase 2 reads another squad's members' positions to pick `targetSoldier`. This is safe
-because soldier positions are written only in phases 4 and 7, so they are read-only for
-the whole of phase 2.
+because soldier positions are written only in phase 7 (phase 4 writes velocity and
+intents, not position), so they are read-only for the whole of phase 2.
 
 ### 5.3 Why phase 1 is serial
 
