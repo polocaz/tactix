@@ -783,6 +783,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(static_cast<uint32_t>(squads.memberCount[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
+        d.mix(squads.targetSoldier[s]);
         d.mix(squads.centroidX[s]);
         d.mix(squads.centroidY[s]);
         d.mix(squads.facingX[s]);

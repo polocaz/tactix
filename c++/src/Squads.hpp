@@ -12,7 +12,10 @@ struct SquadHot {
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
     std::vector<uint16_t> targetSquad;
-    std::vector<uint32_t> targetSoldier;  // plan 3
+    // Written every tick by selectTargetSoldier (Simulation::phaseSquadAggregate,
+    // phase 2, parallel across squads), from the previous tick's targetSquad.
+    // UINT32_MAX when the squad has no ranged weapon or no target in range.
+    std::vector<uint32_t> targetSoldier;
     std::vector<float>    morale;         // plan 3
     std::vector<float>    discipline;     // plan 3
     std::vector<uint32_t> memberStart, memberCount;
