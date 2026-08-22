@@ -934,12 +934,32 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
         nextPosX[i] = newX;
         nextPosY[i] = newY;
 
-        // Update direction from velocity (for rendering)
-        float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
-                               soldiers.velY[i] * soldiers.velY[i]);
-        if (speed > 0.1f) {  // Only update if moving
+        // Direction, for rendering.
+        //
+        // A soldier standing on its slot has almost no velocity of its own.
+        // What little it has comes from separation and from non-penetration
+        // jostling with its neighbours, and that points in an essentially
+        // random direction, so a formation holding perfect station rendered as
+        // a milling crowd of arrows pointing every way at once. The formation
+        // was fine; only the arrows were lying.
+        //
+        // Below a walking pace, show the SQUAD's facing instead, which is what
+        // the man is actually facing. init() already seeds direction this way
+        // at deployment, for exactly this reason.
+        //
+        // Reading squads.facingX here is safe: facing is written in phase 4
+        // and this is phase 7, so that barrier has already made it read-only.
+        const float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
+                                      soldiers.velY[i] * soldiers.velY[i]);
+        if (speed >= kWalkSpeed) {
             soldiers.dirX[i] = soldiers.velX[i] / speed;
             soldiers.dirY[i] = soldiers.velY[i] / speed;
+        } else {
+            const uint16_t sq = soldiers.squadId[i];
+            if (sq < squads.count) {
+                soldiers.dirX[i] = squads.facingX[sq];
+                soldiers.dirY[i] = squads.facingY[sq];
+            }
         }
 
         // Decay the melee attack cooldown (Task 3). This phase already

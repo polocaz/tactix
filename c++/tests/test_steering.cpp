@@ -389,3 +389,31 @@ TEST_CASE("a soldier standing on a cleared slot is not pushed off it") {
     // squads manoeuvring around a building do not trip it.
     CHECK(stranded <= sim.getAgentCount() / 20);
 }
+
+TEST_CASE("a soldier holding station renders facing its squad, not its jitter") {
+    // Separation and non-penetration give a stationary soldier a small,
+    // essentially random velocity. Deriving the rendered direction from that
+    // made held formations look like milling crowds even while the formation
+    // itself was perfectly intact. Below a walking pace the squad's facing is
+    // the honest answer.
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    for (int t = 0; t < 300; ++t) sim.tick(1.0f / 60.0f);
+
+    size_t slow = 0, agreeing = 0;
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        if (sim.soldierSpeed(i) >= kWalkSpeed) continue;
+        slow++;
+        const uint16_t sq = sim.soldierSquadId(i);
+        // Facing is unit length, and so is the rendered direction, so an exact
+        // match means the soldier took the squad's facing rather than its own
+        // jitter.
+        if (std::abs(sim.soldierDirX(i) - sim.squadFacingX(sq)) < 1e-5f &&
+            std::abs(sim.soldierDirY(i) - sim.squadFacingY(sq)) < 1e-5f) {
+            agreeing++;
+        }
+    }
+    REQUIRE(slow > 0);
+    CHECK(agreeing == slow);
+}

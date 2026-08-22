@@ -24,12 +24,12 @@
 # members are moving. Formations halt on contact rather than interpenetrating.
 #
 # Watch gridInsertions here, not just the digest. It is the sum of live agent
-# counts over every tick, so at 2000 agents and 700 ticks the value 1400000
-# means NOBODY DIED. That is exactly what an early version of this change
-# produced, because kContactRadius was set above kMeleeReach and the halt
-# froze the line permanently out of swinging range. 1399979 is the corrected
-# value. If this key ever reads exactly agents * ticks again, combat has
-# stopped happening and the digest alone will not tell you.
+# counts over every tick, so at 2000 agents and 1600 ticks the value 3200000
+# would mean NOBODY DIED. That is exactly what an early version of the contact
+# halt produced, because kContactRadius was set above kMeleeReach and the halt
+# froze the line permanently out of swinging range. If this key ever reads
+# exactly agents * ticks again, combat has stopped happening and the digest
+# alone will not tell you.
 #
 # The final regeneration was a digest-only move, the third legitimate case
 # described below: stateDigest now covers the contact, anchor, morale-input,
@@ -50,13 +50,16 @@
 # the wrong slot (or in the wrong base) fails the test loudly instead of
 # silently.
 #
-# 700 ticks, not 200: counters-2k-200.txt never reaches combat (at 2000
-# agents on the default 1280x720 field, no soldier has died by tick 200 --
-# first death measured at tick 448) and it is the ONLY artifact comparing
-# ubuntu and windows output. Without a baseline past first contact, melee
-# resolution, casualty recording, officer capture, and compactDead had NO
-# cross-platform reference at all. 700 is comfortably past 448 while staying
-# cheap to run.
+# 1600 ticks, not 200: counters-2k-200.txt never reaches combat, and it is the
+# ONLY artifact comparing ubuntu and windows output. Without a baseline past
+# first contact, melee resolution, casualty recording, officer capture, and
+# compactDead have NO cross-platform reference at all.
+#
+# This file was 700 ticks when first death landed at tick 448. Non-penetration
+# then slowed the armies' approach by about a third and pushed first death past
+# tick 1100, which left the 700-tick run covering no combat whatsoever. Re-check
+# this tick count whenever anything changes how fast the armies close, using the
+# gridInsertions tell above.
 #
 # An intentional optimisation SHOULD change candidatesExamined/cellsVisited/
 # gridInsertions/jobsDispatched/squadDecisions/projectileHitTests. Update
@@ -97,4 +100,4 @@ jobsDispatched=48545
 squadDecisions=128000
 armyDecisions=108
 projectileHitTests=15475
-stateDigest=6c735df0c732233b
+stateDigest=78931e08f3407131

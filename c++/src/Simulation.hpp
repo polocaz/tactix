@@ -160,6 +160,10 @@ public:
     float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
     float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }
     uint16_t soldierSquadId(size_t i) const { return soldiers.squadId[i]; }
+    float    soldierDirX(size_t i) const { return soldiers.dirX[i]; }
+    float    soldierDirY(size_t i) const { return soldiers.dirY[i]; }
+    float    squadFacingX(size_t s) const { return squads.facingX[s]; }
+    float    squadFacingY(size_t s) const { return squads.facingY[s]; }
     float    soldierSteadyTimer(size_t i) const { return soldiers.steadyTimer[i]; }
     float    soldierSpeed(size_t i) const {
         return std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
