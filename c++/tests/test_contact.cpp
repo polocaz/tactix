@@ -121,3 +121,121 @@ TEST_CASE("an empty squad is never in contact and does not divide by zero") {
     detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f, scratch);
     CHECK(f.squads.contact[0] == 0);
 }
+
+TEST_CASE("a free squad's anchor tracks its centroid exactly") {
+    Fixture f;
+    f.addSquad(Team::A, 100.0f, 100.0f, 8, kSlotSpacing);
+    f.addSquad(Team::B, 600.0f, 100.0f, 8, kSlotSpacing);
+    f.rehash();
+    f.squads.centroidX[0] = 313.0f;
+    f.squads.centroidY[0] = 207.0f;
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+
+    REQUIRE(f.squads.contact[0] == 0);
+    CHECK(f.squads.anchorX[0] == doctest::Approx(313.0f));
+    CHECK(f.squads.anchorY[0] == doctest::Approx(207.0f));
+}
+
+TEST_CASE("a marching squad's anchor does not trail its centroid") {
+    // The regression test for easing a FREE squad instead of only a releasing
+    // one. A marching centroid moves about 0.75px per tick, and an ease at
+    // dt/kAnchorReleaseSeconds settles to a permanent trailing error of
+    // roughly 22px, which drags every formation slot backward. Exact tracking
+    // is the requirement, not a nicety.
+    Fixture f;
+    f.addSquad(Team::A, 100.0f, 100.0f, 8, kSlotSpacing);
+    f.addSquad(Team::B, 900.0f, 100.0f, 8, kSlotSpacing);
+    f.rehash();
+    f.squads.centroidX[0] = 100.0f;
+    f.squads.centroidY[0] = 100.0f;
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    const float perTick = kUnitStats[(int)UnitType::Infantry].speed * dt;
+
+    for (int t = 0; t < 300; ++t) {
+        f.squads.centroidX[0] += perTick;
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        REQUIRE(f.squads.contact[0] == 0);
+        CHECK(f.squads.anchorX[0] == doctest::Approx(f.squads.centroidX[0]));
+    }
+}
+
+TEST_CASE("the anchor latches on the rising edge of contact and then holds") {
+    Fixture f;
+    f.addSquad(Team::A, 100.0f, 100.0f, 8, kSlotSpacing);
+    f.addSquad(Team::B, 100.0f, 100.0f + kContactRadius * 0.5f, 8, kSlotSpacing);
+    f.rehash();
+    f.squads.centroidX[0] = 150.0f;
+    f.squads.centroidY[0] = 100.0f;
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    REQUIRE(f.squads.contact[0] == 1);
+    CHECK(f.squads.anchorX[0] == doctest::Approx(150.0f));
+
+    // The centroid now drifts, as it would while men shuffle in a melee. The
+    // anchor must NOT follow it: that is the whole point.
+    f.squads.centroidX[0] = 400.0f;
+    f.squads.centroidY[0] = 400.0f;
+    for (int t = 0; t < 10; ++t) {
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    }
+    CHECK(f.squads.contact[0] == 1);
+    CHECK(f.squads.anchorX[0] == doctest::Approx(150.0f));
+    CHECK(f.squads.anchorY[0] == doctest::Approx(100.0f));
+}
+
+TEST_CASE("the anchor eases back to the centroid after contact clears") {
+    Fixture f;
+    f.addSquad(Team::A, 100.0f, 100.0f, 8, kSlotSpacing);
+    f.addSquad(Team::B, 100.0f, 100.0f + kContactRadius * 0.5f, 8, kSlotSpacing);
+    f.rehash();
+    f.squads.centroidX[0] = 100.0f;
+    f.squads.centroidY[0] = 100.0f;
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    REQUIRE(f.squads.contact[0] == 1);
+
+    for (uint32_t k = 0; k < f.squads.memberCount[1]; ++k) {
+        f.soldiers.state[f.members[f.squads.memberStart[1] + k]] = SoldierState::Dead;
+    }
+    f.squads.centroidX[0] = 200.0f;   // 100px away from the latched anchor
+
+    // Run out the contact grace period, then the release period.
+    const int ticks = (int)((kContactClearSeconds + kAnchorReleaseSeconds * 4.0f) / dt);
+    for (int t = 0; t < ticks; ++t) {
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    }
+
+    CHECK(f.squads.contact[0] == 0);
+    // Eased, not snapped: it must have closed most of the gap, but the point
+    // is that it arrives smoothly rather than in one frame.
+    CHECK(f.squads.anchorX[0] == doctest::Approx(200.0f).epsilon(0.02));
+}
+
+TEST_CASE("two advancing squads do not pass through each other") {
+    // The regression test for the spin (design 2.1). Before anchor latching,
+    // both centroids converge on one point and the formations orbit it.
+    Simulation sim(1280, 720, 42u);
+    sim.init(400);
+    sim.setPaused(false);
+
+    const float startGap = std::abs(sim.teamCentroidX(Team::A) - sim.teamCentroidX(Team::B));
+    const bool aStartsLeft = sim.teamCentroidX(Team::A) < sim.teamCentroidX(Team::B);
+    REQUIRE(startGap > 100.0f);
+
+    for (int t = 0; t < 1200; ++t) sim.tick(1.0f / 60.0f);
+
+    // Whichever side started on the left must still be on the left. Passing
+    // through would flip the sign; orbiting a shared point would collapse the
+    // gap to near zero.
+    const bool aStillLeft = sim.teamCentroidX(Team::A) < sim.teamCentroidX(Team::B);
+    CHECK(aStillLeft == aStartsLeft);
+}

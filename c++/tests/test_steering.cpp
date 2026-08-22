@@ -21,6 +21,11 @@ TEST_CASE("a slot rotates with squad facing") {
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 100.0f;
     q.centroidY[0] = 100.0f;
+    // slotWorldPosition builds from the ANCHOR, not the centroid (design 5.2).
+    // For a free squad the two are equal, and detectContact keeps them so
+    // every tick; a hand-built SquadHot has to establish that itself.
+    q.anchorX[0] = 100.0f;
+    q.anchorY[0] = 100.0f;
     q.memberCount[0] = 9;
 
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
@@ -112,6 +117,7 @@ TEST_CASE("steerToSlot points toward the slot when displaced") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 100.0f; q.centroidY[0] = 100.0f;
+    q.anchorX[0] = 100.0f; q.anchorY[0] = 100.0f;  // anchor is the formation origin now
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     q.memberCount[0] = 1;  // a single-member squad's only slot sits exactly on the centroid
 
@@ -136,6 +142,7 @@ TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Cavalry);
     q.centroidX[0] = 0.0f; q.centroidY[0] = 0.0f;
+    q.anchorX[0] = 0.0f; q.anchorY[0] = 0.0f;  // anchor is the formation origin now
     q.facingX[0] = 0.0f; q.facingY[0] = 1.0f;
     q.memberCount[0] = 1;
 
@@ -156,6 +163,7 @@ TEST_CASE("steerToSlot zeroes velocity for a soldier already on its slot") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 50.0f; q.centroidY[0] = 50.0f;
+    q.anchorX[0] = 50.0f; q.anchorY[0] = 50.0f;  // anchor is the formation origin now
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     q.memberCount[0] = 1;
 
@@ -180,6 +188,7 @@ TEST_CASE("repeated steerToSlot monotonically closes the distance") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 200.0f; q.centroidY[0] = 200.0f;
+    q.anchorX[0] = 200.0f; q.anchorY[0] = 200.0f;  // anchor is the formation origin now
     q.facingX[0] = 0.0f; q.facingY[0] = -1.0f;
     q.memberCount[0] = 1;
 
@@ -285,6 +294,7 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     const float startX = 500.0f, startY = 300.0f;
     q.centroidX[0] = startX; q.centroidY[0] = startY;
+    q.anchorX[0] = startX; q.anchorY[0] = startY;  // anchor is the formation origin now
 
     constexpr uint32_t kMembers = 12;
     q.memberCount[0] = kMembers;
@@ -314,6 +324,11 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
         }
         q.centroidX[0] = sumX / (float)kMembers;
         q.centroidY[0] = sumY / (float)kMembers;
+        // A free squad's anchor tracks its centroid exactly, which is what
+        // detectContact does every tick in the live simulation. Mirroring it
+        // here is what keeps this loop a faithful stand-in for a real tick.
+        q.anchorX[0] = q.centroidX[0];
+        q.anchorY[0] = q.centroidY[0];
     }
 
     const float dx = q.centroidX[0] - startX;

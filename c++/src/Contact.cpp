@@ -9,12 +9,18 @@ void detectContact(const SoldierHot& soldiers, SquadHot& squads,
                    const std::vector<uint32_t>& members,
                    const SpatialHash& hash, size_t s, float dt,
                    std::vector<uint32_t>& scratch) {
+    // Captured BEFORE the flag is recomputed below, so the rising and falling
+    // edges are both detectable from one pass.
+    const uint8_t wasInContact = squads.contact[s];
+
     const uint32_t start = squads.memberStart[s];
     const uint32_t n     = squads.memberCount[s];
 
     if (n == 0) {
         squads.contact[s] = 0;
         squads.contactTimer[s] = 0.0f;
+        // An emptied squad keeps its anchor where it stands. Squads are never
+        // destroyed, so anything still reading this must see a sane value.
         return;
     }
 
@@ -70,5 +76,52 @@ void detectContact(const SoldierHot& soldiers, SquadHot& squads,
             squads.contactTimer[s] = 0.0f;
             squads.contact[s] = 0;
         }
+    }
+
+    // --- Anchor maintenance (design 5.2) ---
+    // Free:      the anchor IS the centroid, so an unengaged squad behaves
+    //            exactly as it did before anchoring existed.
+    // Latching:  on the rising edge, freeze where we stand.
+    // Engaged:   hold, whatever the centroid does. Cutting this link is the
+    //            fix for the centroid/slot feedback loop (design 2.1).
+    // Releasing: ease back, so the formation does not teleport by however far
+    //            the centroid drifted during the fight.
+    if (squads.contact[s]) {
+        if (!wasInContact) {
+            // Rising edge: freeze where we stand.
+            squads.anchorX[s] = squads.centroidX[s];
+            squads.anchorY[s] = squads.centroidY[s];
+        }
+        // else: hold the latched anchor, whatever the centroid does. Cutting
+        // this link is the fix for the centroid/slot feedback loop.
+        squads.anchorReleaseTimer[s] = 0.0f;
+    } else if (wasInContact || squads.anchorReleaseTimer[s] > 0.0f) {
+        // Releasing. Ease back over kAnchorReleaseSeconds so the formation
+        // does not teleport by however far the centroid drifted during the
+        // fight.
+        if (wasInContact) squads.anchorReleaseTimer[s] = kAnchorReleaseSeconds;
+
+        const float k = dt / kAnchorReleaseSeconds;
+        squads.anchorX[s] += (squads.centroidX[s] - squads.anchorX[s]) * k;
+        squads.anchorY[s] += (squads.centroidY[s] - squads.anchorY[s]) * k;
+
+        squads.anchorReleaseTimer[s] -= dt;
+        if (squads.anchorReleaseTimer[s] <= 0.0f) {
+            // Ease over. Snap the remaining error away rather than trailing
+            // forever, and hand the squad back to exact tracking below.
+            squads.anchorReleaseTimer[s] = 0.0f;
+            squads.anchorX[s] = squads.centroidX[s];
+            squads.anchorY[s] = squads.centroidY[s];
+        }
+    } else {
+        // Free: the anchor IS the centroid, exactly. This is what makes an
+        // unengaged squad behave precisely as it did before anchoring existed.
+        //
+        // Easing here instead would be a real bug rather than a nicety: a
+        // marching squad's centroid moves about 0.75px per tick, so an ease at
+        // dt/kAnchorReleaseSeconds would settle to a permanent trailing error
+        // of roughly 22px and drag every formation slot backward with it.
+        squads.anchorX[s] = squads.centroidX[s];
+        squads.anchorY[s] = squads.centroidY[s];
     }
 }

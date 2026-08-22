@@ -68,11 +68,21 @@ constexpr float   kMeleeReach    = 14.0f;  // px
 constexpr uint8_t kMeleeDamage   = 1;
 constexpr float   kMeleeCooldown = 0.8f;   // seconds between swings
 
-// Contact detection (design 5.1). kContactRadius sits deliberately ABOVE
-// kMeleeReach so a squad registers contact just BEFORE its front rank can
-// swing: halting on the same frame as the first blow would let the formation
-// overrun by a stride first.
-constexpr float kContactRadius = kMeleeReach * 1.4f;   // 19.6px
+// Contact detection (design 5.1). kContactRadius MUST sit below kMeleeReach,
+// and the margin is load-bearing rather than cosmetic.
+//
+// The halt freezes the formation anchor where the squad stands, so whatever
+// distance the front ranks are apart at that moment is the distance they stay
+// apart. Setting this ABOVE kMeleeReach therefore does not "register contact
+// just before the first blow": it stops the line permanently out of swinging
+// range and no one ever fights. Measured directly at kMeleeReach * 1.4, a
+// 2000-agent battle produced zero deaths in 700 ticks, against a first death
+// at tick 448 before the halt existed.
+//
+// Below reach, the halt latches a line that is already fighting. 0.85 leaves
+// room for the men to jostle without any of them falling out of reach, and
+// sits comfortably above the 8px floor non-penetration enforces.
+constexpr float kContactRadius = kMeleeReach * 0.85f;   // 11.9px
 
 // Fraction of the front rank that must have an enemy in reach. A single
 // over-eager skirmisher must not halt a whole formation, and requiring the
@@ -82,6 +92,11 @@ constexpr float kContactFraction = 0.25f;
 // Grace period before contact is allowed to clear. Without it a squad
 // flickers between Engaged and Advance every time a front-rank duel ends.
 constexpr float kContactClearSeconds = 0.75f;
+
+// How long the formation anchor takes to ease back onto the live centroid
+// after contact clears. Snapping instead would teleport the whole formation
+// by however far the centroid drifted during the fight.
+constexpr float kAnchorReleaseSeconds = 0.5f;
 
 // Shot accuracy. Spread is carried in integer milliradians because Rng::range
 // is integer-only; passing float bounds to it does not compile.

@@ -39,6 +39,21 @@ struct SquadHot {
     std::vector<uint8_t> contact;
     std::vector<float>   contactTimer;
 
+    // Formation origin (design 5.2). This, NOT the centroid, is what
+    // slotWorldPosition builds slots from. While the squad is free it tracks
+    // the centroid exactly, reproducing the pre-contact behaviour; on the
+    // rising edge of contact it latches, which is what cuts the centroid/slot
+    // feedback loop that made melee a rotating blob.
+    std::vector<float> anchorX, anchorY;
+
+    // Counts DOWN the post-contact ease, and is the reason free tracking and
+    // release are separate states rather than one blended rule. Easing every
+    // tick regardless would leave a MARCHING squad's anchor permanently
+    // trailing its centroid by speed * dt / easeRate, about 22px at infantry
+    // pace, dragging the whole formation backward. A free squad must track
+    // exactly; only a squad that has just disengaged eases.
+    std::vector<float> anchorReleaseTimer;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -61,6 +76,9 @@ struct SquadHot {
         moveY.push_back(0.0f);
         contact.push_back(0);
         contactTimer.push_back(0.0f);
+        anchorX.push_back(0.0f);
+        anchorY.push_back(0.0f);
+        anchorReleaseTimer.push_back(0.0f);
         count++;
     }
 };

@@ -212,6 +212,14 @@ void Simulation::init(size_t soldierCount) {
 
             squads.centroidX[squadId] = squadX;
             squads.centroidY[squadId] = squadY;
+            // The anchor, not the centroid, is what slotWorldPosition builds
+            // slots from (design 5.2), and the deployment loop below calls it
+            // to place every soldier. Seed it HERE, in the same breath as the
+            // centroid: seeding it after deployment would be too late, and
+            // every squad would deploy around the world origin instead of
+            // around its own position.
+            squads.anchorX[squadId] = squadX;
+            squads.anchorY[squadId] = squadY;
 
             // sq < squadsPerTeam = ceil(perTeam / kSquadSize), so by the
             // definition of ceiling division sq * kSquadSize < perTeam here:

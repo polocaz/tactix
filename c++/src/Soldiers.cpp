@@ -31,15 +31,23 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
     // side-step into clear terrain while still facing the foe (design §7.2).
     // Holding squads get no lead, so the centroid stays a fixed point exactly
     // as formationMeanOffset arranged.
-    const float lead = (squads.order[s] == (uint8_t)SquadOrder::Advance)
+    // Engaged squads do not lead: a formation that has met the enemy is
+    // holding ground, not marching. Suppressed here rather than in the caller
+    // so "where is this slot" stays answerable from this one function.
+    const float lead = (squads.order[s] == (uint8_t)SquadOrder::Advance
+                        && !squads.contact[s])
                      ? kAdvanceLead : 0.0f;
 
     const float leadX = (lead != 0.0f) ? squads.moveX[s] : 0.0f;
     const float leadY = (lead != 0.0f) ? squads.moveY[s] : 0.0f;
 
+    // Built from the ANCHOR, not the centroid (design 5.2). While the squad is
+    // free the two are equal, so this is behaviour-preserving; while it is
+    // engaged the anchor is frozen, which is what stops the formation chasing
+    // its own drifting mean.
     return Vec2{
-        squads.centroidX[s] + local.x * rightX + local.y * fx + lead * leadX,
-        squads.centroidY[s] + local.x * rightY + local.y * fy + lead * leadY
+        squads.anchorX[s] + local.x * rightX + local.y * fx + lead * leadX,
+        squads.anchorY[s] + local.x * rightY + local.y * fy + lead * leadY
     };
 }
 
