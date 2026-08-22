@@ -156,6 +156,14 @@ constexpr float kDisciplineCavalry  = 0.70f;
 // the screen should already be in place by the time the archers would panic.
 constexpr float kScreenThreatRadius = 400.0f;
 
+// Ceiling on how much of the infantry may be assigned to bodyguard duty.
+// The per-archer-squad cap does not bound this: archers are roughly a quarter
+// of an army, and on a crowded field nearly every archer squad has an enemy
+// inside kScreenThreatRadius, so one guard each still claims nearly every
+// infantry squad. Measured at 10,000 agents, that left 82 squads screening
+// and 3 holding the line.
+constexpr float kMaxScreenFraction = 0.34f;
+
 // How often each army re-decides roles, in ticks. The two armies are offset by
 // team so they never decide on the same tick, and an assignment persists long
 // enough to be legible rather than churning every frame.

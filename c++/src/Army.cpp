@@ -147,12 +147,29 @@ void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team) {
         }
     }
 
-    // Step 3: each threatened archer squad claims at most ONE infantry squad
-    // as its screen. The cap is what stops the whole army becoming
-    // bodyguards; walking archers in ascending index makes which archer gets
-    // the last spare infantry squad deterministic.
+    // Step 3: screens. TWO caps, and both are load-bearing.
+    //
+    // Per archer squad: at most one guard, so a single archer squad cannot
+    // absorb the whole line by itself.
+    //
+    // Across the army: at most kMaxScreenFraction of the infantry may be
+    // screening at all. The per-squad cap alone does NOT prevent the army
+    // becoming bodyguards, which is what the design asks for. Archers are
+    // roughly a quarter of every army, and on a crowded field essentially
+    // every archer squad has some enemy inside kScreenThreatRadius, so
+    // one-guard-each still claims essentially every infantry squad.
+    //
+    // Measured at 10,000 agents after 4,000 ticks with only the per-squad cap:
+    // 82 live squads were screening and 3 were holding the line. The infantry
+    // had stopped fighting almost entirely.
+    const size_t ownInfantry = std::count_if(own.begin(), own.end(),
+        [&](uint16_t s) { return squads.unitType[s] == UnitType::Infantry; });
+    const size_t screenBudget = (size_t)(ownInfantry * kMaxScreenFraction);
+    size_t screensUsed = 0;
+
     std::vector<uint8_t> claimed(squads.count, 0u);
     for (uint16_t a : own) {
+        if (screensUsed >= screenBudget) break;
         if (squads.unitType[a] != UnitType::Archer) continue;
 
         uint16_t threat = UINT16_MAX;
@@ -175,6 +192,7 @@ void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team) {
         if (guard == UINT16_MAX) continue;
 
         claimed[guard] = 1;
+        screensUsed++;
         squads.role[guard] = (uint8_t)SquadRole::Screen;
         squads.wardSquad[guard] = a;
         squads.targetSquad[guard] = threat;

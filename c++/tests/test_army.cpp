@@ -503,3 +503,35 @@ TEST_CASE("holding fire actually stops the squad acquiring a soldier target") {
     selectTargetSoldier(soldiers, f.squads, members, archers);
     CHECK(f.squads.targetSoldier[archers] != UINT32_MAX);
 }
+
+TEST_CASE("screening never consumes more than its share of the infantry") {
+    // The per-archer-squad cap ("at most one guard each") does NOT bound this.
+    // Archers are roughly a quarter of an army, and once the field is crowded
+    // essentially every archer squad has an enemy inside kScreenThreatRadius,
+    // so one guard each still claims essentially every infantry squad.
+    //
+    // Measured at 10,000 agents after 4,000 ticks with only the per-squad cap:
+    // 82 live squads were screening and 3 were holding the line. The design
+    // asks for the opposite, and this is the test that would have said so.
+    ArmyFixture f;
+    std::vector<uint16_t> archers, infantry;
+    for (int i = 0; i < 10; ++i) {
+        archers.push_back(f.add(Team::A, UnitType::Archer, 100.0f, 100.0f + (float)i * 30.0f, 12));
+    }
+    for (int i = 0; i < 10; ++i) {
+        infantry.push_back(f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 30.0f, 20));
+    }
+    // One enemy close enough to threaten every archer squad at once.
+    f.add(Team::B, UnitType::Infantry, 100.0f + kScreenThreatRadius * 0.5f, 250.0f, 20);
+
+    updateArmyAggregate(f.squads, f.armies);
+    assignRoles(f.squads, f.armies, Team::A);
+
+    const size_t screens = countRole(f.squads, Team::A, SquadRole::Screen);
+    const size_t line    = countRole(f.squads, Team::A, SquadRole::Line);
+
+    CHECK(screens <= (size_t)(infantry.size() * kMaxScreenFraction));
+    // And the rest of the infantry must actually be fighting, not idle.
+    CHECK(line == infantry.size() - screens);
+    CHECK(line > screens);
+}

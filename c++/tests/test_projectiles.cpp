@@ -325,8 +325,17 @@ TEST_CASE("an archer cannot fire on consecutive ticks") {
     // correctly retargeted, fires for the first time. By the end of tick 2
     // every in-range archer squad has fired exactly once and is on cooldown
     // -- that is the settled state this test actually checks.
-    sim.tick(1.0f / 60.0f);
-    sim.tick(1.0f / 60.0f);
+    // Settle for 8 ticks rather than 2. Two was enough when every archer
+    // squad's first shot landed on tick 1 or 2, but which squads are in range
+    // that early depends on where the commander sends everyone, so a role
+    // change elsewhere can leave one squad firing its FIRST shot on tick 3 and
+    // make this look like a cooldown failure when it is not.
+    //
+    // 8 is still far inside the guarantees this test needs: kArcherCooldown is
+    // 1.5s (90 ticks), so nothing that fired can fire again, and arrows have
+    // moved about 27px against a gap well over 150px, so none have hit or
+    // expired to mask growth by shrinking the count.
+    for (int t = 0; t < 8; ++t) sim.tick(1.0f / 60.0f);
     const size_t afterSettling = sim.getProjectileCount();
     REQUIRE(afterSettling > 0);
 
