@@ -21,9 +21,23 @@ constexpr uint32_t kUnitTypeCount = 3;
 
 // How far ahead of its centroid a squad aims its formation slots while
 // advancing. Soldiers chase a target slightly in front of where they stand,
-// which drags the centroid forward and marches the formation. Kept well under
-// kSlotSpacing so the formation does not stretch faster than soldiers close it.
-constexpr float kAdvanceLead = 6.0f;
+// which drags the centroid forward and marches the formation.
+//
+// This sets the army's marching speed, and it does so indirectly: the squad
+// advances only as fast as its members close a gap this size, which lands well
+// under the unit's nominal speed. At 6 the march was slow enough that most of
+// a battle was the walk-up, and non-penetration made it worse by a third once
+// bodies started resisting each other.
+//
+// Measured at 2000 agents, seed 42, by the tick at which the first soldier
+// dies: 6 puts first contact between ticks 900 and 1200, 10 puts it between
+// 600 and 900.
+//
+// MUST stay under kSlotSpacing (12). The lead is how far a soldier sits behind
+// its slot in steady state, so a lead at or above the rank spacing means the
+// formation stretches faster than its members can close it, and the ranks pull
+// apart into a column instead of marching as a body.
+constexpr float kAdvanceLead = 10.0f;
 
 // How fast a squad may rotate its formation, in radians per second. Facing
 // rotates every slot, so an unbounded turn teleports the whole formation.

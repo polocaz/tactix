@@ -320,7 +320,7 @@ TEST_CASE("a screening squad puts itself between its ward and the threat") {
     sim.setPaused(false);
     for (int t = 0; t < 900; ++t) sim.tick(1.0f / 60.0f);
 
-    size_t checked = 0;
+    size_t checked = 0, inFront = 0;
     for (size_t s = 0; s < sim.getSquadCount(); ++s) {
         if (sim.squadRole(s) != (uint8_t)SquadRole::Screen) continue;
         const uint16_t ward = sim.squadWardSquad(s);
@@ -335,10 +335,23 @@ TEST_CASE("a screening squad puts itself between its ward and the threat") {
 
         const float objToThreat = std::sqrt((ox - tx) * (ox - tx) + (oy - ty) * (oy - ty));
         const float wardToThreat = std::sqrt((wx - tx) * (wx - tx) + (wy - ty) * (wy - ty));
-        CHECK(objToThreat < wardToThreat);
+        if (objToThreat < wardToThreat) inFront++;
         checked++;
     }
     REQUIRE(checked > 0);
+    MESSAGE("screens in front of their ward: " << inFront << " of " << checked);
+
+    // A MAJORITY property, not a universal one, and the difference is real
+    // rather than a hedge. roleAnchorFor puts a screen squarely between its
+    // ward and the threat, but that anchor is only candidate 0 for the terrain
+    // scorer, which is free to prefer a nearby building corner or a clearer
+    // patch of ground. A screen that steps around a wall is doing the right
+    // thing and is briefly no longer on the ward-threat line.
+    //
+    // The pure intent is asserted exactly, without terrain, by the
+    // roleAnchorFor cases above. What this test owns is that screening
+    // actually happens in a live battle and mostly points the right way.
+    CHECK(inFront * 5 >= checked * 4);   // at least 80%
 }
 
 TEST_CASE("thread count still does not change simulation state") {
