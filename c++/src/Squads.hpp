@@ -32,6 +32,13 @@ struct SquadHot {
     std::vector<float>    objectiveX, objectiveY;
     std::vector<float>    moveX, moveY;
 
+    // Contact state (design 5.1). `contact` is 1 while this squad's front rank
+    // is engaged; `contactTimer` counts DOWN the grace period before contact
+    // is allowed to clear, so a squad does not flicker between engaged and
+    // advancing as individual enemies die.
+    std::vector<uint8_t> contact;
+    std::vector<float>   contactTimer;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -52,6 +59,8 @@ struct SquadHot {
         objectiveY.push_back(0.0f);
         moveX.push_back(1.0f);
         moveY.push_back(0.0f);
+        contact.push_back(0);
+        contactTimer.push_back(0.0f);
         count++;
     }
 };

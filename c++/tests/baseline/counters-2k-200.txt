@@ -4,7 +4,17 @@
 # tick. Facing rotates every formation slot, so this changes where every soldier is
 # told to stand and therefore the whole battle. Deliberate behavioural change, not a
 # bug. stateDigest moves, and the position-dependent counters
-# (candidatesExamined/cellsVisited) move with it. Regenerate with:
+# (candidatesExamined/cellsVisited) move with it.
+#
+# candidatesExamined/cellsVisited were then updated a SECOND time, for front-rank
+# contact detection (Contact.cpp), which adds a neighbour query per front-rank
+# soldier per tick. That update is worth distinguishing from the one above:
+# stateDigest was held FIXED across it, and the fact that it did not move is the
+# evidence that detection observes the battle without altering it. Nothing yet
+# consumes the contact flag. If a later change to detection moves the digest
+# while claiming to be observation-only, that is a bug, not a regeneration.
+#
+# Regenerate with:
 #   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
@@ -54,8 +64,8 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=217011752
-cellsVisited=6979760
+candidatesExamined=248109254
+cellsVisited=7975469
 gridInsertions=400000
 jobsDispatched=4400
 squadDecisions=16000

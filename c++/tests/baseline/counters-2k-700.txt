@@ -11,6 +11,14 @@
 # slewed facing delays each squad's turn toward its objective, which changes where
 # the archer line settles. More arrows in flight, not more work per arrow.
 #
+# candidatesExamined/cellsVisited were then updated a SECOND time, for front-rank
+# contact detection (Contact.cpp), which adds a neighbour query per front-rank
+# soldier per tick. That update is worth distinguishing from the one above:
+# stateDigest was held FIXED across it, and the fact that it did not move is the
+# evidence that detection observes the battle without altering it. Nothing yet
+# consumes the contact flag. If a later change to detection moves the digest
+# while claiming to be observation-only, that is a bug, not a regeneration.
+#
 # Regenerate with:
 #   tactix_bench --agents 2000 --ticks 700 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
@@ -62,8 +70,8 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=617897347
-cellsVisited=24527414
+candidatesExamined=705623948
+cellsVisited=27976988
 gridInsertions=1399879
 jobsDispatched=15431
 squadDecisions=56000

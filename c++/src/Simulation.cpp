@@ -6,6 +6,7 @@
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
 #include "Combat.hpp"
+#include "Contact.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -483,7 +484,7 @@ void Simulation::tick(float dt) {
     rebuildInfluence();
 
     // Phase 2: parallel over squads. Writes only its own squad.
-    phaseSquadAggregate();
+    phaseSquadAggregate(dt);
     jobSystem.waitAll();
 
     // Phase 3: parallel over squads. Safe to read every squad's aggregate
@@ -526,16 +527,21 @@ void Simulation::rebuildInfluence() {
     // fixed from the start rather than being inserted later.
 }
 
-void Simulation::phaseSquadAggregate() {
+void Simulation::phaseSquadAggregate(float dt) {
     // Plan 7: recompute each squad's centroid and facing. Parallel across
     // squads, never within one -- updateSquadAggregate sums one squad's
     // members on a single thread so the accumulation order is fixed.
     const size_t chunkSize = 32;
     for (size_t start = 0; start < squads.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, squads.count);
-        jobSystem.submit([this, start, end]() {
+        jobSystem.submit([this, start, end, dt]() {
+            // Neighbour buffer reused across every squad in this chunk, so
+            // contact detection does not allocate per squad per tick.
+            std::vector<uint32_t> scratch;
+            scratch.reserve(64);
             for (size_t s = start; s < end; ++s) {
                 updateSquadAggregate(soldiers, squads, squadMembers, s);
+                detectContact(soldiers, squads, squadMembers, spatialHash, s, dt, scratch);
                 selectTargetSoldier(soldiers, squads, squadMembers, s);
             }
         });

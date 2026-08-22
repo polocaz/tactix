@@ -68,6 +68,21 @@ constexpr float   kMeleeReach    = 14.0f;  // px
 constexpr uint8_t kMeleeDamage   = 1;
 constexpr float   kMeleeCooldown = 0.8f;   // seconds between swings
 
+// Contact detection (design 5.1). kContactRadius sits deliberately ABOVE
+// kMeleeReach so a squad registers contact just BEFORE its front rank can
+// swing: halting on the same frame as the first blow would let the formation
+// overrun by a stride first.
+constexpr float kContactRadius = kMeleeReach * 1.4f;   // 19.6px
+
+// Fraction of the front rank that must have an enemy in reach. A single
+// over-eager skirmisher must not halt a whole formation, and requiring the
+// whole rank would never fire on a ragged line.
+constexpr float kContactFraction = 0.25f;
+
+// Grace period before contact is allowed to clear. Without it a squad
+// flickers between Engaged and Advance every time a front-rank duel ends.
+constexpr float kContactClearSeconds = 0.75f;
+
 // Shot accuracy. Spread is carried in integer milliradians because Rng::range
 // is integer-only; passing float bounds to it does not compile.
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
