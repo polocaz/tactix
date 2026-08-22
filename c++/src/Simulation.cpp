@@ -368,6 +368,7 @@ void Simulation::reset(size_t count) {
     officerDied.clear();
 
     projectiles.clear();
+    deaths.clear();
 
     prevPosX.clear();
     prevPosY.clear();
@@ -628,6 +629,20 @@ void Simulation::phaseResolution(const Rng& rng) {
         }
     }
     recordCasualties(soldiers, casualties, officerDied);    // step 4
+
+    // Presentation only, and deliberately between step 4 and compaction:
+    // recordCasualties is what marks a soldier Dead, and compactDead is what
+    // removes the body, so this is the one window in the tick where a corpse
+    // still has a position. Reads state, writes nothing the simulation sees.
+    if (recordDeaths) {
+        for (size_t i = 0; i < soldiers.count; ++i) {
+            if (soldiers.state[i] != SoldierState::Dead) continue;
+            if (deaths.size() >= kMaxRecordedDeaths) break;
+            deaths.push_back(DeathEvent{ soldiers.posX[i], soldiers.posY[i],
+                                         soldiers.team[i], soldiers.unitType[i] });
+        }
+    }
+
     // Step 5. Both run BEFORE compaction, because casualties and officerDied
     // are indexed by squad and describe what happened this tick.
     // applyRoutTransitions runs second because it consumes the morale
