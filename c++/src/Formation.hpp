@@ -78,6 +78,27 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
     return Vec2{ right, forward };
 }
 
+// Which rank a slot belongs to, rank 0 being the front. This MUST mirror
+// formationSlot's own layout: Wedge packs rank r into slots r*r .. r*r+2r, so
+// its rank is floor(sqrt(i)), while the grid shapes rank by integer division
+// on the same width rankWidth computes. Kept next to formationSlot precisely
+// so a change to one is an obvious prompt to change the other. Contact
+// detection (Contact.cpp) is the consumer: it tests only the front rank, and a
+// wrong rank here would silently make a whole squad or none of it eligible.
+inline uint32_t rankOfSlot(FormationShape shape, uint16_t slotIndex, uint32_t memberCount) {
+    if (memberCount == 0) return 0;
+
+    if (shape == FormationShape::Wedge) {
+        return (uint32_t)std::sqrt((float)slotIndex);
+    }
+
+    // Loose differs from Line only in spacing, not in aspect, so it shares
+    // this branch. Column is the narrow-and-deep aspect.
+    const float aspect = (shape == FormationShape::Column) ? 0.5f : 2.0f;
+    const uint32_t width = detail::rankWidth(memberCount, aspect);
+    return (uint32_t)slotIndex / width;
+}
+
 // Mean of every slot offset for this shape and count. slotWorldPosition
 // subtracts it so that the mean of a squad's slot positions is exactly the
 // squad centroid. Without this, centroid (a mean of member positions) and

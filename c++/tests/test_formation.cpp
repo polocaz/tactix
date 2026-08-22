@@ -76,3 +76,38 @@ TEST_CASE("an empty squad returns the origin rather than dividing by zero") {
     CHECK(s.x == doctest::Approx(0.0f));
     CHECK(s.y == doctest::Approx(0.0f));
 }
+
+TEST_CASE("rankOfSlot agrees with the forward offset formationSlot produces") {
+    // The rank a slot belongs to is observable from formationSlot's output:
+    // rank r sits at forward = -r * spacing. Deriving the expected value from
+    // the function under test's own sibling is what makes this a consistency
+    // check rather than a restatement of the implementation.
+    struct Case { FormationShape shape; float spacing; };
+    const Case cases[] = {
+        { FormationShape::Line,   kSlotSpacing },
+        { FormationShape::Column, kSlotSpacing },
+        { FormationShape::Wedge,  kSlotSpacing },
+        { FormationShape::Loose,  kSlotSpacing * 2.0f },
+    };
+
+    for (const Case& c : cases) {
+        for (uint32_t n : { 1u, 2u, 7u, 25u, 60u }) {
+            for (uint16_t i = 0; i < (uint16_t)n; ++i) {
+                const Vec2 s = formationSlot(c.shape, i, n);
+                const uint32_t expected = (uint32_t)(-s.y / c.spacing + 0.5f);
+                CHECK(rankOfSlot(c.shape, i, n) == expected);
+            }
+        }
+    }
+}
+
+TEST_CASE("rankOfSlot puts slot 0 in the front rank for every shape") {
+    for (FormationShape shape : { FormationShape::Line, FormationShape::Column,
+                                  FormationShape::Wedge, FormationShape::Loose }) {
+        CHECK(rankOfSlot(shape, 0, 40) == 0u);
+    }
+}
+
+TEST_CASE("rankOfSlot handles an empty squad without dividing by zero") {
+    CHECK(rankOfSlot(FormationShape::Line, 0, 0) == 0u);
+}
