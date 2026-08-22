@@ -34,6 +34,10 @@ struct SoldierHot {
     std::vector<uint32_t>     intentTarget;   // UINT32_MAX means none
     std::vector<uint8_t>      intentFire;
 
+    // Seconds spent below a walking pace. Archery accuracy needs a settled
+    // shooter, and this is what makes standing still worth something.
+    std::vector<float>        steadyTimer;
+
     size_t count = 0;
 
     void reserve(size_t n) {
@@ -53,6 +57,7 @@ struct SoldierHot {
         attackCooldown.reserve(n);
         intentTarget.reserve(n);
         intentFire.reserve(n);
+        steadyTimer.reserve(n);
     }
 
     void spawn(float px, float py, float vx, float vy, Team t, UnitType ut, uint16_t squad) {
@@ -78,6 +83,7 @@ struct SoldierHot {
         attackCooldown.push_back(0.0f);
         intentTarget.push_back(std::numeric_limits<uint32_t>::max());
         intentFire.push_back(0);
+        steadyTimer.push_back(0.0f);
 
         count++;
     }
@@ -123,6 +129,11 @@ public:
     float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
     float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }
     uint16_t soldierSquadId(size_t i) const { return soldiers.squadId[i]; }
+    float    soldierSteadyTimer(size_t i) const { return soldiers.steadyTimer[i]; }
+    float    soldierSpeed(size_t i) const {
+        return std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
+                         soldiers.velY[i] * soldiers.velY[i]);
+    }
     // Only meaningful mid-tick, between phase 2 (where it is computed) and
     // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
     // clears it to UINT32_MAX once compaction can have invalidated it, so a

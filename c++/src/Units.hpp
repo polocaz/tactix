@@ -202,3 +202,26 @@ constexpr int kArrowHitChancePct = 45;
 // rest of its flight, so a long overshoot can still strike whatever is behind
 // the target, on either side.
 constexpr float kArrowArcFraction = 0.6f;
+
+// Below this speed a soldier counts as standing still.
+constexpr float kWalkSpeed = 6.0f;   // px/s
+
+// How long an archer must be settled before it shoots at full accuracy.
+constexpr float kSteadyTime = 0.8f;  // seconds
+
+// Extra spread multiplier while unsettled, on top of the existing speed term.
+// This is the number that makes a squad which keeps repositioning keep
+// missing, and therefore the number that makes archers choose to hold still.
+// Without it, advancing forever is free and no archer ever has a reason to
+// stop, which is exactly the behaviour this feature exists to change.
+constexpr float kUnsettledSpreadMultiplier = 2.5f;
+
+// An archer cannot loose at a target more than this far off its own movement
+// direction while moving faster than a walk. Expressed as a cosine because
+// that is what a dot product against a normalized heading gives directly.
+//
+// This is the whole of "cannot fire backward while fleeing", with no state
+// check: flight points away from the enemy, so a fleeing archer's target is
+// always behind it. An archer sidestepping slowly into position is under
+// kWalkSpeed and unaffected, so it can still loose sideways.
+constexpr float kMaxFireCos = 0.5f;   // 60 degrees

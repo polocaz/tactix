@@ -846,8 +846,31 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             soldiers.attackCooldown[i] <= 0.0f &&
             soldiers.state[i] != SoldierState::Dead) {
             const uint16_t sq = soldiers.squadId[i];
-            if (sq < squads.count && squads.targetSoldier[sq] != UINT32_MAX) {
-                soldiers.intentFire[i] = 1;
+            const uint32_t t = (sq < squads.count) ? squads.targetSoldier[sq] : UINT32_MAX;
+            if (t != UINT32_MAX && (size_t)t < soldiers.count) {
+                // Fire arc. An archer moving faster than a walk may not loose
+                // at anything more than kMaxFireCos off its heading. This is
+                // the whole of "cannot fire backward while fleeing": flight
+                // points away from the enemy, so a fleeing archer's target is
+                // behind it, and no state check is needed. A slow sidestep is
+                // under kWalkSpeed and unaffected.
+                //
+                // Reading another soldier's position is safe here: positions
+                // are written in phases 7 and 8, never in this one.
+                const float vx = soldiers.velX[i];
+                const float vy = soldiers.velY[i];
+                const float sp = std::sqrt(vx * vx + vy * vy);
+
+                bool arcOk = true;
+                if (sp > kWalkSpeed) {
+                    const float tx = soldiers.posX[t] - soldiers.posX[i];
+                    const float ty = soldiers.posY[t] - soldiers.posY[i];
+                    const float tlen = std::sqrt(tx * tx + ty * ty);
+                    if (tlen > 1e-4f) {
+                        arcOk = ((tx * vx + ty * vy) / (tlen * sp)) >= kMaxFireCos;
+                    }
+                }
+                if (arcOk) soldiers.intentFire[i] = 1;
             }
         }
     }
@@ -944,6 +967,15 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
         // writes only its own soldier, so it is safe to do here too.
         if (soldiers.attackCooldown[i] > 0.0f) {
             soldiers.attackCooldown[i] -= dt;
+        }
+
+        // Settle timer. A soldier below a walking pace is standing still for
+        // archery purposes. `speed` is already computed just above for the
+        // direction update, so this is free.
+        if (speed < kWalkSpeed) {
+            soldiers.steadyTimer[i] += dt;
+        } else {
+            soldiers.steadyTimer[i] = 0.0f;
         }
     }
 }

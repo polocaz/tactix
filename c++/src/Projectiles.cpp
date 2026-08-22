@@ -48,9 +48,17 @@ void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
                                              soldiers.velY[i] * soldiers.velY[i]);
         const float maxRange = kUnitStats[(int)UnitType::Archer].range;
         const float maxSpeed = kUnitStats[(int)UnitType::Archer].speed;
+        // The settle term is what actually changes archer behaviour: without
+        // it, advancing forever costs nothing, so no archer ever has a reason
+        // to hold a firing position. With it, a squad that keeps repositioning
+        // keeps missing, and standing still becomes the archer's own
+        // preference rather than an instruction.
+        const float settleMul = (soldiers.steadyTimer[i] >= kSteadyTime)
+                              ? 1.0f : kUnsettledSpreadMultiplier;
         int spreadMrad = (int)((float)kArrowBaseSpreadMrad
                              * (1.0f + dist / maxRange)
-                             * (1.0f + shooterSpeed / maxSpeed));
+                             * (1.0f + shooterSpeed / maxSpeed)
+                             * settleMul);
         if (spreadMrad < 1) spreadMrad = 1;
 
         const int offMrad = rng.range((uint32_t)i, RngUse::ArrowSpread,

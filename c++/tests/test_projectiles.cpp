@@ -82,14 +82,20 @@ TEST_CASE("spread is bounded and deterministic") {
     // rather than a pasted number: shot distance is 200px (300 - 100), the
     // shooter here is stationary (shooterSpeed == 0, so that factor drops
     // out), and maxRange comes from the archer's own UnitStats -- giving
-    // spreadMrad = 40 * (1 + 200/280) ~= 68.57, truncated to 68, i.e. a true
-    // bound of 0.068 rad. A 10% margin over that (still ~7x tighter than the
-    // old flat 0.5f, which was loose enough to pass even with excess spread)
-    // is enough to absorb the int truncation without actually being blind to
-    // a regression.
+    // spreadMrad = 40 * (1 + 200/280) * settleMul, truncated to an int. A 10%
+    // margin over that (still far tighter than the old flat 0.5f, which was
+    // loose enough to pass even with excess spread) absorbs the truncation
+    // without being blind to a regression.
+    //
+    // settleMul is kUnsettledSpreadMultiplier here, not 1: these archers are
+    // freshly spawned, so steadyTimer is 0 and they have not settled. Deriving
+    // the bound from the same terms spawnArrows uses is what kept this test
+    // meaningful when the settle term was added rather than merely making it
+    // fail; a pasted number would have had to be re-guessed.
     const float dist = 300.0f - 100.0f;
     const float maxRange = kUnitStats[(int)UnitType::Archer].range;
-    const float maxSpread = (float)kArrowBaseSpreadMrad * (1.0f + dist / maxRange) * 0.001f;
+    const float maxSpread = (float)kArrowBaseSpreadMrad * (1.0f + dist / maxRange)
+                          * kUnsettledSpreadMultiplier * 0.001f;
     const float angle = std::atan2(a.velY[0], a.velX[0]);
     CHECK(std::fabs(angle) < maxSpread * 1.1f);
 }
@@ -419,4 +425,74 @@ TEST_CASE("compaction moves the arc fields with everything else") {
     REQUIRE(p.count == 1);
     CHECK(p.liveAfter[0] == doctest::Approx(222.0f));
     CHECK(p.traveled[0]  == doctest::Approx(33.0f));
+}
+
+namespace {
+// Spawns arrows from `n` archers at the given speed and settle time, all
+// aimed at one target straight ahead, and returns the mean perpendicular
+// deviation at the target's range. Averaged over many soldier indices because
+// the spread roll is keyed on index.
+float meanAimErrorPx(float speed, float steady) {
+    constexpr int kArchers = 64;
+    const float range = 200.0f;
+
+    SoldierHot soldiers;
+    // Index 0 is the target, so squads.targetSoldier can name it directly.
+    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, 1);
+
+    SquadHot squads;
+    squads.spawn(Team::A, UnitType::Archer);
+    squads.spawn(Team::B, UnitType::Infantry);
+    squads.memberCount[0] = kArchers;
+    squads.memberCount[1] = 1;
+    squads.targetSquad[0] = 1;
+    squads.targetSoldier[0] = 0u;
+
+    for (int k = 0; k < kArchers; ++k) {
+        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, UnitType::Archer, 0);
+        const size_t idx = soldiers.count - 1;
+        soldiers.intentFire[idx] = 1;
+        soldiers.steadyTimer[idx] = steady;
+    }
+
+    ProjectileHot p;
+    const Rng rng{ 42u, 7u };
+    spawnArrows(soldiers, squads, p, rng);
+    REQUIRE(p.count > 0);
+
+    float total = 0.0f;
+    for (size_t i = 0; i < p.count; ++i) {
+        const float len = std::sqrt(p.velX[i] * p.velX[i] + p.velY[i] * p.velY[i]);
+        total += std::abs(p.velY[i] / len) * range;
+    }
+    return total / (float)p.count;
+}
+} // namespace
+
+TEST_CASE("a settled archer shoots tighter than an unsettled one") {
+    const float settled   = meanAimErrorPx(0.0f, kSteadyTime * 2.0f);
+    const float unsettled = meanAimErrorPx(0.0f, 0.0f);
+    CHECK(settled < unsettled);
+}
+
+TEST_CASE("a moving archer shoots wider than a stationary one") {
+    const float still  = meanAimErrorPx(0.0f, kSteadyTime * 2.0f);
+    const float moving = meanAimErrorPx(kUnitStats[(int)UnitType::Archer].speed,
+                                        kSteadyTime * 2.0f);
+    CHECK(moving > still);
+}
+
+TEST_CASE("steadyTimer accumulates while still and resets on movement") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    for (int t = 0; t < 120; ++t) sim.tick(1.0f / 60.0f);
+
+    bool sawSettled = false, sawUnsettled = false;
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        if (sim.soldierSteadyTimer(i) > 0.0f) sawSettled = true;
+        if (sim.soldierSteadyTimer(i) == 0.0f) sawUnsettled = true;
+    }
+    CHECK(sawSettled);
+    CHECK(sawUnsettled);
 }
