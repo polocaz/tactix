@@ -18,6 +18,15 @@ constexpr uint32_t kUnitTypeCount = 3;
 // kSlotSpacing so the formation does not stretch faster than soldiers close it.
 constexpr float kAdvanceLead = 6.0f;
 
+// How fast a squad may rotate its formation, in radians per second. Facing
+// rotates every slot, so an unbounded turn teleports the whole formation.
+// It is also the guard against the melee spin: two squads whose centroids
+// nearly coincide produce a near-zero facing vector that flips sign on tiny
+// numeric changes, and a rate limit turns that flip into a slow sweep no
+// matter what the vector does. About 143 degrees per second: fast enough to
+// answer a flank, slow enough to read as a maneuver.
+constexpr float kFacingSlewRate = 2.5f;
+
 struct Vec2 { float x, y; };
 
 // Radius of a soldier's own neighbour query. Archer range deliberately

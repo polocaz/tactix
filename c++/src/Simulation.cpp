@@ -488,7 +488,7 @@ void Simulation::tick(float dt) {
 
     // Phase 3: parallel over squads. Safe to read every squad's aggregate
     // only because the barrier above made those values read-only.
-    phaseSquadDecide(rng);
+    phaseSquadDecide(dt, rng);
     jobSystem.waitAll();
 
     // Phase 4: parallel over soldiers. Writes only its own soldier.
@@ -543,16 +543,16 @@ void Simulation::phaseSquadAggregate() {
     }
 }
 
-void Simulation::phaseSquadDecide(const Rng&) {
+void Simulation::phaseSquadDecide(float dt, const Rng&) {
     // Plan 3 replaces the body of selectTargetSquad with a weighted scorer over
     // seven orders, plus hysteresis and a decide stagger. The dispatch shape
     // here does not change.
     const size_t chunkSize = 32;
     for (size_t start = 0; start < squads.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, squads.count);
-        jobSystem.submit([this, start, end]() {
+        jobSystem.submit([this, start, end, dt]() {
             for (size_t s = start; s < end; ++s) {
-                selectTargetSquad(squads, s, terrain);
+                selectTargetSquad(squads, s, terrain, dt);
                 workCounters.add(workCounters.squadDecisions, 1);
             }
         });

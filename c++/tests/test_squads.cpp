@@ -2,6 +2,7 @@
 #include "Squads.hpp"
 #include "Simulation.hpp"
 #include "Terrain.hpp"
+#include "DetMath.hpp"
 #include <cmath>
 #include <vector>
 
@@ -384,4 +385,46 @@ TEST_CASE("tactical objective is deterministic and order-independent") {
     CHECK(a.y == b.y);
     CHECK(ma.x == mb.x);
     CHECK(ma.y == mb.y);
+}
+
+TEST_CASE("slewFacing snaps when the desired facing is within one step") {
+    const Vec2 cur{ 1.0f, 0.0f };
+    const Vec2 want{ 0.0f, 1.0f };          // 90 degrees away
+    const Vec2 got = slewFacing(cur, want, 2.0f);  // 2 rad > pi/2, so snap
+    CHECK(got.x == doctest::Approx(want.x).epsilon(1e-5));
+    CHECK(got.y == doctest::Approx(want.y).epsilon(1e-5));
+}
+
+TEST_CASE("slewFacing turns by exactly the step when the target is farther") {
+    const Vec2 cur{ 1.0f, 0.0f };
+    const Vec2 want{ 0.0f, 1.0f };          // 90 degrees, counter-clockwise
+    const float step = 0.1f;
+    const Vec2 got = slewFacing(cur, want, step);
+
+    // Result must still be unit length, and exactly `step` radians around.
+    CHECK(std::sqrt(got.x * got.x + got.y * got.y) == doctest::Approx(1.0f).epsilon(1e-5));
+    const float dot = cur.x * got.x + cur.y * got.y;   // = cos(step)
+    CHECK(dot == doctest::Approx(detmath::sin(step + detmath::HALF_PI)).epsilon(1e-5));
+    CHECK(got.y > 0.0f);   // turned toward `want`, not away from it
+}
+
+TEST_CASE("slewFacing turns the short way round in both directions") {
+    const Vec2 cur{ 1.0f, 0.0f };
+    const Vec2 ccw = slewFacing(cur, Vec2{ 0.0f,  1.0f }, 0.1f);
+    const Vec2 cw  = slewFacing(cur, Vec2{ 0.0f, -1.0f }, 0.1f);
+    CHECK(ccw.y > 0.0f);
+    CHECK(cw.y  < 0.0f);
+}
+
+TEST_CASE("slewFacing never produces NaN from a degenerate input") {
+    // A near-zero desired vector is exactly the case that makes the old
+    // snap-to-target facing flip sign every tick, so it must be safe here.
+    const Vec2 cur{ 1.0f, 0.0f };
+    const Vec2 got = slewFacing(cur, Vec2{ 0.0f, 0.0f }, 0.1f);
+    CHECK(got.x == doctest::Approx(1.0f).epsilon(1e-5));
+    CHECK(got.y == doctest::Approx(0.0f).epsilon(1e-5));
+
+    const Vec2 fromZero = slewFacing(Vec2{ 0.0f, 0.0f }, Vec2{ 0.0f, 1.0f }, 0.1f);
+    CHECK(std::sqrt(fromZero.x * fromZero.x + fromZero.y * fromZero.y)
+          == doctest::Approx(1.0f).epsilon(1e-5));
 }

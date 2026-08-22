@@ -85,7 +85,17 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
 //
 // Plan 3 replaces this with the weighted scorer. The FIELD it writes stays the
 // same, so only the choice changes, not the plumbing.
-void selectTargetSquad(SquadHot& squads, size_t squadIndex, const TerrainField& terrain);
+void selectTargetSquad(SquadHot& squads, size_t squadIndex, const TerrainField& terrain,
+                       float dt);
+
+// Rotates `current` toward `desired` by at most `maxRadians`, returning a unit
+// vector. Falls back to `current` (normalized) when `desired` is degenerate,
+// and to (1,0) when both are, so this never produces NaN.
+//
+// Deliberately avoids atan2: there is no deterministic atan2 in DetMath, and
+// none is needed. The dot product answers "are we within one step" and the
+// cross product answers "which way", which is the whole decision.
+Vec2 slewFacing(Vec2 current, Vec2 desired, float maxRadians);
 
 // Chooses a terrain-aware tactical objective for squad `s` (design §6/§7) and
 // writes it to outObjective/outMove. Reads only squad `s` and its target's

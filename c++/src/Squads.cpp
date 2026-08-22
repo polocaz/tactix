@@ -1,6 +1,7 @@
 #include "Squads.hpp"
 #include "Simulation.hpp"
 #include "Formation.hpp"
+#include "DetMath.hpp"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -256,7 +257,38 @@ void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads
     outMove = normalizeSafe(mv, toT);
 }
 
-void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain) {
+Vec2 slewFacing(Vec2 current, Vec2 desired, float maxRadians) {
+    const Vec2 cur = normalizeSafe(current, Vec2{ 1.0f, 0.0f });
+    // A degenerate desired direction means "no opinion", so hold current
+    // facing rather than inventing one. This is the near-coincident-centroid
+    // case, and holding is exactly the right answer for it.
+    const float wantLen = std::sqrt(desired.x * desired.x + desired.y * desired.y);
+    if (wantLen < 1e-6f) return cur;
+    const Vec2 want{ desired.x / wantLen, desired.y / wantLen };
+
+    const float dot   = cur.x * want.x + cur.y * want.y;
+    const float cross = cur.x * want.y - cur.y * want.x;
+
+    // detmath, not libm: facing rotates every formation slot and therefore
+    // reaches the state digest. cos(t) is sin(t + pi/2).
+    const float c  = detmath::sin(maxRadians + detmath::HALF_PI);
+    const float sn = detmath::sin(maxRadians);
+
+    // dot >= cos(step) means the angle between them is at most `step`, so we
+    // can arrive this tick. Snapping here rather than always rotating is what
+    // stops a settled squad jittering around its target facing forever.
+    if (dot >= c) return want;
+
+    // Rotate by `step` in the direction of the cross product's sign. At
+    // exactly 180 degrees the cross product is zero and this picks
+    // counter-clockwise, arbitrarily but deterministically, which is all that
+    // matters: both directions are equally short.
+    const float sgn = (cross >= 0.0f) ? 1.0f : -1.0f;
+    const float ss = sn * sgn;
+    return Vec2{ cur.x * c - cur.y * ss, cur.x * ss + cur.y * c };
+}
+
+void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, float dt) {
     if (squads.memberCount[s] == 0) return;
 
     float bestDistSq = 1e30f;
@@ -289,13 +321,16 @@ void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain) 
         // barrier, so every squad's centroid -- including the target's -- is
         // finalized and read-only for the rest of the tick, and this writes
         // only squad s's own facing.
+        // Facing is SLEWED rather than assigned. See kFacingSlewRate for why
+        // the rate limit is a correctness guard and not just polish: a
+        // near-zero centroid-to-centroid vector flips sign on tiny numeric
+        // changes, and snapping to it snaps every formation slot with it.
         const float dx = squads.centroidX[best] - squads.centroidX[s];
         const float dy = squads.centroidY[best] - squads.centroidY[s];
-        const float len = std::sqrt(dx * dx + dy * dy);
-        if (len > 1e-6f) {
-            squads.facingX[s] = dx / len;
-            squads.facingY[s] = dy / len;
-        }
+        const Vec2 f = slewFacing(Vec2{ squads.facingX[s], squads.facingY[s] },
+                                  Vec2{ dx, dy }, kFacingSlewRate * dt);
+        squads.facingX[s] = f.x;
+        squads.facingY[s] = f.y;
 
         // Terrain-aware tactical objective + movement direction (design §7).
         // facing still points at the enemy (above); objectiveX/Y says where

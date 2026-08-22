@@ -1,12 +1,10 @@
 # Deterministic work counters and state digest: 2000 agents, 200 ticks, seed 42, 1 thread.
-# Machine-independent by construction. Regenerated 2026-08-21 for the terrain-aware
-# tactics feature (design §5.1 and §7): (1) the safe-deployment fix obstacle-clears
-# each spawn point AFTER jitter, moving some soldiers' initial positions; (2) squads
-# now choose a terrain-aware tactical objective and movement direction (objectiveX/Y,
-# moveX/Y), which changes how formations lead and therefore the whole battle's state.
-# Both are intentional behavioural changes, so stateDigest moves and position-dependent
-# counters (candidatesExamined/cellsVisited/projectileHitTests/jobsDispatched) move with
-# it. Regenerate with:
+# Machine-independent by construction. Regenerated 2026-08-22: squad facing is now
+# rate-limited (kFacingSlewRate) instead of snapping to the enemy direction each
+# tick. Facing rotates every formation slot, so this changes where every soldier is
+# told to stand and therefore the whole battle. Deliberate behavioural change, not a
+# bug. stateDigest moves, and the position-dependent counters
+# (candidatesExamined/cellsVisited) move with it. Regenerate with:
 #   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
@@ -56,10 +54,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=217137152
-cellsVisited=6979908
+candidatesExamined=217011752
+cellsVisited=6979760
 gridInsertions=400000
 jobsDispatched=4400
 squadDecisions=16000
 projectileHitTests=0
-stateDigest=6379693139357d5c
+stateDigest=2ba5173a72595e74

@@ -1,11 +1,17 @@
 # Deterministic work counters and state digest: 2000 agents, 700 ticks, seed 42, 1 thread.
-# Machine-independent by construction. Regenerated 2026-08-21 for the terrain-aware
-# tactics feature (design §5.1 and §7): (1) the safe-deployment fix obstacle-clears
-# each spawn point AFTER jitter, moving some soldiers' initial positions; (2) squads
-# now choose a terrain-aware tactical objective and movement direction (objectiveX/Y,
-# moveX/Y), changing how formations lead and thus the whole battle's state. Both are
-# intentional behavioural changes, so stateDigest (and position-dependent counters)
-# move. Regenerate with:
+# Machine-independent by construction. Regenerated 2026-08-22: squad facing is now
+# rate-limited (kFacingSlewRate) instead of snapping to the enemy direction each
+# tick. Facing rotates every formation slot, so this changes where every soldier is
+# told to stand and therefore the whole battle. Deliberate behavioural change.
+#
+# projectileHitTests moves 150 -> 1500 here, a ten-fold jump worth explaining
+# rather than pasting silently. Archer engagement is a step function of whether a
+# target sits inside the 280px range, so a small change in where formations end up
+# flips whole squads from "no target in range" to "firing every cooldown". The
+# slewed facing delays each squad's turn toward its objective, which changes where
+# the archer line settles. More arrows in flight, not more work per arrow.
+#
+# Regenerate with:
 #   tactix_bench --agents 2000 --ticks 700 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
@@ -56,10 +62,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=611001256
-cellsVisited=24531397
-gridInsertions=1399925
-jobsDispatched=15404
+candidatesExamined=617897347
+cellsVisited=24527414
+gridInsertions=1399879
+jobsDispatched=15431
 squadDecisions=56000
-projectileHitTests=150
-stateDigest=63b7980f6949c7e3
+projectileHitTests=1500
+stateDigest=77f0ca74664e3eb1
