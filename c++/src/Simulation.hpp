@@ -12,6 +12,7 @@
 #include "Units.hpp"
 #include "Squads.hpp"
 #include "Projectiles.hpp"
+#include "Terrain.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct SoldierHot {
@@ -117,6 +118,18 @@ public:
     // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
 
+    // Nearest point to p that a soldier can actually stand on: clear of
+    // every building and tree by kObstacleStandoff. See TerrainField for the
+    // definition and why formation slots are routed through it. Public here
+    // as a thin delegating wrapper so existing callers and tests are
+    // unchanged (design §4.1: Simulation owns generation, terrain owns
+    // geometry).
+    Vec2 clearOfObstacles(Vec2 p) const { return terrain.clearOfObstacles(p); }
+
+    // True if p is inside any building or tree. Exposed so a test can state
+    // the property clearOfObstacles establishes.
+    bool insideAnyObstacle(Vec2 p) const { return terrain.insideAnyObstacle(p); }
+
     // Distance from one soldier to its own formation slot (Task 8).
     float  slotError(size_t i) const;
 
@@ -188,15 +201,10 @@ private:
     bool debugGrid = false;
     bool paused = true;  // Start paused
 
-    // Static obstacles for environment
-    struct Building {
-        float x, y, width, height;
-    };
-    struct Tree {
-        float x, y, radius;
-    };
-    std::vector<Building> buildings;
-    std::vector<Tree> trees;
+    // Static obstacles for environment. Geometry lives on TerrainField; this
+    // is the Simulation-owned instance (design §4.1). generateObstacles
+    // populates it; per-soldier collision and squad terrain scoring read it.
+    TerrainField terrain;
 
     void generateObstacles();  // Procedural obstacle generation
 

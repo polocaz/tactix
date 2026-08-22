@@ -1,7 +1,49 @@
 #include "Squads.hpp"
 #include "Simulation.hpp"
+#include "Formation.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
+
+namespace {
+// Scoring weights for chooseTacticalObjective (design §7.3). All are tuning
+// knobs; the EXISTENCE of each term is not. See the design for what each
+// term loads and unloads.
+constexpr float kFlankDistance       = 70.0f;   // side offset of flank anchors
+constexpr float kBlockedLanePenalty  = 1.0e6f;  // dominates any anchor whose legs cross terrain
+constexpr float kDistanceWeight      = 1.0f;    // prefer closer objectives
+constexpr float kClearanceWeight     = 6.0f;    // open ground is good
+constexpr float kClearanceCap        = 40.0f;   // saturation point of clearanceBonus
+constexpr float kFormationRoomWeight = 6.0f;    // room for the formation footprint
+constexpr float kTargetPressureWeight= 3.0f;    // keep moving toward the enemy
+constexpr float kHysteresisWeight    = 25.0f;   // damp anchor flip-flop (design §12)
+constexpr float kArcherStandoffWeight= 20.0f;   // archers want to shoot, not march
+constexpr float kCavalryTightPenalty = 40.0f;   // cavalry hates tight terrain
+
+float squadHalfExtent(const SquadHot& squads, size_t s) {
+    const FormationShape shape = shapeForUnit(squads.unitType[s]);
+    const Vec2 ext = formationExtent(shape, squads.memberCount[s]);
+    return 0.5f * std::max(ext.x, ext.y);
+}
+
+Vec2 normalizeSafe(Vec2 v, Vec2 fallback) {
+    const float len = std::sqrt(v.x * v.x + v.y * v.y);
+    if (len < 1e-6f) return fallback;
+    return { v.x / len, v.y / len };
+}
+
+// Closest point on segment a->b to point p (used for tree-anchor placement).
+Vec2 closestOnSegment(Vec2 a, Vec2 b, Vec2 p) {
+    const float dx = b.x - a.x, dy = b.y - a.y;
+    const float lenSq = dx * dx + dy * dy;
+    float t = 0.0f;
+    if (lenSq > 1e-12f) {
+        t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+        if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+    }
+    return { a.x + dx * t, a.y + dy * t };
+}
+} // namespace
 
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
                          std::vector<uint32_t>& members,
@@ -91,7 +133,130 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
     normalizeFacing(squads, s);
 }
 
-void selectTargetSquad(SquadHot& squads, size_t s) {
+void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads,
+                             size_t s, Vec2& outObjective, Vec2& outMove) {
+    const Vec2 C{ squads.centroidX[s], squads.centroidY[s] };
+    const Vec2 F{ squads.facingX[s], squads.facingY[s] };
+    const uint16_t tgt = squads.targetSquad[s];
+
+    auto setHold = [&]() { outObjective = C; outMove = F; };
+
+    // No live enemy squad: hold in place, keep current facing.
+    if (tgt >= squads.count || squads.memberCount[tgt] == 0) { setHold(); return; }
+
+    const Vec2 T{ squads.centroidX[tgt], squads.centroidY[tgt] };
+    const Vec2 toT = normalizeSafe({ T.x - C.x, T.y - C.y }, F);
+
+    const float halfExtent = squadHalfExtent(squads, s);
+    const float lead = kAdvanceLead;
+    const float unitRange = kUnitStats[(int)squads.unitType[s]].range; // 0 for melee
+    const bool isArcher = (unitRange > 0.0f);
+    const bool isCavalry = (squads.unitType[s] == UnitType::Cavalry);
+
+    std::vector<Vec2> cands;
+    cands.reserve(48);
+
+    // Candidate 0: direct advance. If the lane C->T is clear this should win
+    // (design §7.4: terrain awareness must not make every squad scenic-route).
+    cands.push_back({ C.x + toT.x * lead, C.y + toT.y * lead });
+
+    // Candidates 1,2: perpendicular flank anchors relative to the own->target lane.
+    const Vec2 perpL{ -toT.y, toT.x };
+    const Vec2 perpR{  toT.y, -toT.x };
+    cands.push_back({ C.x + perpL.x * kFlankDistance, C.y + perpL.y * kFlankDistance });
+    cands.push_back({ C.x + perpR.x * kFlankDistance, C.y + perpR.y * kFlankDistance });
+
+    // Building corner anchors: only buildings the direct lane actually grazes
+    // (expanded by standoff + our formation footprint) contribute, bounding the
+    // candidate count (design §6.2). Four corners each, expanded the same way.
+    const float bMargin = kObstacleStandoff + halfExtent;
+    int bAdded = 0;
+    for (const auto& b : terrain.buildings) {
+        if (bAdded >= 12) break;
+        if (!terrain.laneNearBuilding(C, T, b, bMargin)) continue;
+        const float r = kObstacleStandoff + halfExtent;
+        const Vec2 corners[4] = {
+            { b.x - r,            b.y - r },
+            { b.x + b.width + r,  b.y - r },
+            { b.x - r,            b.y + b.height + r },
+            { b.x + b.width + r,  b.y + b.height + r },
+        };
+        for (const auto& c : corners) { cands.push_back(terrain.clearOfObstacles(c)); bAdded++; }
+    }
+
+    // Tree anchors: near/far sides of trees the lane grazes (design §6.3).
+    int tAdded = 0;
+    for (const auto& tr : terrain.trees) {
+        if (tAdded >= 12) break;
+        if (!terrain.laneNearTree(C, T, tr, kObstacleStandoff + halfExtent)) continue;
+        const Vec2 onLane = closestOnSegment(C, T, { tr.x, tr.y });
+        const Vec2 toTree = normalizeSafe({ tr.x - onLane.x, tr.y - onLane.y }, perpL);
+        const float off = tr.radius + kObstacleStandoff + halfExtent + 6.0f;
+        cands.push_back(terrain.clearOfObstacles({ tr.x + toTree.x * off, tr.y + toTree.y * off }));
+        cands.push_back(terrain.clearOfObstacles({ tr.x - toTree.x * off, tr.y - toTree.y * off }));
+        tAdded += 2;
+    }
+
+    // Archer standoff points: beside the lane, within weapon range of the
+    // target, so the squad can shoot instead of marching into a wall (§6.4).
+    if (isArcher) {
+        const float stand = unitRange * 0.85f;
+        const Vec2 stand1 = { T.x - toT.x * stand + perpL.x * 0.25f * stand,
+                              T.y - toT.y * stand + perpL.y * 0.25f * stand };
+        const Vec2 stand2 = { T.x - toT.x * stand + perpR.x * 0.25f * stand,
+                              T.y - toT.y * stand + perpR.y * 0.25f * stand };
+        cands.push_back(terrain.clearOfObstacles(stand1));
+        cands.push_back(terrain.clearOfObstacles(stand2));
+    }
+
+    // Final fallback: hold at the current centroid.
+    cands.push_back(C);
+
+    // Score every candidate; ties resolve to the earliest (stable candidate
+    // order) via strict >, so the result is deterministic and platform-stable.
+    const Vec2 curObj{ squads.objectiveX[s], squads.objectiveY[s] };
+    float best = -1e30f;
+    int bestIdx = 0;
+    for (size_t i = 0; i < cands.size(); ++i) {
+        const Vec2 p = cands[i];
+        const Vec2 rel = { p.x - C.x, p.y - C.y };
+        const float dist = std::sqrt(rel.x * rel.x + rel.y * rel.y);
+        const float clr = terrain.clearanceAt(p);
+
+        float score = 0.0f;
+        score -= kDistanceWeight * dist;                                  // distanceCost
+        if (terrain.segmentBlocked(C, p)) score -= kBlockedLanePenalty;    // own->anchor blocked
+        if (terrain.segmentBlocked(p, T)) score -= kBlockedLanePenalty;    // anchor->target blocked
+        score += kClearanceWeight * std::min(clr, kClearanceCap);         // clearanceBonus
+        const float room = (clr >= halfExtent) ? halfExtent : clr;        // formationRoomBonus
+        score += kFormationRoomWeight * room;
+        const Vec2 dir = normalizeSafe(rel, toT);
+        score += kTargetPressureWeight * (dir.x * toT.x + dir.y * toT.y); // targetPressureScore
+        const float hdist = std::sqrt((p.x - curObj.x) * (p.x - curObj.x) +
+                                      (p.y - curObj.y) * (p.y - curObj.y));
+        score -= kHysteresisWeight * hdist;                              // currentObjectiveHysteresis
+
+        if (isArcher) {
+            const float dT = std::sqrt((p.x - T.x) * (p.x - T.x) + (p.y - T.y) * (p.y - T.y));
+            if (dT <= unitRange) score += kArcherStandoffWeight;          // can shoot the target
+            else                 score -= 0.5f * kArcherStandoffWeight;
+            if (terrain.segmentBlocked(p, T)) score -= kArcherStandoffWeight; // blocked line to target
+            const float side = std::abs(rel.x * toT.y - rel.y * toT.x);  // unitPreferenceBonus: side
+            score += 0.05f * side;
+        } else if (isCavalry) {
+            if (clr < halfExtent + 20.0f) score -= kCavalryTightPenalty;  // tight terrain
+        }
+        // Infantry: no extra preference (design §6.4).
+
+        if (score > best) { best = score; bestIdx = (int)i; }
+    }
+
+    outObjective = terrain.clearOfObstacles(cands[bestIdx]);
+    const Vec2 mv = { outObjective.x - C.x, outObjective.y - C.y };
+    outMove = normalizeSafe(mv, toT);
+}
+
+void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain) {
     if (squads.memberCount[s] == 0) return;
 
     float bestDistSq = 1e30f;
@@ -131,10 +296,25 @@ void selectTargetSquad(SquadHot& squads, size_t s) {
             squads.facingX[s] = dx / len;
             squads.facingY[s] = dy / len;
         }
+
+        // Terrain-aware tactical objective + movement direction (design §7).
+        // facing still points at the enemy (above); objectiveX/Y says where
+        // terrain says we should stand, and moveX/Y is the lead direction so
+        // the formation can side-step into clear ground while facing the foe.
+        Vec2 obj{}, mv{};
+        chooseTacticalObjective(terrain, squads, s, obj, mv);
+        squads.objectiveX[s] = obj.x;
+        squads.objectiveY[s] = obj.y;
+        squads.moveX[s] = mv.x;
+        squads.moveY[s] = mv.y;
     } else {
         // Every enemy squad is wiped out. Hold rather than advancing on a
         // stale target; keep the last facing.
         squads.order[s] = (uint8_t)SquadOrder::Hold;
+        squads.objectiveX[s] = squads.centroidX[s];
+        squads.objectiveY[s] = squads.centroidY[s];
+        squads.moveX[s] = squads.facingX[s];
+        squads.moveY[s] = squads.facingY[s];
     }
 }
 

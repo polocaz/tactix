@@ -138,6 +138,7 @@ add_executable(tactix_tests
     tests/test_formation.cpp
     tests/test_squads.cpp
     tests/test_deployment.cpp
+    tests/test_terrain.cpp
     tests/test_steering.cpp
     tests/test_advance.cpp
     tests/test_projectiles.cpp

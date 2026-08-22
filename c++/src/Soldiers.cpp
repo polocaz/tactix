@@ -24,25 +24,35 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
     const float rightX =  fy;
     const float rightY = -fx;
 
-    // While advancing, aim the whole formation slightly ahead of where it
-    // stands. Soldiers chase that, the centroid follows them, and the squad
-    // marches. Holding squads get no lead, so the centroid stays a fixed point
-    // exactly as formationMeanOffset arranged.
+    // While advancing, lead the whole formation slightly ahead of where it
+    // stands, along the squad's MOVEMENT direction (moveX/Y), not its facing.
+    // Facing still orients the formation (rightX/rightY above) and points at
+    // the enemy; the lead is a separate world-space offset so a squad can
+    // side-step into clear terrain while still facing the foe (design §7.2).
+    // Holding squads get no lead, so the centroid stays a fixed point exactly
+    // as formationMeanOffset arranged.
     const float lead = (squads.order[s] == (uint8_t)SquadOrder::Advance)
                      ? kAdvanceLead : 0.0f;
 
+    const float leadX = (lead != 0.0f) ? squads.moveX[s] : 0.0f;
+    const float leadY = (lead != 0.0f) ? squads.moveY[s] : 0.0f;
+
     return Vec2{
-        squads.centroidX[s] + local.x * rightX + (local.y + lead) * fx,
-        squads.centroidY[s] + local.x * rightY + (local.y + lead) * fy
+        squads.centroidX[s] + local.x * rightX + local.y * fx + lead * leadX,
+        squads.centroidY[s] + local.x * rightY + local.y * fy + lead * leadY
     };
 }
 
 void steerToSlot(SoldierHot& soldiers, const SquadHot& squads,
                  size_t i, float dt) {
     const uint16_t s = soldiers.squadId[i];
-    const Vec2 target = slotWorldPosition(squads, s, soldiers.slotIndex[i],
-                                          squads.memberCount[s]);
+    steerToward(soldiers, i,
+                slotWorldPosition(squads, s, soldiers.slotIndex[i],
+                                  squads.memberCount[s]),
+                dt);
+}
 
+void steerToward(SoldierHot& soldiers, size_t i, Vec2 target, float dt) {
     const float dx = target.x - soldiers.posX[i];
     const float dy = target.y - soldiers.posY[i];
     const float distSq = dx * dx + dy * dy;

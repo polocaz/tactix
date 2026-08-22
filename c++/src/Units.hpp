@@ -63,3 +63,9 @@ constexpr float   kMeleeCooldown = 0.8f;   // seconds between swings
 // is integer-only; passing float bounds to it does not compile.
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
 constexpr float kArcherCooldown      = 1.5f;  // seconds between shots
+
+// An arrow whose flight path crosses a soldier still has to get through
+// shield, mail and luck. Geometry decides whether a shot comes CLOSE; this
+// decides whether it lands. Tuning knob: lower it for a grindier, melee-led
+// battle, raise it to make archery decisive.
+constexpr int kArrowHitChancePct = 45;

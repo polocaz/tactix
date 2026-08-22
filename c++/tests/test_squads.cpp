@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include "Squads.hpp"
 #include "Simulation.hpp"
+#include "Terrain.hpp"
 #include <cmath>
 #include <vector>
 
@@ -272,4 +273,115 @@ TEST_CASE("selectTargetSoldier can acquire a target beyond an individual soldier
     selectTargetSoldier(s, q, members, 0);
 
     CHECK(q.targetSoldier[0] == 1);
+}
+
+namespace {
+// Two-squad world: squad 0 (us, of the given type) at c0 facing toward the
+// enemy squad 1 at c1. objectiveX/Y/moveX/Y are seeded to the centroid so the
+// hysteresis term is neutral (as if the squad had been holding). This isolates
+// chooseTacticalObjective's terrain reasoning from any prior objective.
+SquadHot makeDuel(UnitType us, Vec2 c0, Vec2 c1) {
+    SquadHot q;
+    q.spawn(Team::A, us);
+    q.spawn(Team::B, UnitType::Infantry);
+    q.centroidX[0] = c0.x; q.centroidY[0] = c0.y;
+    q.centroidX[1] = c1.x; q.centroidY[1] = c1.y;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;  // overwritten below from the lane
+    const float dx = c1.x - c0.x, dy = c1.y - c0.y;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    q.facingX[0] = dx / len; q.facingY[0] = dy / len;
+    q.targetSquad[0] = 1;
+    q.memberCount[0] = 25; q.memberCount[1] = 25;
+    q.objectiveX[0] = c0.x; q.objectiveY[0] = c0.y;
+    q.moveX[0] = q.facingX[0]; q.moveY[0] = q.facingY[0];
+    return q;
+}
+} // namespace
+
+TEST_CASE("direct lane clear: squad keeps the direct objective") {
+    // Design §7.4: terrain awareness must not make every squad take a scenic
+    // route. With no obstacle on the lane, the chosen objective stays on the
+    // straight lane and the move direction points straight at the enemy (the
+    // small advance lead is applied through moveX/Y to the formation slots,
+    // not by flinging the centroid far forward -- see Squads.hpp).
+    TerrainField terrain;  // empty
+    SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
+
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(terrain, q, 0, obj, mv);
+
+    CHECK(std::abs(obj.y - 360.0f) < 1.0f);            // not diverted off-lane
+    CHECK(mv.x == doctest::Approx(1.0f).epsilon(1e-3)); // moves straight at enemy
+    CHECK(std::abs(mv.y) < 1e-3);
+}
+
+TEST_CASE("direct lane blocked by a building: squad chooses a clear anchor around it") {
+    // Design §14.3: a squad whose straight route is blocked must choose a clear
+    // tactical objective around the obstacle. The chosen objective must be
+    // reachable from the squad's centroid WITHOUT crossing terrain (own->anchor
+    // clear) and itself have a clear lane to the target (anchor->target clear) -
+    // i.e. it is not merely "not the direct point" but an actually-useful flank.
+    TerrainField terrain;
+    terrain.buildings.push_back({500.0f, 300.0f, 80.0f, 120.0f});  // spans x500..580, y300..420
+    SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
+
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(terrain, q, 0, obj, mv);
+
+    // Not marching into the wall: the direct point is on the blocked lane.
+    CHECK_FALSE(terrain.segmentBlocked({100.0f, 360.0f}, obj));
+    CHECK_FALSE(terrain.segmentBlocked(obj, {1000.0f, 360.0f}));
+    // And it moved off the straight lane.
+    CHECK(std::abs(obj.y - 360.0f) > 1.0f);
+}
+
+TEST_CASE("archer with a blocked line repositions instead of advancing into the wall") {
+    // Design §14.4 / §6.4: an archer in range of its target but with terrain
+    // between must pick a standoff point it can shoot from, not the headlong
+    // advance point. Assert the chosen objective stays within weapon range of
+    // the target and is reachable without crossing terrain.
+    TerrainField terrain;
+    terrain.buildings.push_back({200.0f, 300.0f, 40.0f, 120.0f});  // blocks the lane
+    SquadHot q = makeDuel(UnitType::Archer, {100.0f, 360.0f}, {300.0f, 360.0f});
+
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(terrain, q, 0, obj, mv);
+
+    const float dToTarget = std::sqrt((obj.x - 300.0f) * (obj.x - 300.0f) +
+                                       (obj.y - 360.0f) * (obj.y - 360.0f));
+    CHECK(dToTarget <= kUnitStats[(int)UnitType::Archer].range + 1.0f);
+    CHECK_FALSE(terrain.segmentBlocked({100.0f, 360.0f}, obj));
+}
+
+TEST_CASE("cavalry avoids tight terrain and prefers a wider flank") {
+    // Design §14.5 / §6.4: cavalry is penalised for tight terrain, so a building
+    // hugging the direct lane must push it to a flank anchor rather than hugging
+    // the wall. The move direction should carry sideways, not straight ahead.
+    TerrainField terrain;
+    terrain.buildings.push_back({450.0f, 330.0f, 60.0f, 60.0f});  // y330..390 grazes lane y=360
+    SquadHot q = makeDuel(UnitType::Cavalry, {100.0f, 360.0f}, {1000.0f, 360.0f});
+
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(terrain, q, 0, obj, mv);
+
+    CHECK(std::abs(obj.y - 360.0f) > 1.0f);   // off the tight lane
+    CHECK(std::abs(mv.y) > 1e-3);             // actual sideways movement
+}
+
+TEST_CASE("tactical objective is deterministic and order-independent") {
+    // Design §4.2 / §7.3: the scorer must not depend on iteration order. Calling
+    // it twice on the same inputs yields the identical objective.
+    TerrainField terrain;
+    terrain.buildings.push_back({500.0f, 300.0f, 80.0f, 120.0f});
+    terrain.trees.push_back({700.0f, 360.0f, 22.0f});
+    SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
+
+    Vec2 a{}, ma{}, b{}, mb{};
+    chooseTacticalObjective(terrain, q, 0, a, ma);
+    chooseTacticalObjective(terrain, q, 0, b, mb);
+
+    CHECK(a.x == b.x);
+    CHECK(a.y == b.y);
+    CHECK(ma.x == mb.x);
+    CHECK(ma.y == mb.y);
 }

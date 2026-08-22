@@ -21,6 +21,17 @@ constexpr float kSlotSpacing = 12.0f;
 // other way around.
 constexpr float kSeparationRadius = 10.0f;
 
+// How far outside an obstacle a soldier is asked to stand. Two things MUST
+// use the same number, for exactly the reason kSeparationRadius documents
+// above: Simulation::clearOfObstacles slides a formation slot this far clear
+// of a wall, and the obstacle-avoidance push in phaseSoldierSteerChunk fades
+// to zero at this distance. If the avoidance reach were larger than the
+// clearance, a soldier standing precisely on its cleared slot would still
+// feel a push, get shoved off, walk back, and grind against the wall for the
+// whole battle -- which is what a 50px avoidance reach against a 4px
+// clearance actually did. Keep them equal.
+constexpr float kObstacleStandoff = kSeparationRadius + kSoldierRadius;
+
 namespace detail {
 
 // Smallest w such that w * ceil(n/w) >= n and w/depth is near the target

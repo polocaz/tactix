@@ -66,7 +66,14 @@ void drawSimulation(const Simulation& sim, float alpha) {
             agentColor.b = (uint8_t)(agentColor.b * frac);
         }
 
-        const float size = (sim.soldiers.unitType[i] == UnitType::Cavalry) ? 6.0f : 4.0f;
+        // Cavalry and infantry share the triangle, so the two have to differ
+        // in PROPORTION, not just size: at 6px vs 4px they were the same
+        // blob two pixels apart and a charge was unreadable. Cavalry is a
+        // long narrow dart, infantry a short broad arrowhead. Both stay
+        // under the 12px slot spacing so a packed rank does not overlap.
+        const bool cavalry = sim.soldiers.unitType[i] == UnitType::Cavalry;
+        const float size      = cavalry ? 9.0f : 4.0f;
+        const float halfWidth = size * (cavalry ? 0.28f : 0.6f);
 
         if (sim.soldiers.unitType[i] == UnitType::Archer) {
             DrawRectangleV(Vector2{ renderX - 2.0f, renderY - 2.0f },
@@ -84,11 +91,14 @@ void drawSimulation(const Simulation& sim, float alpha) {
             float perpX = -dy;
             float perpY = dx;
 
-            // Base vertices
-            float baseLeft_X = renderX - perpX * (size * 0.4f);
-            float baseLeft_Y = renderY - perpY * (size * 0.4f);
-            float baseRight_X = renderX + perpX * (size * 0.4f);
-            float baseRight_Y = renderY + perpY * (size * 0.4f);
+            // Base vertices, pulled back behind the centre so the whole
+            // shape reads as a body with a point rather than a fan.
+            float backX = renderX - dx * size * 0.35f;
+            float backY = renderY - dy * size * 0.35f;
+            float baseLeft_X = backX - perpX * halfWidth;
+            float baseLeft_Y = backY - perpY * halfWidth;
+            float baseRight_X = backX + perpX * halfWidth;
+            float baseRight_Y = backY + perpY * halfWidth;
 
             DrawTriangle(
                 Vector2{frontX, frontY},
@@ -114,7 +124,7 @@ void drawSimulation(const Simulation& sim, float alpha) {
     }
 
     // Draw buildings
-    for (const auto& building : sim.buildings) {
+    for (const auto& building : sim.terrain.buildings) {
         DrawRectangle(
             static_cast<int>(building.x),
             static_cast<int>(building.y),
@@ -133,7 +143,7 @@ void drawSimulation(const Simulation& sim, float alpha) {
     }
 
     // Draw trees
-    for (const auto& tree : sim.trees) {
+    for (const auto& tree : sim.terrain.trees) {
         DrawCircle(
             static_cast<int>(tree.x),
             static_cast<int>(tree.y),

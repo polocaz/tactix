@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include "Terrain.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -20,6 +21,17 @@ struct SquadHot {
     std::vector<float>    discipline;     // plan 3
     std::vector<uint32_t> memberStart, memberCount;
 
+    // Terrain-aware tactical objective (design §7.1): the point this squad's
+    // centroid should aim for, chosen from candidate anchors around obstacles.
+    // Separate from targetSquad ("who we care about") and from facingX/Y
+    // ("where we point", usually the enemy centroid). objectiveX/Y is the
+    // WHERE TERRAIN SAYS WE STAND; moveX/Y is its normalized direction, used
+    // for the advance lead so a squad can side-step into clear ground while
+    // still facing the enemy (§7.2). Both written only by this squad in phase
+    // 3, so they preserve the thread-count-invariance rule.
+    std::vector<float>    objectiveX, objectiveY;
+    std::vector<float>    moveX, moveY;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -36,6 +48,10 @@ struct SquadHot {
         discipline.push_back(1.0f);
         memberStart.push_back(0);
         memberCount.push_back(0);
+        objectiveX.push_back(0.0f);
+        objectiveY.push_back(0.0f);
+        moveX.push_back(1.0f);
+        moveY.push_back(0.0f);
         count++;
     }
 };
@@ -69,7 +85,16 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
 //
 // Plan 3 replaces this with the weighted scorer. The FIELD it writes stays the
 // same, so only the choice changes, not the plumbing.
-void selectTargetSquad(SquadHot& squads, size_t squadIndex);
+void selectTargetSquad(SquadHot& squads, size_t squadIndex, const TerrainField& terrain);
+
+// Chooses a terrain-aware tactical objective for squad `s` (design §6/§7) and
+// writes it to outObjective/outMove. Reads only squad `s` and its target's
+// centroids plus `terrain`; writes nothing else, so it is parallel-safe inside
+// phase 3. Deterministic: candidate order is fixed and the scorer breaks ties
+// by candidate index (design §7.3). Direct lane clear -> direct objective; a
+// blocked lane -> a clear anchor around the obstacle (§7.4).
+void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads,
+                             size_t squadIndex, Vec2& outObjective, Vec2& outMove);
 
 // Spec 6.5. Picks the member of targetSquad with the LOWEST slotIndex that is
 // within weapon range of our centroid, or UINT32_MAX if none is.

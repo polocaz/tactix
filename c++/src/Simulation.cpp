@@ -229,12 +229,24 @@ void Simulation::init(size_t soldierCount) {
                 const uint32_t agent = (uint32_t)soldiers.count;
                 const float jx = (float)rng.range(agent, RngUse::DeployJitterX, -2, 2);
                 const float jy = (float)rng.range(agent, RngUse::DeployJitterY, -2, 2);
-                const Vec2 slot = slotWorldPosition(squads, squadId, (uint16_t)k,
-                                                    squads.memberCount[squadId]);
-                const float px = slot.x + jx;
-                const float py = slot.y + jy;
+                // Spawn exactly on the slot steerToSlot will target, using the
+                // same rotation (slotWorldPosition), so tick 1 moves nobody.
+                // Squad centroid/facing above must be set before this call.
+                //
+                // Clear AFTER jitter (design §5.1): the raw slot is already
+                // obstacle-cleared, but a soldier standing at the standoff
+                // boundary can be jittered back inside a wall before spawning.
+                // Clearing the jittered point is the correctness fix; jitter
+                // stays transient deployment noise and is NOT baked into the
+                // persistent slot target (§5.2), so steering still settles to
+                // the true assigned slot. This intentionally moves the state
+                // digest for soldiers whose jitter crossed the standoff.
+                const Vec2 rawSlot = slotWorldPosition(squads, squadId, (uint16_t)k,
+                                                       squads.memberCount[squadId]);
+                const Vec2 jittered{ rawSlot.x + jx, rawSlot.y + jy };
+                const Vec2 clear = clearOfObstacles(jittered);
 
-                soldiers.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
+                soldiers.spawn(clampf(clear.x, 0.0f, w), clampf(clear.y, 0.0f, h),
                                0.0f, 0.0f, team, unit, squadId);
                 soldiers.slotIndex[agent] = (uint16_t)k;
                 // A soldier that never moves keeps the velocity-derived
@@ -289,8 +301,11 @@ float Simulation::teamCentroidX(Team t) const {
 
 float Simulation::slotError(size_t i) const {
     const uint16_t s = soldiers.squadId[i];
-    const Vec2 t = slotWorldPosition(squads, s, soldiers.slotIndex[i],
-                                     squads.memberCount[s]);
+    // Measured against the same obstacle-cleared point steering actually
+    // sends the soldier to, not the raw grid slot: a slot inside a wall is
+    // not an error the soldier can close.
+    const Vec2 t = clearOfObstacles(slotWorldPosition(squads, s, soldiers.slotIndex[i],
+                                                      squads.memberCount[s]));
     const float dx = t.x - soldiers.posX[i];
     const float dy = t.y - soldiers.posY[i];
     return std::sqrt(dx * dx + dy * dy);
@@ -347,6 +362,10 @@ void Simulation::reset(size_t count) {
     squads.discipline.clear();
     squads.memberStart.clear();
     squads.memberCount.clear();
+    squads.objectiveX.clear();
+    squads.objectiveY.clear();
+    squads.moveX.clear();
+    squads.moveY.clear();
     squads.count = 0;
     squadMembers.clear();
     squadMemberCounts.clear();
@@ -359,8 +378,8 @@ void Simulation::reset(size_t count) {
     prevPosX.clear();
     prevPosY.clear();
 
-    buildings.clear();
-    trees.clear();
+    terrain.buildings.clear();
+    terrain.trees.clear();
 
     tickNumber = 0;
 
@@ -371,26 +390,69 @@ void Simulation::generateObstacles() {
     // Runs before any tick; no agent involved, so the obstacle index keys the draw.
     const Rng rng{worldSeed, 0u};
 
+    // Obstacles are placed with rejection sampling so that no two of them come
+    // within kObstacleStandoff of each other. That gap is not decoration: it is
+    // what makes clearOfObstacles' push correct. Sliding a point kObstacleStandoff
+    // clear of one obstacle only helps if it cannot land inside the next one,
+    // and with the old overlap-free-for-all placement it regularly did -- 263
+    // of 18k sampled field positions stayed embedded in a wall no matter how
+    // many push passes ran, because two overlapping buildings bounced the
+    // point back and forth between them. Keeping the obstacles apart removes
+    // the trap instead of teaching the push to escape it.
+    //
+    // A placement that cannot find a free spot in kPlacementTries is dropped
+    // rather than forced, so a crowded field simply gets fewer trees. Each
+    // try folds the attempt number into the draw key, the same way every
+    // other repeated draw in this file varies its input.
+    constexpr uint32_t kPlacementTries = 24;
+    const float gap = kObstacleStandoff;
+
+    auto farEnough = [&](float minX, float minY, float maxX, float maxY) {
+        for (const auto& b : terrain.buildings) {
+            if (minX < b.x + b.width + gap && maxX > b.x - gap &&
+                minY < b.y + b.height + gap && maxY > b.y - gap) {
+                return false;
+            }
+        }
+        for (const auto& t : terrain.trees) {
+            if (minX < t.x + t.radius + gap && maxX > t.x - t.radius - gap &&
+                minY < t.y + t.radius + gap && maxY > t.y - t.radius - gap) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     // City blocks (buildings)
     const int blockCount = 8;
     for (int i = 0; i < blockCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingX, 100, worldWidth - 200);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingY, 100, worldHeight - 200);
-        float w = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingW, 80, 150);
-        float h = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingH, 80, 150);
-        buildings.push_back({x, y, w, h});
+        for (uint32_t attempt = 0; attempt < kPlacementTries; ++attempt) {
+            const uint32_t key = (uint32_t)i * kPlacementTries + attempt;
+            float x = (float)rng.range(key, RngUse::ObstacleBuildingX, 100, worldWidth - 200);
+            float y = (float)rng.range(key, RngUse::ObstacleBuildingY, 100, worldHeight - 200);
+            float w = (float)rng.range(key, RngUse::ObstacleBuildingW, 80, 150);
+            float h = (float)rng.range(key, RngUse::ObstacleBuildingH, 80, 150);
+            if (!farEnough(x, y, x + w, y + h)) continue;
+            terrain.buildings.push_back({x, y, w, h});
+            break;
+        }
     }
 
     // Scattered trees
     const int treeCount = 30;
     for (int i = 0; i < treeCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeX, 50, worldWidth - 50);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeY, 50, worldHeight - 50);
-        float r = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeRadius, 15, 25);
-        trees.push_back({x, y, r});
+        for (uint32_t attempt = 0; attempt < kPlacementTries; ++attempt) {
+            const uint32_t key = (uint32_t)i * kPlacementTries + attempt;
+            float x = (float)rng.range(key, RngUse::ObstacleTreeX, 50, worldWidth - 50);
+            float y = (float)rng.range(key, RngUse::ObstacleTreeY, 50, worldHeight - 50);
+            float r = (float)rng.range(key, RngUse::ObstacleTreeRadius, 15, 25);
+            if (!farEnough(x - r, y - r, x + r, y + r)) continue;
+            terrain.trees.push_back({x, y, r});
+            break;
+        }
     }
 
-    spdlog::info("Generated {} buildings and {} trees", buildings.size(), trees.size());
+    spdlog::info("Generated {} buildings and {} trees", terrain.buildings.size(), terrain.trees.size());
 }
 
 void Simulation::tick(float dt) {
@@ -490,7 +552,7 @@ void Simulation::phaseSquadDecide(const Rng&) {
         const size_t end = std::min(start + chunkSize, squads.count);
         jobSystem.submit([this, start, end]() {
             for (size_t s = start; s < end; ++s) {
-                selectTargetSquad(squads, s);
+                selectTargetSquad(squads, s, terrain);
                 workCounters.add(workCounters.squadDecisions, 1);
             }
         });
@@ -526,7 +588,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     officerDied.assign(squads.count, 0u);
 
     applyMeleeIntents(soldiers);                            // step 1
-    applyProjectileHits(projectiles, soldiers);             // step 2
+    applyProjectileHits(projectiles, soldiers, rng);        // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
@@ -592,7 +654,16 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         // Sets base velocity toward this soldier's formation slot. Must run
         // first: separation and obstacle avoidance below ADD to velocity,
         // so calling this after would erase them instead of blending in.
-        steerToSlot(soldiers, squads, i, dt);
+        // The slot goes through clearOfObstacles rather than being used raw:
+        // a slot inside a building is a target no soldier can ever reach, and
+        // one sent there grinds against the wall for the whole battle.
+        {
+            const uint16_t sq = soldiers.squadId[i];
+            steerToward(soldiers, i,
+                        clearOfObstacles(slotWorldPosition(squads, sq, soldiers.slotIndex[i],
+                                                           squads.memberCount[sq])),
+                        dt);
+        }
 
         float px = soldiers.posX[i];
         float py = soldiers.posY[i];
@@ -621,8 +692,8 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         }
 
         // Obstacle avoidance - buildings (rectangles)
-        for (size_t b = 0; b < buildings.size(); b++) {
-            const auto& building = buildings[b];
+        for (size_t b = 0; b < terrain.buildings.size(); b++) {
+            const auto& building = terrain.buildings[b];
             // Find closest point on rectangle to agent
             float closestX = std::max(building.x, std::min(px, building.x + building.width));
             float closestY = std::max(building.y, std::min(py, building.y + building.height));
@@ -631,48 +702,59 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             float dy = py - closestY;
             float distSq = dx * dx + dy * dy;
 
-            const float obstacleAvoidDist = 50.0f;  // Start avoiding earlier
+            // Sized like separation, not like a keep-out zone. At the old
+            // 50px/x5 the push was ~750px/s against an infantryman who walks
+            // at 45: every building carried a 50px halo no formation could
+            // stand in, and any squad ordered near one was shoved off its
+            // slots. Hard collision in phaseMovementChunk is what stops
+            // soldiers entering a building; this only has to make them
+            // round the corner rather than walk into it.
+            const float obstacleAvoidDist = kObstacleStandoff;
             if (distSq < obstacleAvoidDist * obstacleAvoidDist) {
                 if (distSq < 0.01f) {
                     // Inside obstacle - push out strongly in any direction.
-                    // Buildings are generated without overlap rejection, so one agent
-                    // can be inside two at once and reach this line twice per tick.
-                    // The obstacle index is folded into the key: without it both draws
-                    // share an input, always return the same sign, and can only
-                    // reinforce -- the old code's cancelling case became unreachable.
-                    const uint32_t key = (uint32_t)(i * buildings.size() + b);
+                    // generateObstacles now keeps obstacles kObstacleStandoff
+                    // apart, so an agent can no longer be inside two at once
+                    // and this should fire at most once per agent-tick. The
+                    // obstacle index stays folded into the key anyway: it costs
+                    // nothing, and without it two draws in one tick would share
+                    // an input, always return the same sign, and could only
+                    // reinforce rather than cancel.
+                    const uint32_t key = (uint32_t)(i * terrain.buildings.size() + b);
                     steerX += (rng.range(key, RngUse::SeparationPushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                     steerY += (rng.range(key, RngUse::SeparationPushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (obstacleAvoidDist - dist) / obstacleAvoidDist;
-                    steerX += (dx / dist) * force * 5.0f;  // Much stronger avoidance
-                    steerY += (dy / dist) * force * 5.0f;
+                    steerX += (dx / dist) * force;
+                    steerY += (dy / dist) * force;
                 }
             }
         }
 
         // Obstacle avoidance - trees (circles)
-        for (size_t t = 0; t < trees.size(); t++) {
-            const auto& tree = trees[t];
+        for (size_t t = 0; t < terrain.trees.size(); t++) {
+            const auto& tree = terrain.trees[t];
             float dx = px - tree.x;
             float dy = py - tree.y;
             float distSq = dx * dx + dy * dy;
-            float avoidRadius = tree.radius + 20.0f;  // Extra buffer
+            // Same scaling argument as the building standoff above: a soldier
+            // brushes past a trunk, it does not orbit it at 20px.
+            const float avoidRadius = tree.radius + kObstacleStandoff;
 
             if (distSq < avoidRadius * avoidRadius) {
                 if (distSq < 0.01f) {
                     // Inside obstacle - push out strongly. Same per-obstacle keying as
                     // the building push above; two tree centres within 0.1px of each
                     // other is practically unreachable, but the shape should match.
-                    const uint32_t key = (uint32_t)(i * trees.size() + t);
+                    const uint32_t key = (uint32_t)(i * terrain.trees.size() + t);
                     steerX += (rng.range(key, RngUse::SeparationTreePushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                     steerY += (rng.range(key, RngUse::SeparationTreePushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (avoidRadius - dist) / avoidRadius;
-                    steerX += (dx / dist) * force * 5.0f;
-                    steerY += (dy / dist) * force * 5.0f;
+                    steerX += (dx / dist) * force;
+                    steerY += (dy / dist) * force;
                 }
             }
         }
@@ -733,7 +815,7 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
 
         // Check collision with buildings
         bool blocked = false;
-        for (const auto& building : buildings) {
+        for (const auto& building : terrain.buildings) {
             if (newX > building.x - 5 && newX < building.x + building.width + 5 &&
                 newY > building.y - 5 && newY < building.y + building.height + 5) {
                 // Inside or very close to building - block movement
@@ -762,7 +844,7 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
 
         // Check collision with trees
         if (!blocked) {
-            for (const auto& tree : trees) {
+            for (const auto& tree : terrain.trees) {
                 float dx = newX - tree.x;
                 float dy = newY - tree.y;
                 float distSq = dx * dx + dy * dy;
@@ -883,6 +965,13 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.facingY[s]);
         d.mix(squads.morale[s]);
         d.mix(squads.discipline[s]);
+        // Terrain tactical objective / movement direction (design §7). New squad
+        // fields, so they belong in the digest: a divergence here across worker
+        // counts would otherwise be invisible to the thread-invariance gate.
+        d.mix(squads.objectiveX[s]);
+        d.mix(squads.objectiveY[s]);
+        d.mix(squads.moveX[s]);
+        d.mix(squads.moveY[s]);
     }
 
     // Projectiles are included from the moment the array exists, so the

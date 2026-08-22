@@ -179,19 +179,33 @@ TEST_CASE("no target means no arrow") {
     CHECK(p.count == 0);
 }
 
-TEST_CASE("an arrow hit costs the target health and spends the arrow") {
-    SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
-    const uint8_t before = s.health[0];
+TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either way") {
+    // Contact is no longer a guaranteed wound (kArrowHitChancePct). What must
+    // hold for every arrow is that it is SPENT on contact -- a glance that
+    // stayed alive would re-roll next tick and make the chance meaningless.
+    int landed = 0;
+    const int shots = 400;
+    for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
+        SoldierHot s;
+        s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+        const uint8_t before = s.health[0];
 
-    ProjectileHot p;
-    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
-    p.intentHitTarget[0] = 0;
+        ProjectileHot p;
+        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+        p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s);
+        applyProjectileHits(p, s, Rng{42u, tick});
 
-    CHECK(s.health[0] == before - kArrowDamage);
-    CHECK(p.lifetime[0] <= 0.0f);
+        CHECK(p.lifetime[0] <= 0.0f);
+        const bool hit = s.health[0] == before - kArrowDamage;
+        CHECK((hit || s.health[0] == before));  // never anything in between
+        if (hit) ++landed;
+    }
+
+    // Wide band on purpose: this guards that the roll is wired up and roughly
+    // centred on the constant, not that 400 samples hit it exactly.
+    CHECK(landed > shots * (kArrowHitChancePct - 15) / 100);
+    CHECK(landed < shots * (kArrowHitChancePct + 15) / 100);
 }
 
 TEST_CASE("an arrow cannot finish off an already dead soldier") {
@@ -203,7 +217,7 @@ TEST_CASE("an arrow cannot finish off an already dead soldier") {
     p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
     p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s);
+    applyProjectileHits(p, s, Rng{42u, 1u});
     CHECK(s.health[0] == 0);  // no underflow to 255
 }
 

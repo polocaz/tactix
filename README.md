@@ -21,14 +21,22 @@ Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Relea
 | --- | --- |
 | Agents | 10,000 |
 | Simulation rate | 60 ticks/sec, fixed timestep |
-| Tick cost, p50 | 3.3468 ms |
-| Tick cost, p95 | 3.4773 ms |
-| Tick cost, p99 | 3.5627 ms |
-| Tick cost, max | 4.6678 ms |
+| Tick cost, p50 | 6.6272 ms |
+| Tick cost, p95 | 8.7311 ms |
+| Tick cost, p99 | 8.9762 ms |
+| Tick cost, max | 9.6145 ms |
 | Worker threads | 15 (this machine); thread count does not change simulation state (see below) |
 | Agent state | structure of arrays (see `EntityHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
 | Neighbor query | uniform grid hash, 3x3 cell lookup |
-| State digest (seed 42) | `c68dedbbad082126` |
+| State digest (seed 42) | `303f1e7fa243d549` |
+
+These are roughly double the previously published figures (p50 3.3468 ms), and the cause is
+gameplay, not a performance regression. Arrows used to wound on every contact; they now roll
+against `kArrowHitChancePct` ([`c++/src/Units.hpp`](c++/src/Units.hpp)), so armies survive far
+longer and a 2000-tick run spends most of its ticks simulating a nearly full field instead of the
+handful of survivors left after an early massacre. Measured directly: setting that constant back to
+100 on the same build gives a p50 of 2.8613 ms, below the old figure. Cost per live agent went
+down; the number of live agents went up.
 
 **This tick cost includes work-counter instrumentation overhead.** `tactix_bench` increments four
 `std::atomic` counters (`WorkCounters`, see [`c++/src/WorkCounters.hpp`](c++/src/WorkCounters.hpp))
@@ -155,6 +163,16 @@ cd c++
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
+
+Or use the wrapper scripts, which do the same and can run the result:
+
+```
+c++/scripts/build.sh -r      # macOS/Linux: build Release, then run the GUI
+c++\scripts\build.bat -r     # Windows: same
+```
+
+`-t` runs the tests instead, `-b` the benchmark (any remaining arguments are forwarded to it),
+`-d` builds Debug into `build-debug/`. `-h` prints the flags.
 
 ## Built with
 

@@ -133,18 +133,26 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     p.intentHitTarget[i] = best;
 }
 
-void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers) {
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, const Rng& rng) {
     for (size_t i = 0; i < p.count; ++i) {
         const uint32_t t = p.intentHitTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
         if (soldiers.health[t] == 0) continue;  // no underflow, no overkill
 
-        soldiers.health[t] = (soldiers.health[t] > p.damage[i])
-                           ? (uint8_t)(soldiers.health[t] - p.damage[i])
-                           : (uint8_t)0;
+        // Crossing a soldier is a chance to wound, not a guaranteed one. The
+        // roll is consumed either way -- an arrow that glances off gets no
+        // second attempt next tick, which would make the chance meaningless.
+        const bool lands = rng.range((uint32_t)i, RngUse::ArrowHitRoll, 1, 100)
+                           <= kArrowHitChancePct;
+        if (lands) {
+            soldiers.health[t] = (soldiers.health[t] > p.damage[i])
+                               ? (uint8_t)(soldiers.health[t] - p.damage[i])
+                               : (uint8_t)0;
+        }
 
-        // An arrow that lands is spent. Marking it expired lets one compaction
-        // pass remove both hits and misses that ran out of flight time.
+        // An arrow that reached a soldier is spent, hit or glance. Marking it
+        // expired lets one compaction pass remove those alongside the arrows
+        // that simply ran out of flight time.
         p.lifetime[i] = 0.0f;
         p.intentHitTarget[i] = UINT32_MAX;
     }

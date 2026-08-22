@@ -1,5 +1,12 @@
 # Deterministic work counters and state digest: 2000 agents, 200 ticks, seed 42, 1 thread.
-# Machine-independent by construction. Regenerate with:
+# Machine-independent by construction. Regenerated 2026-08-21 for the terrain-aware
+# tactics feature (design §5.1 and §7): (1) the safe-deployment fix obstacle-clears
+# each spawn point AFTER jitter, moving some soldiers' initial positions; (2) squads
+# now choose a terrain-aware tactical objective and movement direction (objectiveX/Y,
+# moveX/Y), which changes how formations lead and therefore the whole battle's state.
+# Both are intentional behavioural changes, so stateDigest moves and position-dependent
+# counters (candidatesExamined/cellsVisited/projectileHitTests/jobsDispatched) move with
+# it. Regenerate with:
 #   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
@@ -49,10 +56,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=225587420
-cellsVisited=7133820
+candidatesExamined=217137152
+cellsVisited=6979908
 gridInsertions=400000
 jobsDispatched=4400
 squadDecisions=16000
 projectileHitTests=0
-stateDigest=340def1e896e679a
+stateDigest=6379693139357d5c

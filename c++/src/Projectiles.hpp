@@ -73,13 +73,14 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
                          const SpatialHash& hash, size_t i, float dt,
                          std::vector<uint32_t>& scratch);
 
-// Resolution step 2 (spec 5.5). Applies each arrow's hit intent to the
-// target's health, then marks the arrow spent (expired) so a single
-// compaction pass removes both hits and misses that ran out of flight time.
+// Resolution step 2 (spec 5.5). Rolls each arrow's hit intent against
+// kArrowHitChancePct, applies the damage if it lands, then marks the arrow
+// spent (expired) either way so a single compaction pass removes both those
+// and the arrows that ran out of flight time.
 // Must run before spawnArrows so an arrow spawned this tick is not
 // hit-tested before it has flown, and before compactDead, because
 // intentHitTarget holds soldier indices that compaction invalidates.
-void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers);
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, const Rng& rng);
 
 // Removes every expired or spent arrow (lifetime <= 0), swap-with-back so
 // the surviving arrows stay contiguous. Must run after applyProjectileHits
