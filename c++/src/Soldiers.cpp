@@ -4,6 +4,21 @@
 #include "Formation.hpp"
 #include <cmath>
 
+float squadCompression(const SquadHot& squads, size_t s) {
+    // Both inputs are clamped 0..1 by Morale.cpp, but clamp defensively here
+    // too: this feeds slot positions, and a value outside the range would
+    // either invert the formation or fling it apart.
+    const float m = (squads.morale[s] < 0.0f) ? 0.0f
+                  : (squads.morale[s] > 1.0f) ? 1.0f : squads.morale[s];
+    const float d = (squads.discipline[s] < 0.0f) ? 0.0f
+                  : (squads.discipline[s] > 1.0f) ? 1.0f : squads.discipline[s];
+
+    const float cohesion = d * m;
+    float c = kMinCompression + (1.0f - kMinCompression) * cohesion;
+    if (squads.contact[s]) c *= kContactCompression;
+    return c;
+}
+
 Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
                        uint16_t slotIndex, uint32_t memberCount) {
     const FormationShape shape = shapeForUnit(squads.unitType[s]);
@@ -16,7 +31,12 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
     // centroid, making the centroid a genuine fixed point instead of one the
     // squad chases backward every tick.
     const Vec2 mean = formationMeanOffset(shape, memberCount);
-    const Vec2 local{ raw.x - mean.x, raw.y - mean.y };
+    // Compression scales the MEAN-CENTERED depth, not the raw depth. Scaling
+    // the raw value would move the mean of the slot offsets off zero, and
+    // formationMeanOffset exists precisely to keep it there: without that, the
+    // squad chases its own receding anchor backward every tick.
+    const float compression = squadCompression(squads, s);
+    const Vec2 local{ raw.x - mean.x, (raw.y - mean.y) * compression };
     const float fx = squads.facingX[s];
     const float fy = squads.facingY[s];
     // Local +y is "toward the enemy" and maps onto facing; local +x is

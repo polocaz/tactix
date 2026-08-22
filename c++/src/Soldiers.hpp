@@ -24,3 +24,10 @@ void steerToSlot(SoldierHot& soldiers, const SquadHot& squads,
 // landed inside a wall out to a point a soldier can actually stand on
 // (Simulation::clearOfObstacles).
 void steerToward(SoldierHot& soldiers, size_t soldierIndex, Vec2 target, float dt);
+
+// How tightly this squad stands, applied to formation DEPTH only.
+// cohesion = discipline * morale, mapped onto [kMinCompression, 1], times an
+// extra squeeze while engaged. Lives here rather than in Formation.hpp because
+// it reads squad state, and formationSlot is deliberately a pure function of
+// shape and index with no squad knowledge at all.
+float squadCompression(const SquadHot& squads, size_t squadIndex);

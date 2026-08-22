@@ -98,6 +98,18 @@ constexpr float kContactClearSeconds = 0.75f;
 // by however far the centroid drifted during the fight.
 constexpr float kAnchorReleaseSeconds = 0.5f;
 
+// Rank-depth compression (design 5.4). Cohesion is discipline * morale, and
+// it scales how deep a formation stands: an organized unit keeps full rank
+// spacing, a shaken one collapses toward its front rank. Only DEPTH is
+// scaled, never width, because a formation that narrowed under pressure would
+// read as a funnel rather than as a crowd.
+constexpr float kMinCompression = 0.45f;
+
+// Additional squeeze while engaged. Men press forward into a fight. Ranks stay
+// ranks: compression scales every rank's depth uniformly and never reorders
+// slots, so rank order is preserved at any value.
+constexpr float kContactCompression = 0.8f;
+
 // Shot accuracy. Spread is carried in integer milliradians because Rng::range
 // is integer-only; passing float bounds to it does not compile.
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest

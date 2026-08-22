@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 #include "Formation.hpp"
+#include "Soldiers.hpp"
+#include "Squads.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -110,4 +112,104 @@ TEST_CASE("rankOfSlot puts slot 0 in the front rank for every shape") {
 
 TEST_CASE("rankOfSlot handles an empty squad without dividing by zero") {
     CHECK(rankOfSlot(FormationShape::Line, 0, 0) == 0u);
+}
+
+TEST_CASE("a fully cohesive squad is not compressed at all") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.morale[0] = 1.0f;
+    q.discipline[0] = 1.0f;
+    q.contact[0] = 0;
+    CHECK(squadCompression(q, 0) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("a broken squad compresses to the floor, never past it") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.morale[0] = 0.0f;
+    q.discipline[0] = 1.0f;
+    q.contact[0] = 0;
+    CHECK(squadCompression(q, 0) == doctest::Approx(kMinCompression));
+    CHECK(squadCompression(q, 0) > 0.0f);
+}
+
+TEST_CASE("compression is monotone in cohesion") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.discipline[0] = 1.0f;
+    q.contact[0] = 0;
+
+    float previous = -1.0f;
+    for (float m : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f }) {
+        q.morale[0] = m;
+        const float c = squadCompression(q, 0);
+        CHECK(c > previous);
+        previous = c;
+    }
+}
+
+TEST_CASE("an engaged squad presses tighter than a free one at equal morale") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.morale[0] = 1.0f;
+    q.discipline[0] = 1.0f;
+
+    q.contact[0] = 0;
+    const float freeC = squadCompression(q, 0);
+    q.contact[0] = 1;
+    const float engagedC = squadCompression(q, 0);
+    CHECK(engagedC < freeC);
+}
+
+TEST_CASE("compression preserves rank ORDER, only rank spacing") {
+    // The failure this guards against is a shaken squad collapsing into a
+    // point, which would make rear ranks fight and break the front-rank-only
+    // property entirely.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.discipline[0] = 1.0f;
+    q.contact[0] = 1;
+    q.morale[0] = 0.0f;               // worst case: floor times contact squeeze
+    q.facingX[0] = 0.0f;
+    q.facingY[0] = 1.0f;
+    q.anchorX[0] = 0.0f;
+    q.anchorY[0] = 0.0f;
+    q.memberCount[0] = 40;
+    q.order[0] = (uint8_t)SquadOrder::Hold;
+
+    const uint32_t width = detail::rankWidth(40, 2.0f);
+    float previousForward = 1e30f;
+    for (uint32_t rank = 0; rank * width < 40; ++rank) {
+        const uint16_t slot = (uint16_t)(rank * width);
+        const Vec2 p = slotWorldPosition(q, 0, slot, 40);
+        const float forward = p.x * q.facingX[0] + p.y * q.facingY[0];
+        CHECK(forward < previousForward);
+        previousForward = forward;
+    }
+}
+
+TEST_CASE("compression keeps the mean slot offset at the anchor") {
+    // formationMeanOffset exists so the anchor is a genuine fixed point.
+    // Scaling the RAW forward offset instead of the mean-centered one would
+    // break that and make the formation drift backward every tick.
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.discipline[0] = 1.0f;
+    q.morale[0] = 0.3f;               // some arbitrary partial compression
+    q.contact[0] = 0;
+    q.facingX[0] = 1.0f;
+    q.facingY[0] = 0.0f;
+    q.anchorX[0] = 500.0f;
+    q.anchorY[0] = 300.0f;
+    q.memberCount[0] = 37;
+    q.order[0] = (uint8_t)SquadOrder::Hold;
+
+    float sumX = 0.0f, sumY = 0.0f;
+    for (uint16_t k = 0; k < 37; ++k) {
+        const Vec2 p = slotWorldPosition(q, 0, k, 37);
+        sumX += p.x;
+        sumY += p.y;
+    }
+    CHECK(sumX / 37.0f == doctest::Approx(500.0f).epsilon(1e-4));
+    CHECK(sumY / 37.0f == doctest::Approx(300.0f).epsilon(1e-4));
 }
