@@ -721,10 +721,16 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         // one sent there grinds against the wall for the whole battle.
         {
             const uint16_t sq = soldiers.squadId[i];
+            // Withdrawing and routing squads run. Keyed on order rather than
+            // on role, so it covers both an ordered retreat and a break.
+            const uint8_t ord = squads.order[sq];
+            const float speedScale =
+                (ord == (uint8_t)SquadOrder::Withdraw || ord == (uint8_t)SquadOrder::Rout)
+                ? kFleeSpeedMultiplier : 1.0f;
             steerToward(soldiers, i,
                         clearOfObstacles(slotWorldPosition(squads, sq, soldiers.slotIndex[i],
                                                            squads.memberCount[sq])),
-                        dt);
+                        dt, speedScale);
         }
 
         float px = soldiers.posX[i];

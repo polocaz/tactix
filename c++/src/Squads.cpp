@@ -308,6 +308,14 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     const Vec2 T{ squads.centroidX[tgt], squads.centroidY[tgt] };
     const Vec2 toT = normalizeSafe({ T.x - C.x, T.y - C.y }, F);
 
+    // Withdraw and Rout are NOT handled here. They are resolved in squadDecide
+    // before the terrain scorer runs, because a fleeing squad must bypass that
+    // scorer entirely: its target-pressure and archer-standoff terms both
+    // reward closing on the enemy, and they will happily drag an escape
+    // objective back toward the thing the squad is running from. Measured, a
+    // withdrawing squad's objective came out 123px from its threat while the
+    // squad itself stood 170px away. See fleeObjective in squadDecide.
+
     switch ((SquadRole)squads.role[s]) {
         case SquadRole::Line:
             // Straight at the assigned enemy. Contact and the anchor latch are
@@ -366,6 +374,7 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     // barrier has made every centroid read-only for the rest of the tick.
     float nearestSq = 1e30f;
     uint16_t nearest = UINT16_MAX;
+    float nearestMeleeSq = 1e30f;
     uint8_t rear = 0;
     const float ownFx = squads.facingX[s];
     const float ownFy = squads.facingY[s];
@@ -378,6 +387,12 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
         const float d = dx * dx + dy * dy;
 
         if (d < nearestSq) { nearestSq = d; nearest = (uint16_t)e; }
+
+        // Archers fear melee specifically, not archery: another archer squad
+        // at the same distance is a duel, not a rout.
+        if (squads.unitType[e] != UnitType::Archer && d < nearestMeleeSq) {
+            nearestMeleeSq = d;
+        }
 
         // Behind us and close enough to matter. A dot product against facing
         // is the whole rear-arc test: negative means the enemy is on the side
@@ -414,16 +429,36 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     // --- Order. Rout is owned by resolution (Morale.cpp) and must not be
     // overwritten here: a broken squad does not take orders.
     if (squads.order[s] != (uint8_t)SquadOrder::Rout) {
+        const float meleeDist = (nearestMeleeSq < 1e30f)
+                              ? std::sqrt(nearestMeleeSq) : 1e30f;
+
         if (squads.contact[s]) {
             // Contact halt (design 5.2). Overrides every role: a formation
             // that has met the enemy is fighting, whatever it was sent to do.
             squads.order[s] = (uint8_t)SquadOrder::Engaged;
+        } else if ((SquadRole)squads.role[s] == SquadRole::Shoot) {
+            // Panic is squad-local and evaluated EVERY tick, not on the army
+            // stagger. Roles say what a squad is for; this says when it is
+            // about to die, and that cannot wait up to kArmyDecideInterval
+            // ticks. Same argument that puts rout in resolution.
+            //
+            // Entry and exit use different radii. The gap is hysteresis:
+            // without it a squad sitting at the boundary flips every tick.
+            //
+            // The ROLE stays Shoot throughout, which is what lets a rallied
+            // squad resume its job without waiting for a new assignment.
+            const bool alreadyFleeing =
+                (squads.order[s] == (uint8_t)SquadOrder::Withdraw);
+            const float threshold = alreadyFleeing ? kArcherRallyRadius
+                                                   : kArcherPanicRadius;
+            squads.order[s] = (meleeDist < threshold)
+                            ? (uint8_t)SquadOrder::Withdraw
+                            : (uint8_t)SquadOrder::Advance;
         } else {
             switch ((SquadRole)squads.role[s]) {
                 case SquadRole::Line:   squads.order[s] = (uint8_t)SquadOrder::Advance; break;
                 case SquadRole::Screen: squads.order[s] = (uint8_t)SquadOrder::Screen;  break;
                 case SquadRole::Flank:  squads.order[s] = (uint8_t)SquadOrder::Flank;   break;
-                case SquadRole::Shoot:  squads.order[s] = (uint8_t)SquadOrder::Advance; break;
                 default:                squads.order[s] = (uint8_t)SquadOrder::Hold;    break;
             }
         }
@@ -441,6 +476,44 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
                                   Vec2{ dx, dy }, kFacingSlewRate * dt);
         squads.facingX[s] = f.x;
         squads.facingY[s] = f.y;
+    }
+
+    // --- A fleeing squad bypasses the terrain scorer completely.
+    //
+    // This is not an optimisation. The scorer rewards target pressure and, for
+    // a Shoot squad, standing within weapon range of the target, and both of
+    // those pull an escape objective back toward the enemy: measured, a
+    // withdrawing squad's objective landed 123px from its threat while the
+    // squad stood 170px away. A squad that is running is not doing tactics,
+    // and asking a tactical scorer where to run is the wrong question.
+    if (squads.order[s] == (uint8_t)SquadOrder::Withdraw ||
+        squads.order[s] == (uint8_t)SquadOrder::Rout) {
+        const Vec2 C{ squads.centroidX[s], squads.centroidY[s] };
+        const size_t army = (size_t)squads.team[s];
+        const Vec2 frontDir = (army < armies.count)
+                            ? Vec2{ armies.frontDirX[army], armies.frontDirY[army] }
+                            : Vec2{ squads.facingX[s], squads.facingY[s] };
+
+        // Away from the NEAREST enemy, not from targetSquad: an archer squad's
+        // target is whoever it is shooting at, which is not necessarily the
+        // melee squad bearing down on it.
+        const Vec2 N{ squads.centroidX[nearest], squads.centroidY[nearest] };
+        const Vec2 away = normalizeSafe({ C.x - N.x, C.y - N.y },
+                                        Vec2{ -frontDir.x, -frontDir.y });
+        // Biased toward our own rear, so fleeing archers run toward protection
+        // rather than into a corner. The army front line is what makes "our own
+        // rear" expressible at all.
+        const Vec2 escape = normalizeSafe({ away.x - frontDir.x, away.y - frontDir.y },
+                                          away);
+
+        const Vec2 goal = terrain.clearOfObstacles(
+            Vec2{ C.x + escape.x * kWithdrawDistance,
+                  C.y + escape.y * kWithdrawDistance });
+        squads.objectiveX[s] = goal.x;
+        squads.objectiveY[s] = goal.y;
+        squads.moveX[s] = escape.x;
+        squads.moveY[s] = escape.y;
+        return;
     }
 
     // --- Objective: the role says where, terrain gets to argue.

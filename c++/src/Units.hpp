@@ -225,3 +225,18 @@ constexpr float kUnsettledSpreadMultiplier = 2.5f;
 // always behind it. An archer sidestepping slowly into position is under
 // kWalkSpeed and unaffected, so it can still loose sideways.
 constexpr float kMaxFireCos = 0.5f;   // 60 degrees
+
+// Archer flight (design 8.5). The panic radius is deliberately SMALLER than
+// kScreenThreatRadius: the screen should already be in place by the time the
+// archers would break for the rear. The gap between panic and rally is
+// hysteresis, without which a squad at the boundary flips every tick.
+constexpr float kArcherPanicRadius = 170.0f;
+constexpr float kArcherRallyRadius = 280.0f;
+
+// Archers drop their discipline and run. Faster than their marching speed,
+// and faster than the infantry chasing them, or fleeing would be pointless.
+constexpr float kFleeSpeedMultiplier = 1.45f;
+
+// How far back a withdrawing squad aims, measured from its own position along
+// the escape direction.
+constexpr float kWithdrawDistance = 200.0f;

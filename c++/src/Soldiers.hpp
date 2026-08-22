@@ -23,7 +23,11 @@ void steerToSlot(SoldierHot& soldiers, const SquadHot& squads,
 // knows where the obstacles are, so only Simulation can slide a slot that
 // landed inside a wall out to a point a soldier can actually stand on
 // (Simulation::clearOfObstacles).
-void steerToward(SoldierHot& soldiers, size_t soldierIndex, Vec2 target, float dt);
+// `speedScale` multiplies the unit's base speed. Used for flight: a routing or
+// withdrawing squad drops its discipline and runs. Defaulted so existing
+// callers and tests are untouched.
+void steerToward(SoldierHot& soldiers, size_t soldierIndex, Vec2 target, float dt,
+                 float speedScale = 1.0f);
 
 // How tightly this squad stands, applied to formation DEPTH only.
 // cohesion = discipline * morale, mapped onto [kMinCompression, 1], times an

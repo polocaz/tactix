@@ -80,12 +80,13 @@ void steerToSlot(SoldierHot& soldiers, const SquadHot& squads,
                 dt);
 }
 
-void steerToward(SoldierHot& soldiers, size_t i, Vec2 target, float dt) {
+void steerToward(SoldierHot& soldiers, size_t i, Vec2 target, float dt,
+                 float speedScale) {
     const float dx = target.x - soldiers.posX[i];
     const float dy = target.y - soldiers.posY[i];
     const float distSq = dx * dx + dy * dy;
 
-    const float speed = kUnitStats[(int)soldiers.unitType[i]].speed;
+    const float speed = kUnitStats[(int)soldiers.unitType[i]].speed * speedScale;
 
     // A deadband stops soldiers vibrating on their slot. Without it, every
     // soldier in a stationary army jitters at full speed across the slot.

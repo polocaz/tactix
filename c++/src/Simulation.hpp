@@ -125,6 +125,8 @@ public:
     UnitType squadUnitType(size_t s) const { return squads.unitType[s]; }
     uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
     uint8_t  squadRole(size_t s) const { return squads.role[s]; }
+    float    armyCentroidX(Team t) const { return armies.centroidX[(size_t)t]; }
+    float    armyCentroidY(Team t) const { return armies.centroidY[(size_t)t]; }
     uint16_t squadWardSquad(size_t s) const { return squads.wardSquad[s]; }
     float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
     float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }

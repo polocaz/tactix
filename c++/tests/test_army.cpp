@@ -356,3 +356,71 @@ TEST_CASE("thread count still does not change simulation state") {
     CHECK(run(8u)  == single);
     CHECK(run(15u) == single);
 }
+
+TEST_CASE("archers break for the rear when melee closes, and keep their role") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+
+    bool sawWithdraw = false;
+    for (int t = 0; t < 2400 && !sawWithdraw; ++t) {
+        sim.tick(1.0f / 60.0f);
+        for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+            if (sim.squadUnitType(s) != UnitType::Archer) continue;
+            if (sim.squadOrder(s) != (uint8_t)SquadOrder::Withdraw) continue;
+            sawWithdraw = true;
+
+            // The role is unchanged: they are still archers with a job, just
+            // running. That is what lets them resume without a new assignment
+            // when they rally.
+            CHECK(sim.squadRole(s) == (uint8_t)SquadRole::Shoot);
+
+            // And the objective is away from the enemy, not toward it.
+            //
+            // Measured against the enemy ARMY centroid rather than against
+            // squadTargetSquad: an archer squad's target is whoever it is
+            // shooting at, which is not necessarily the melee squad bearing
+            // down on it, so that comparison would be testing the wrong
+            // vector. Flight is biased toward the squad's own rear, which is
+            // defined relative to the enemy army, so this is the statement the
+            // behaviour actually makes.
+            const Team foe = (sim.squadTeam(s) == Team::A) ? Team::B : Team::A;
+            const float ex = sim.armyCentroidX(foe), ey = sim.armyCentroidY(foe);
+            const float cx = sim.squadCentroidX(s), cy = sim.squadCentroidY(s);
+            const float ox = sim.squadObjectiveX(s), oy = sim.squadObjectiveY(s);
+            const float nowDist  = std::sqrt((cx - ex) * (cx - ex) + (cy - ey) * (cy - ey));
+            const float goalDist = std::sqrt((ox - ex) * (ox - ex) + (oy - ey) * (oy - ey));
+            CHECK(goalDist > nowDist);
+            break;
+        }
+    }
+    CHECK(sawWithdraw);
+}
+
+TEST_CASE("a withdrawing squad's soldiers move faster than their march speed") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+
+    const float march = kUnitStats[(int)UnitType::Archer].speed;
+    bool sawFast = false;
+    for (int t = 0; t < 2400 && !sawFast; ++t) {
+        sim.tick(1.0f / 60.0f);
+        for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+            if (sim.soldierUnitType(i) != UnitType::Archer) continue;
+            const uint16_t sq = sim.soldierSquadId(i);
+            if (sim.squadOrder(sq) != (uint8_t)SquadOrder::Withdraw) continue;
+            if (sim.soldierSpeed(i) > march * 1.1f) { sawFast = true; break; }
+        }
+    }
+    CHECK(sawFast);
+}
+
+TEST_CASE("hysteresis: panic entry and exit use different radii") {
+    // Stated as a property of the constants rather than simulated, because the
+    // failure mode is a squad flip-flopping every tick and the guard against
+    // it is simply that the two radii differ. The screen radius must be the
+    // widest of the three, or the bodyguard arrives after the panic.
+    CHECK(kArcherRallyRadius > kArcherPanicRadius);
+    CHECK(kScreenThreatRadius > kArcherRallyRadius);
+}
