@@ -31,6 +31,14 @@
 # value. If this key ever reads exactly agents * ticks again, combat has
 # stopped happening and the digest alone will not tell you.
 #
+# The final regeneration was a digest-only move, the third legitimate case
+# described below: stateDigest now covers the contact, anchor, morale-input,
+# commander, settle-timer, arrow-arc and army-tier fields, which it previously
+# did not hash at all. Every OTHER value in this file was byte-identical across
+# that change, and that is the evidence the expansion hashed more state without
+# altering any behaviour. If a future digest-only change moves a counter too,
+# it is not digest-only.
+#
 # Regenerate with:
 #   tactix_bench --agents 2000 --ticks 1600 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
@@ -89,4 +97,4 @@ jobsDispatched=48545
 squadDecisions=128000
 armyDecisions=108
 projectileHitTests=15475
-stateDigest=4d0b6384db8df8e1
+stateDigest=6c735df0c732233b

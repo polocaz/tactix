@@ -353,41 +353,14 @@ bool Simulation::everySoldierHasASquadSlot() const {
 }
 
 void Simulation::reset(size_t count) {
-    soldiers.posX.clear();
-    soldiers.posY.clear();
-    soldiers.velX.clear();
-    soldiers.velY.clear();
-    soldiers.dirX.clear();
-    soldiers.dirY.clear();
-    soldiers.team.clear();
-    soldiers.unitType.clear();
-    soldiers.state.clear();
-    soldiers.squadId.clear();
-    soldiers.slotIndex.clear();
-    soldiers.health.clear();
-    soldiers.attackCooldown.clear();
-    soldiers.intentTarget.clear();
-    soldiers.intentFire.clear();
-    soldiers.count = 0;
+    // Each tier owns its own field list, beside its spawn(). Do NOT expand
+    // these back into per-array clears here: that is what let reset() and
+    // spawn() drift apart, which silently offset every newer field by the
+    // previous run's count.
+    soldiers.clear();
+    squads.clear();
+    armies = ArmyHot{};
 
-    squads.team.clear();
-    squads.unitType.clear();
-    squads.centroidX.clear();
-    squads.centroidY.clear();
-    squads.facingX.clear();
-    squads.facingY.clear();
-    squads.order.clear();
-    squads.targetSquad.clear();
-    squads.targetSoldier.clear();
-    squads.morale.clear();
-    squads.discipline.clear();
-    squads.memberStart.clear();
-    squads.memberCount.clear();
-    squads.objectiveX.clear();
-    squads.objectiveY.clear();
-    squads.moveX.clear();
-    squads.moveY.clear();
-    squads.count = 0;
     squadMembers.clear();
     squadMemberCounts.clear();
     squadMemberCursor.clear();
@@ -1045,6 +1018,10 @@ uint64_t Simulation::stateDigest() const {
         d.mix(soldiers.attackCooldown[i]);
         d.mix(soldiers.dirX[i]);
         d.mix(soldiers.dirY[i]);
+        // Written by phaseMovementChunk, read by spawnArrows. In the digest
+        // for the same reason as the fields above it: the thread-invariance
+        // gate can only exercise what the digest actually hashes.
+        d.mix(soldiers.steadyTimer[i]);
     }
 
     // The squad tier now has real per-tick state (centroid, facing) written
@@ -1074,6 +1051,23 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.objectiveY[s]);
         d.mix(squads.moveX[s]);
         d.mix(squads.moveY[s]);
+
+        // Contact, anchor, morale-input, and commander state. Every one of
+        // these is written by a phase and read by another, so a divergence in
+        // any of them across worker counts would otherwise be completely
+        // invisible to the gate: the phase could be wrong and every test would
+        // still pass, because nothing would ever compare its output.
+        d.mix(static_cast<uint32_t>(squads.contact[s]));
+        d.mix(squads.contactTimer[s]);
+        d.mix(squads.anchorX[s]);
+        d.mix(squads.anchorY[s]);
+        d.mix(squads.anchorReleaseTimer[s]);
+        d.mix(static_cast<uint32_t>(squads.rearThreat[s]));
+        d.mix(squads.nearestEnemyDist[s]);
+        d.mix(squads.rallyTimer[s]);
+        d.mix(static_cast<uint32_t>(squads.role[s]));
+        d.mix(static_cast<uint32_t>(squads.wardSquad[s]));
+        d.mix(static_cast<uint32_t>(squads.friendlyNearTarget[s]));
     }
 
     // Projectiles are included from the moment the array exists, so the
@@ -1086,6 +1080,29 @@ uint64_t Simulation::stateDigest() const {
         d.mix(projectiles.velY[i]);
         d.mix(static_cast<uint32_t>(projectiles.team[i]));
         d.mix(projectiles.lifetime[i]);
+        // Arc state. traveled advances every tick in a parallel phase, and
+        // liveAfter decides whether this arrow can hit anything at all.
+        d.mix(projectiles.traveled[i]);
+        d.mix(projectiles.liveAfter[i]);
+    }
+
+    // The army tier is written by a SERIAL phase, so it cannot diverge on
+    // thread count by construction. It is digested anyway, for exactly the
+    // reason the squad tier was digested before it had any live fields: so the
+    // gate already covers it the day anything about that phase becomes
+    // parallel, rather than being blind to it from that day onward.
+    d.mix(static_cast<uint32_t>(armies.count));
+    for (size_t a = 0; a < armies.count; ++a) {
+        d.mix(armies.strengthInfantry[a]);
+        d.mix(armies.strengthArcher[a]);
+        d.mix(armies.strengthCavalry[a]);
+        d.mix(armies.centroidX[a]);
+        d.mix(armies.centroidY[a]);
+        d.mix(armies.frontX[a]);
+        d.mix(armies.frontY[a]);
+        d.mix(armies.frontDirX[a]);
+        d.mix(armies.frontDirY[a]);
+        d.mix(static_cast<uint32_t>(armies.posture[a]));
     }
     return d.value();
 }

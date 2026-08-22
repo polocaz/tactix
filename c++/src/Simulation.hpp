@@ -87,6 +87,35 @@ struct SoldierHot {
 
         count++;
     }
+
+    // Empties every array and resets the count. Lives HERE, next to spawn(),
+    // and not as a hand-written list in Simulation::reset, because those two
+    // lists have to agree field for field and nothing checks that they do.
+    //
+    // They did not agree: reset() set count to 0 while leaving the newer
+    // arrays populated, so the next init() pushed onto them and every new
+    // field came out offset by the previous run's count, silently reading the
+    // last battle's values. Adding a field is now one edit here instead of a
+    // memory-corruption bug waiting on someone remembering a second list.
+    void clear() {
+        posX.clear();
+        posY.clear();
+        velX.clear();
+        velY.clear();
+        dirX.clear();
+        dirY.clear();
+        team.clear();
+        unitType.clear();
+        state.clear();
+        squadId.clear();
+        slotIndex.clear();
+        health.clear();
+        attackCooldown.clear();
+        intentTarget.clear();
+        intentFire.clear();
+        steadyTimer.clear();
+        count = 0;
+    }
 };
 
 class Simulation {

@@ -482,3 +482,23 @@ TEST_CASE("soldiers actually die in a running battle") {
 // very first decide" and "...can acquire a target beyond an individual
 // soldier's own sight"), which exercise the exact same logic without relying
 // on a window that no longer exists from the outside.
+
+TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
+    // A soldier array that compaction does not move desyncs the structure of
+    // arrays, and the corruption then shows up as a wrong value on an
+    // unrelated agent, which is close to impossible to trace back. This is the
+    // cheap guard against forgetting one.
+    SoldierHot s;
+    std::vector<float> prevX, prevY;
+    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    prevX.assign(2, 0.0f);
+    prevY.assign(2, 0.0f);
+
+    s.state[0] = SoldierState::Dead;
+    s.steadyTimer[1] = 1.25f;
+
+    compactDead(s, prevX, prevY);
+    REQUIRE(s.count == 1);
+    CHECK(s.steadyTimer[0] == doctest::Approx(1.25f));
+}

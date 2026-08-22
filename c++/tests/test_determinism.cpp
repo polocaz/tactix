@@ -140,3 +140,39 @@ TEST_CASE("phase order is stable across thread counts") {
     CHECK(run(4u)  == one);
     CHECK(run(8u)  == one);
 }
+
+TEST_CASE("thread invariance holds deep into a battle, not just early") {
+    // The existing gate stops at 200 ticks. At 2000 agents that is long before
+    // first contact, so contact detection, the anchor latch, non-penetration,
+    // morale, rout, the army tier and every archer behaviour were never
+    // exercised by it at all: the gate ran entirely through the march.
+    auto run = [](uint32_t threads) {
+        Simulation sim(1280, 720, 42u, threads);
+        sim.init(2000);
+        sim.setPaused(false);
+        for (int t = 0; t < 1600; ++t) sim.tick(1.0f / 60.0f);
+        return sim.stateDigest();
+    };
+    const uint64_t single = run(1u);
+    CHECK(run(2u)  == single);
+    CHECK(run(8u)  == single);
+    CHECK(run(15u) == single);
+}
+
+TEST_CASE("the digest responds to squad and projectile state, not just positions") {
+    // A field missing from the digest is a field the thread-invariance gate is
+    // blind to. This cannot enumerate them, but it does check the digest is
+    // sensitive to a battle that has actually run, rather than to deployment
+    // alone.
+    Simulation a(1280, 720, 42u);
+    a.init(2000);
+    a.setPaused(false);
+    for (int t = 0; t < 1200; ++t) a.tick(1.0f / 60.0f);
+
+    Simulation b(1280, 720, 42u);
+    b.init(2000);
+    b.setPaused(false);
+    for (int t = 0; t < 1201; ++t) b.tick(1.0f / 60.0f);
+
+    CHECK(a.stateDigest() != b.stateDigest());
+}

@@ -76,4 +76,4 @@ jobsDispatched=6000
 squadDecisions=16000
 armyDecisions=14
 projectileHitTests=0
-stateDigest=87952fd0842f8437
+stateDigest=c7511f308a07a6e3

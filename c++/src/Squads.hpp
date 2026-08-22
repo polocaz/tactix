@@ -119,6 +119,47 @@ struct SquadHot {
         friendlyNearTarget.push_back(0);
         count++;
     }
+
+    // Empties every array and resets the count. Lives HERE, next to spawn(),
+    // and not as a hand-written list in Simulation::reset, because those two
+    // lists have to agree field for field and nothing checks that they do.
+    //
+    // They did not agree: reset() set count to 0 while leaving the newer
+    // arrays populated, so the next init() pushed onto them and every new
+    // field came out offset by the previous run's count, silently reading the
+    // last battle's values. Adding a field is now one edit here instead of a
+    // memory-corruption bug waiting on someone remembering a second list.
+    void clear() {
+        team.clear();
+        unitType.clear();
+        centroidX.clear();
+        centroidY.clear();
+        facingX.clear();
+        facingY.clear();
+        order.clear();
+        targetSquad.clear();
+        targetSoldier.clear();
+        morale.clear();
+        discipline.clear();
+        memberStart.clear();
+        memberCount.clear();
+        objectiveX.clear();
+        objectiveY.clear();
+        moveX.clear();
+        moveY.clear();
+        contact.clear();
+        contactTimer.clear();
+        anchorX.clear();
+        anchorY.clear();
+        anchorReleaseTimer.clear();
+        rearThreat.clear();
+        nearestEnemyDist.clear();
+        rallyTimer.clear();
+        role.clear();
+        wardSquad.clear();
+        friendlyNearTarget.clear();
+        count = 0;
+    }
 };
 
 // Regroups `members` by squad, ordering each squad's range by the soldiers'
