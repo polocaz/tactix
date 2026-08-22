@@ -21,14 +21,14 @@ Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Relea
 | --- | --- |
 | Agents | 10,000 |
 | Simulation rate | 60 ticks/sec, fixed timestep |
-| Tick cost, p50 | 9.3526 ms |
-| Tick cost, p95 | 11.3898 ms |
-| Tick cost, p99 | 12.4166 ms |
-| Tick cost, max | 15.4918 ms |
+| Tick cost, p50 | 9.0937 ms |
+| Tick cost, p95 | 11.0630 ms |
+| Tick cost, p99 | 12.3749 ms |
+| Tick cost, max | 16.0646 ms |
 | Worker threads | 15 (this machine); thread count does not change simulation state (see below) |
 | Agent state | structure of arrays (see `SoldierHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
 | Neighbor query | uniform grid hash, 3x3 cell lookup |
-| State digest (seed 42) | `570e001494b4d711` |
+| State digest (seed 42) | `1c7f65a50c1c1f5c` |
 
 These are up from a previously published p50 of 6.6272 ms, and the increase has one named cause:
 soldiers now collide with each other. `phaseContact`
@@ -36,10 +36,14 @@ soldiers now collide with each other. `phaseContact`
 overlapping bodies apart, which roughly doubles the tick's neighbor-query load.
 
 Measured directly rather than asserted: replacing that phase's `queryNeighbors` call with an empty
-candidate set, on the same build and seed, gives a p50 of 6.1557 ms. So the non-penetration pass
-accounts for about 3.2 ms of the 9.35 ms figure, and everything else added in the same body of work
+candidate set, on the same build and seed, gives a p50 of 6.0019 ms. So the non-penetration pass
+accounts for about 3.1 ms of the 9.09 ms figure, and everything else added in the same body of work
 (front-rank contact detection, formation anchoring, morale and rout, the army coordination tier, and
 the archer arc, settle-time and flight behaviour) together costs under half a millisecond.
+
+The `max` figure sits just inside the 16.67 ms a 60 Hz frame allows, so the worst tick in a
+2000-tick run has very little headroom left at 10,000 agents. p99 is comfortable; it is the tail
+that is tight.
 
 That is the same attribution method the earlier `kArrowHitChancePct` note used, and it is what makes
 the claim checkable instead of plausible.
