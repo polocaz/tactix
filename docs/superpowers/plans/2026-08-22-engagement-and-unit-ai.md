@@ -4664,6 +4664,24 @@ it is what makes the claim checkable instead of asserted."
 
 ---
 
+## Stages 2 to 5 outcome (recorded after execution)
+
+Stages 2, 3 and 4 landed as planned. Four things differed, and one decision is left open.
+
+**1. Task 15's hold-fire was far too eager as specced by me.** Holding fire whenever the assigned target was mixed in with friendlies dropped volleys sevenfold, because enemy squads are almost always engaged with our infantry once lines meet. The spec's phrase "its ONLY in-range target" carries the fix: a Shoot squad now searches for another safe in-range target and holds fire only if none exists. Volleys recover to roughly a quarter of the unrestricted rate. Unit tests all passed both before and after; only the work counters caught it.
+
+**2. Task 14's fleeing squads must bypass the terrain scorer entirely.** Passing the escape point in as a role anchor does not work: the scorer's target-pressure and archer-standoff terms both reward closing on the enemy and drag the objective back toward the threat. Measured, a withdrawing squad's objective landed 123px from its threat while the squad stood 170px away. Flight is also away from the NEAREST enemy, not from `targetSquad`, which for an archer squad is whoever it is shooting at rather than whoever is charging it.
+
+**3. Task 16 found a live bug, not just missing digest coverage.** `Simulation::reset` hand-listed every array to clear and had drifted from `SquadHot::spawn` by eleven fields plus `steadyTimer`. It set `count` to 0 while leaving those arrays populated, so the next `init()` offset every newer field by the previous run's count. Fixed structurally: each tier owns a `clear()` beside its `spawn()`. **Any future field is now one edit there, not four places nothing cross-checks.**
+
+**4. The thread-invariance gate was testing the wrong window.** It ran 200 ticks, and first contact lands past 1100, so it never exercised anything this plan added. Now 1600 ticks.
+
+**Open decision, deliberately not taken: the advance lead.** Squads march at roughly a third of nominal unit speed, which predates this work. Measured at 2000 agents, seed 42: `kAdvanceLead = 6` puts first contact between ticks 900 and 1200; `kAdvanceLead = 10` puts it between 600 and 900, about a third faster, and stays under the `kSlotSpacing` ceiling its own comment requires. Left at 6 because battle pacing is a feel judgement that should be watched rather than inferred from a counter. Raising it moves both baselines.
+
+**Task 17's visual checks are NOT done.** The benchmark, its attribution, and the README are. The five success criteria in design section 14 need a human at `scripts/build.bat -r`.
+
+---
+
 ## Plan Self-Review
 
 Checked after writing, against the spec.
