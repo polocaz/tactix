@@ -41,3 +41,7 @@ checkpoints/
 
 # Rust Build
 tactix-ai/target/
+# Obsidian vault settings for docs/. Deliberately untracked (removed in
+# e28115f "declutter docs folder"); this stops a broad `git add docs` from
+# quietly restoring them.
+docs/.obsidian/
