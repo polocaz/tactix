@@ -13,6 +13,7 @@
 #include "Squads.hpp"
 #include "Projectiles.hpp"
 #include "Terrain.hpp"
+#include "Army.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct SoldierHot {
@@ -117,6 +118,11 @@ public:
     float    squadNearestEnemyDist(size_t s) const { return squads.nearestEnemyDist[s]; }
     UnitType squadUnitType(size_t s) const { return squads.unitType[s]; }
     uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
+    uint8_t  squadRole(size_t s) const { return squads.role[s]; }
+    uint16_t squadWardSquad(size_t s) const { return squads.wardSquad[s]; }
+    float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
+    float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }
+    uint16_t soldierSquadId(size_t i) const { return soldiers.squadId[i]; }
     // Only meaningful mid-tick, between phase 2 (where it is computed) and
     // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
     // clears it to UINT32_MAX once compaction can have invalidated it, so a
@@ -178,6 +184,10 @@ private:
 
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
+
+    // The army tier: exactly two entries, one per team. Never destroyed, so
+    // nothing reading an army index needs a liveness check.
+    ArmyHot armies;
     std::vector<uint32_t> squadMembers;
     // Scratch for rebuildSquadMembers, owned here so the once-a-tick serial
     // call reuses this capacity instead of heap-allocating every tick.
@@ -224,7 +234,8 @@ private:
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
     void rebuildInfluence();    // Stub: plan 3 fills this in.
     void phaseSquadAggregate(float dt);       // Plan 7: recomputes each squad's centroid and facing, parallel across squads.
-    void phaseSquadDecide(float dt, const Rng& rng);  // Stub: plan 3 fills this in.
+    void phaseArmyDecide();                  // Phase 3: serial, 2 entities.
+    void phaseSquadDecide(float dt, const Rng& rng);  // Phase 4: parallel over squads.
     void phaseSoldierSteer(float dt, const Rng& rng);  // Collision avoidance
     // Chunks take Rng BY VALUE: they run on worker threads via a lambda that
     // outlives the tick() local the Rng is constructed from.

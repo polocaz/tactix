@@ -135,7 +135,8 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
 }
 
 void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads,
-                             size_t s, Vec2& outObjective, Vec2& outMove) {
+                             size_t s, Vec2 roleAnchor,
+                             Vec2& outObjective, Vec2& outMove) {
     const Vec2 C{ squads.centroidX[s], squads.centroidY[s] };
     const Vec2 F{ squads.facingX[s], squads.facingY[s] };
     const uint16_t tgt = squads.targetSquad[s];
@@ -157,9 +158,13 @@ void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads
     std::vector<Vec2> cands;
     cands.reserve(48);
 
-    // Candidate 0: direct advance. If the lane C->T is clear this should win
-    // (design §7.4: terrain awareness must not make every squad scenic-route).
-    cands.push_back({ C.x + toT.x * lead, C.y + toT.y * lead });
+    // Candidate 0: the role's own anchor (design 7.5). This was the direct
+    // advance point; now the ROLE says where we want to be and terrain gets to
+    // argue. A clear lane still wins, because a clear anchor scores best, so
+    // §7.4 still holds: terrain awareness must not make every squad
+    // scenic-route.
+    (void)lead;
+    cands.push_back(terrain.clearOfObstacles(roleAnchor));
 
     // Candidates 1,2: perpendicular flank anchors relative to the own->target lane.
     const Vec2 perpL{ -toT.y, toT.x };
@@ -200,7 +205,7 @@ void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads
 
     // Archer standoff points: beside the lane, within weapon range of the
     // target, so the squad can shoot instead of marching into a wall (§6.4).
-    if (isArcher) {
+    if (squads.role[s] == (uint8_t)SquadRole::Shoot) {
         const float stand = unitRange * 0.85f;
         const Vec2 stand1 = { T.x - toT.x * stand + perpL.x * 0.25f * stand,
                               T.y - toT.y * stand + perpL.y * 0.25f * stand };
@@ -237,7 +242,7 @@ void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads
                                       (p.y - curObj.y) * (p.y - curObj.y));
         score -= kHysteresisWeight * hdist;                              // currentObjectiveHysteresis
 
-        if (isArcher) {
+        if (squads.role[s] == (uint8_t)SquadRole::Shoot) {
             const float dT = std::sqrt((p.x - T.x) * (p.x - T.x) + (p.y - T.y) * (p.y - T.y));
             if (dT <= unitRange) score += kArcherStandoffWeight;          // can shoot the target
             else                 score -= 0.5f * kArcherStandoffWeight;
@@ -288,24 +293,83 @@ Vec2 slewFacing(Vec2 current, Vec2 desired, float maxRadians) {
     return Vec2{ cur.x * c - cur.y * ss, cur.x * ss + cur.y * c };
 }
 
-void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, float dt) {
+Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
+    const Vec2 C{ squads.centroidX[s], squads.centroidY[s] };
+    const Vec2 F{ squads.facingX[s], squads.facingY[s] };
+    const uint16_t tgt = squads.targetSquad[s];
+
+    const size_t army = (size_t)squads.team[s];
+    const Vec2 front = (army < armies.count)
+                     ? Vec2{ armies.frontX[army], armies.frontY[army] } : C;
+    const Vec2 frontDir = (army < armies.count)
+                        ? Vec2{ armies.frontDirX[army], armies.frontDirY[army] } : F;
+
+    if (tgt >= squads.count || squads.memberCount[tgt] == 0) return C;
+    const Vec2 T{ squads.centroidX[tgt], squads.centroidY[tgt] };
+    const Vec2 toT = normalizeSafe({ T.x - C.x, T.y - C.y }, F);
+
+    switch ((SquadRole)squads.role[s]) {
+        case SquadRole::Line:
+            // Straight at the assigned enemy. Contact and the anchor latch are
+            // what stop this from becoming a walk-through.
+            return Vec2{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+
+        case SquadRole::Screen: {
+            const uint16_t ward = squads.wardSquad[s];
+            if (ward >= squads.count) {
+                return Vec2{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+            }
+            const Vec2 W{ squads.centroidX[ward], squads.centroidY[ward] };
+            const Vec2 wardToThreat = normalizeSafe({ T.x - W.x, T.y - W.y }, toT);
+            // Stand off from the WARD along the line to the threat. Being
+            // between them is the whole job, so the anchor is defined relative
+            // to the ward rather than to ourselves.
+            return Vec2{ W.x + wardToThreat.x * kScreenStandoff,
+                         W.y + wardToThreat.y * kScreenStandoff };
+        }
+
+        case SquadRole::Flank: {
+            // Approach the target from its side rather than its face. Both
+            // perpendiculars are equally valid; pick the nearer one so cavalry
+            // do not cross the whole field, and break the tie on the left.
+            const Vec2 perpL{ -toT.y, toT.x };
+            const Vec2 perpR{  toT.y, -toT.x };
+            const Vec2 candL{ T.x + perpL.x * kFlankSweep, T.y + perpL.y * kFlankSweep };
+            const Vec2 candR{ T.x + perpR.x * kFlankSweep, T.y + perpR.y * kFlankSweep };
+            const float dL = (candL.x - C.x) * (candL.x - C.x) + (candL.y - C.y) * (candL.y - C.y);
+            const float dR = (candR.x - C.x) * (candR.x - C.x) + (candR.y - C.y) * (candR.y - C.y);
+            return (dR < dL) ? candR : candL;
+        }
+
+        case SquadRole::Shoot: {
+            const float range = kUnitStats[(int)squads.unitType[s]].range;
+            // Stand off inside range but not at its edge, so a target that
+            // shuffles does not immediately walk out of reach.
+            return Vec2{ T.x - toT.x * range * 0.85f, T.y - toT.y * range * 0.85f };
+        }
+
+        case SquadRole::Reserve:
+        default:
+            // Behind the army's own line, which is exactly what the front line
+            // field exists to make expressible.
+            return Vec2{ front.x - frontDir.x * kReserveDepth,
+                         front.y - frontDir.y * kReserveDepth };
+    }
+}
+
+void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
+                 const TerrainField& terrain, float dt) {
     if (squads.memberCount[s] == 0) return;
 
-    float bestDistSq = 1e30f;
-    uint16_t best = squads.targetSquad[s];
-    bool found = false;
-
-    // Rear-arc threat and nearest-enemy distance are computed HERE, inside the
-    // loop that already visits every enemy squad, so they are free. Morale
-    // (serial resolution) consumes both. Doing it there instead would put an
-    // O(squads squared) walk on the serial path every tick.
+    // --- Threat survey. One walk over enemy squads feeds everything below.
+    // Reading other squads' centroids is safe HERE and only here: phase 2's
+    // barrier has made every centroid read-only for the rest of the tick.
     float nearestSq = 1e30f;
+    uint16_t nearest = UINT16_MAX;
     uint8_t rear = 0;
     const float ownFx = squads.facingX[s];
     const float ownFy = squads.facingY[s];
 
-    // Walked in ascending index order so ties resolve identically on every
-    // thread and platform.
     for (size_t e = 0; e < squads.count; ++e) {
         if (squads.team[e] == squads.team[s]) continue;
         if (squads.memberCount[e] == 0) continue;
@@ -313,7 +377,7 @@ void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, 
         const float dy = squads.centroidY[e] - squads.centroidY[s];
         const float d = dx * dx + dy * dy;
 
-        if (d < nearestSq) nearestSq = d;
+        if (d < nearestSq) { nearestSq = d; nearest = (uint16_t)e; }
 
         // Behind us and close enough to matter. A dot product against facing
         // is the whole rear-arc test: negative means the enemy is on the side
@@ -321,58 +385,72 @@ void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, 
         if (d < kRallyRadius * kRallyRadius && (dx * ownFx + dy * ownFy) < 0.0f) {
             rear = 1;
         }
-
-        if (d < bestDistSq) {
-            bestDistSq = d;
-            best = (uint16_t)e;
-            found = true;
-        }
     }
 
     squads.nearestEnemyDist[s] = (nearestSq < 1e30f) ? std::sqrt(nearestSq) : 1e30f;
     squads.rearThreat[s] = rear;
 
-    if (found) {
-        squads.targetSquad[s] = best;
-        squads.order[s] = (uint8_t)SquadOrder::Advance;
-
-        // Spec 6.6: facing comes from the order's objective, not from
-        // averaging soldier directions (noisy for a loose formation) and not
-        // from centroid velocity (undefined when stationary). Safe here,
-        // unlike in updateSquadAggregate above: phase 3 runs after phase 2's
-        // barrier, so every squad's centroid -- including the target's -- is
-        // finalized and read-only for the rest of the tick, and this writes
-        // only squad s's own facing.
-        // Facing is SLEWED rather than assigned. See kFacingSlewRate for why
-        // the rate limit is a correctness guard and not just polish: a
-        // near-zero centroid-to-centroid vector flips sign on tiny numeric
-        // changes, and snapping to it snaps every formation slot with it.
-        const float dx = squads.centroidX[best] - squads.centroidX[s];
-        const float dy = squads.centroidY[best] - squads.centroidY[s];
-        const Vec2 f = slewFacing(Vec2{ squads.facingX[s], squads.facingY[s] },
-                                  Vec2{ dx, dy }, kFacingSlewRate * dt);
-        squads.facingX[s] = f.x;
-        squads.facingY[s] = f.y;
-
-        // Terrain-aware tactical objective + movement direction (design §7).
-        // facing still points at the enemy (above); objectiveX/Y says where
-        // terrain says we should stand, and moveX/Y is the lead direction so
-        // the formation can side-step into clear ground while facing the foe.
-        Vec2 obj{}, mv{};
-        chooseTacticalObjective(terrain, squads, s, obj, mv);
-        squads.objectiveX[s] = obj.x;
-        squads.objectiveY[s] = obj.y;
-        squads.moveX[s] = mv.x;
-        squads.moveY[s] = mv.y;
-    } else {
-        // Every enemy squad is wiped out. Hold rather than advancing on a
-        // stale target; keep the last facing.
+    // Every enemy squad is wiped out. Hold rather than advancing on a stale
+    // target; keep the last facing.
+    if (nearest == UINT16_MAX) {
         squads.order[s] = (uint8_t)SquadOrder::Hold;
         squads.objectiveX[s] = squads.centroidX[s];
         squads.objectiveY[s] = squads.centroidY[s];
         squads.moveX[s] = squads.facingX[s];
         squads.moveY[s] = squads.facingY[s];
+        return;
     }
+
+    // targetSquad comes from the commander (Army.cpp), NOT from picking the
+    // nearest enemy. That change is the whole point of the army tier. Fall
+    // back to nearest only if the commander has left us pointed at a squad
+    // that has since been annihilated.
+    const uint16_t tgt = squads.targetSquad[s];
+    if (tgt >= squads.count || squads.memberCount[tgt] == 0 ||
+        squads.team[tgt] == squads.team[s]) {
+        squads.targetSquad[s] = nearest;
+    }
+
+    // --- Order. Rout is owned by resolution (Morale.cpp) and must not be
+    // overwritten here: a broken squad does not take orders.
+    if (squads.order[s] != (uint8_t)SquadOrder::Rout) {
+        if (squads.contact[s]) {
+            // Contact halt (design 5.2). Overrides every role: a formation
+            // that has met the enemy is fighting, whatever it was sent to do.
+            squads.order[s] = (uint8_t)SquadOrder::Engaged;
+        } else {
+            switch ((SquadRole)squads.role[s]) {
+                case SquadRole::Line:   squads.order[s] = (uint8_t)SquadOrder::Advance; break;
+                case SquadRole::Screen: squads.order[s] = (uint8_t)SquadOrder::Screen;  break;
+                case SquadRole::Flank:  squads.order[s] = (uint8_t)SquadOrder::Flank;   break;
+                case SquadRole::Shoot:  squads.order[s] = (uint8_t)SquadOrder::Advance; break;
+                default:                squads.order[s] = (uint8_t)SquadOrder::Hold;    break;
+            }
+        }
+    }
+
+    // --- Facing, SLEWED rather than assigned. See kFacingSlewRate for why the
+    // rate limit is a correctness guard and not just polish: a near-zero
+    // centroid-to-centroid vector flips sign on tiny numeric changes, and
+    // snapping to it snaps every formation slot with it.
+    {
+        const uint16_t t = squads.targetSquad[s];
+        const float dx = squads.centroidX[t] - squads.centroidX[s];
+        const float dy = squads.centroidY[t] - squads.centroidY[s];
+        const Vec2 f = slewFacing(Vec2{ squads.facingX[s], squads.facingY[s] },
+                                  Vec2{ dx, dy }, kFacingSlewRate * dt);
+        squads.facingX[s] = f.x;
+        squads.facingY[s] = f.y;
+    }
+
+    // --- Objective: the role says where, terrain gets to argue.
+    const Vec2 anchor = roleAnchorFor(squads, armies, s);
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(terrain, squads, s, anchor, obj, mv);
+    squads.objectiveX[s] = obj.x;
+    squads.objectiveY[s] = obj.y;
+    squads.moveX[s] = mv.x;
+    squads.moveY[s] = mv.y;
 }
 
 void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,

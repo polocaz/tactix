@@ -16,6 +16,7 @@ struct WorkCounters {
     std::atomic<uint64_t> gridInsertions{0};      // entities inserted into the grid
     std::atomic<uint64_t> jobsDispatched{0};      // jobs submitted to the job system
     std::atomic<uint64_t> squadDecisions{0};      // squad-tier decisions evaluated
+    std::atomic<uint64_t> armyDecisions{0};       // army-tier decisions evaluated
     // Projectiles integrated (phaseProjectiles / integrateProjectile calls),
     // NOT segment tests: an expired arrow returns before segmentHitsCircle
     // is ever reached, so this counts every projectile the phase touched,
@@ -28,6 +29,7 @@ struct WorkCounters {
         gridInsertions.store(0, std::memory_order_relaxed);
         jobsDispatched.store(0, std::memory_order_relaxed);
         squadDecisions.store(0, std::memory_order_relaxed);
+        armyDecisions.store(0, std::memory_order_relaxed);
         projectileHitTests.store(0, std::memory_order_relaxed);
     }
 

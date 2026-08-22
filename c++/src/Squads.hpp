@@ -1,6 +1,7 @@
 #pragma once
 #include "Units.hpp"
 #include "Terrain.hpp"
+#include "Army.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -137,8 +138,21 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
 //
 // Plan 3 replaces this with the weighted scorer. The FIELD it writes stays the
 // same, so only the choice changes, not the plumbing.
-void selectTargetSquad(SquadHot& squads, size_t squadIndex, const TerrainField& terrain,
-                       float dt);
+// Turns the commander's role into an order, a facing, and an objective for
+// squad `s`. Replaces selectTargetSquad: targets now come from the army tier
+// (Army.cpp), so this no longer chooses one.
+//
+// Parallel-safe in phase 4, and ONLY in phase 4: it reads every squad's
+// centroid, which phase 2's barrier has made read-only for the rest of the
+// tick. It writes only squad `s`.
+void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t squadIndex,
+                 const TerrainField& terrain, float dt);
+
+// Where this squad's role says it wants to stand, before terrain has an
+// opinion. chooseTacticalObjective scores candidates AROUND this point, so
+// this is what makes terrain awareness compose with coordination rather than
+// override it.
+Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t squadIndex);
 
 // Rotates `current` toward `desired` by at most `maxRadians`, returning a unit
 // vector. Falls back to `current` (normalized) when `desired` is degenerate,
@@ -156,7 +170,8 @@ Vec2 slewFacing(Vec2 current, Vec2 desired, float maxRadians);
 // by candidate index (design §7.3). Direct lane clear -> direct objective; a
 // blocked lane -> a clear anchor around the obstacle (§7.4).
 void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads,
-                             size_t squadIndex, Vec2& outObjective, Vec2& outMove);
+                             size_t squadIndex, Vec2 roleAnchor,
+                             Vec2& outObjective, Vec2& outMove);
 
 // Spec 6.5. Picks the member of targetSquad with the LOWEST slotIndex that is
 // within weapon range of our centroid, or UINT32_MAX if none is.

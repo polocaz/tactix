@@ -295,7 +295,26 @@ SquadHot makeDuel(UnitType us, Vec2 c0, Vec2 c1) {
     q.memberCount[0] = 25; q.memberCount[1] = 25;
     q.objectiveX[0] = c0.x; q.objectiveY[0] = c0.y;
     q.moveX[0] = q.facingX[0]; q.moveY[0] = q.facingY[0];
+    // Role drives the archer standoff scoring now that the commander assigns
+    // one, so a hand-built squad has to state it. Archers shoot; everything
+    // else holds the line.
+    q.role[0] = (us == UnitType::Archer) ? (uint8_t)SquadRole::Shoot
+                                         : (uint8_t)SquadRole::Line;
     return q;
+}
+
+// The role anchor a Line squad would get: the direct advance point. This was
+// chooseTacticalObjective's hard-coded candidate 0 before the army tier
+// existed, so passing it keeps these terrain tests testing exactly what they
+// were written to test.
+Vec2 directAnchor(const SquadHot& q, size_t s) {
+    const uint16_t t = q.targetSquad[s];
+    const float dx = q.centroidX[t] - q.centroidX[s];
+    const float dy = q.centroidY[t] - q.centroidY[s];
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-6f) return Vec2{ q.centroidX[s], q.centroidY[s] };
+    return Vec2{ q.centroidX[s] + (dx / len) * kAdvanceLead,
+                 q.centroidY[s] + (dy / len) * kAdvanceLead };
 }
 } // namespace
 
@@ -309,7 +328,7 @@ TEST_CASE("direct lane clear: squad keeps the direct objective") {
     SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
 
     Vec2 obj{}, mv{};
-    chooseTacticalObjective(terrain, q, 0, obj, mv);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), obj, mv);
 
     CHECK(std::abs(obj.y - 360.0f) < 1.0f);            // not diverted off-lane
     CHECK(mv.x == doctest::Approx(1.0f).epsilon(1e-3)); // moves straight at enemy
@@ -327,7 +346,7 @@ TEST_CASE("direct lane blocked by a building: squad chooses a clear anchor aroun
     SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
 
     Vec2 obj{}, mv{};
-    chooseTacticalObjective(terrain, q, 0, obj, mv);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), obj, mv);
 
     // Not marching into the wall: the direct point is on the blocked lane.
     CHECK_FALSE(terrain.segmentBlocked({100.0f, 360.0f}, obj));
@@ -346,7 +365,7 @@ TEST_CASE("archer with a blocked line repositions instead of advancing into the 
     SquadHot q = makeDuel(UnitType::Archer, {100.0f, 360.0f}, {300.0f, 360.0f});
 
     Vec2 obj{}, mv{};
-    chooseTacticalObjective(terrain, q, 0, obj, mv);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), obj, mv);
 
     const float dToTarget = std::sqrt((obj.x - 300.0f) * (obj.x - 300.0f) +
                                        (obj.y - 360.0f) * (obj.y - 360.0f));
@@ -363,7 +382,7 @@ TEST_CASE("cavalry avoids tight terrain and prefers a wider flank") {
     SquadHot q = makeDuel(UnitType::Cavalry, {100.0f, 360.0f}, {1000.0f, 360.0f});
 
     Vec2 obj{}, mv{};
-    chooseTacticalObjective(terrain, q, 0, obj, mv);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), obj, mv);
 
     CHECK(std::abs(obj.y - 360.0f) > 1.0f);   // off the tight lane
     CHECK(std::abs(mv.y) > 1e-3);             // actual sideways movement
@@ -378,8 +397,8 @@ TEST_CASE("tactical objective is deterministic and order-independent") {
     SquadHot q = makeDuel(UnitType::Infantry, {100.0f, 360.0f}, {1000.0f, 360.0f});
 
     Vec2 a{}, ma{}, b{}, mb{};
-    chooseTacticalObjective(terrain, q, 0, a, ma);
-    chooseTacticalObjective(terrain, q, 0, b, mb);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), a, ma);
+    chooseTacticalObjective(terrain, q, 0, directAnchor(q, 0), b, mb);
 
     CHECK(a.x == b.x);
     CHECK(a.y == b.y);

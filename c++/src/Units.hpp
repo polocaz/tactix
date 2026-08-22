@@ -161,6 +161,11 @@ constexpr float kScreenThreatRadius = 400.0f;
 // enough to be legible rather than churning every frame.
 constexpr uint32_t kArmyDecideInterval = 30u;
 
+// Role anchor geometry (design 7.3). All tuning knobs.
+constexpr float kScreenStandoff = 45.0f;   // how far in front of its ward a screen stands
+constexpr float kFlankSweep     = 90.0f;   // how wide of the target cavalry swing
+constexpr float kReserveDepth   = 120.0f;  // how far behind the front line reserves wait
+
 // Combat weight per man, used by the army tier to size how much force an
 // enemy squad demands. Cavalry hit hardest per head, archers least in a
 // stand-up fight, so an equal head count is not an equal threat.

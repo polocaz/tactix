@@ -2,6 +2,7 @@
 #include "Army.hpp"
 #include "Squads.hpp"
 #include "Units.hpp"
+#include "Simulation.hpp"
 #include <cmath>
 #include <memory>
 #include <vector>
@@ -275,4 +276,83 @@ TEST_CASE("assignment is deterministic from identical input") {
         CHECK(a->squads.targetSquad[s] == b->squads.targetSquad[s]);
         CHECK(a->squads.wardSquad[s]   == b->squads.wardSquad[s]);
     }
+}
+
+TEST_CASE("roles are assigned on the very first tick, not on the stagger") {
+    // The stagger must not leave a squad acting on a role it never received.
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    sim.tick(1.0f / 60.0f);
+
+    size_t shooters = 0, archers = 0;
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        if (sim.squadUnitType(s) == UnitType::Archer) {
+            archers++;
+            if (sim.squadRole(s) == (uint8_t)SquadRole::Shoot) shooters++;
+        }
+    }
+    REQUIRE(archers > 0);
+    CHECK(shooters == archers);
+}
+
+TEST_CASE("an engaged squad is given the Engaged order, not Advance") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+
+    bool sawEngaged = false;
+    for (int t = 0; t < 1600 && !sawEngaged; ++t) {
+        sim.tick(1.0f / 60.0f);
+        for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+            if (sim.squadContact(s)) {
+                CHECK(sim.squadOrder(s) != (uint8_t)SquadOrder::Advance);
+                sawEngaged = true;
+            }
+        }
+    }
+    CHECK(sawEngaged);
+}
+
+TEST_CASE("a screening squad puts itself between its ward and the threat") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+    for (int t = 0; t < 900; ++t) sim.tick(1.0f / 60.0f);
+
+    size_t checked = 0;
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        if (sim.squadRole(s) != (uint8_t)SquadRole::Screen) continue;
+        const uint16_t ward = sim.squadWardSquad(s);
+        const uint16_t threat = sim.squadTargetSquad(s);
+        REQUIRE(ward != UINT16_MAX);
+
+        // The objective must be closer to the threat than the ward is: that is
+        // what 'between' means operationally.
+        const float ox = sim.squadObjectiveX(s), oy = sim.squadObjectiveY(s);
+        const float tx = sim.squadCentroidX(threat), ty = sim.squadCentroidY(threat);
+        const float wx = sim.squadCentroidX(ward),   wy = sim.squadCentroidY(ward);
+
+        const float objToThreat = std::sqrt((ox - tx) * (ox - tx) + (oy - ty) * (oy - ty));
+        const float wardToThreat = std::sqrt((wx - tx) * (wx - tx) + (wy - ty) * (wy - ty));
+        CHECK(objToThreat < wardToThreat);
+        checked++;
+    }
+    REQUIRE(checked > 0);
+}
+
+TEST_CASE("thread count still does not change simulation state") {
+    // The new serial army phase and the role-driven decide must not have
+    // introduced any dependence on chunking.
+    auto run = [](uint32_t threads) {
+        Simulation sim(1280, 720, 42u, threads);
+        sim.init(2000);
+        sim.setPaused(false);
+        for (int t = 0; t < 900; ++t) sim.tick(1.0f / 60.0f);
+        return sim.stateDigest();
+    };
+    const uint64_t single = run(1u);
+    CHECK(run(2u)  == single);
+    CHECK(run(8u)  == single);
+    CHECK(run(15u) == single);
 }

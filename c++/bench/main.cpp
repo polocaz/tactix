@@ -136,6 +136,7 @@ int main(int argc, char** argv) {
             "  \"gridInsertions\": %llu,\n"
             "  \"jobsDispatched\": %llu,\n"
             "  \"squadDecisions\": %llu,\n"
+            "  \"armyDecisions\": %llu,\n"
             "  \"projectileHitTests\": %llu,\n"
             "  \"stateDigest\": \"%016llx\"\n"
             "}\n",
@@ -146,6 +147,7 @@ int main(int argc, char** argv) {
             (unsigned long long)c.gridInsertions.load(),
             (unsigned long long)c.jobsDispatched.load(),
             (unsigned long long)c.squadDecisions.load(),
+            (unsigned long long)c.armyDecisions.load(),
             (unsigned long long)c.projectileHitTests.load(),
             (unsigned long long)digest);
     } else {

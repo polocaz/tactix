@@ -69,10 +69,11 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=351812107
-cellsVisited=11488695
+candidatesExamined=314011752
+cellsVisited=11282487
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
+armyDecisions=14
 projectileHitTests=0
-stateDigest=2e6850f661f700b0
+stateDigest=87952fd0842f8437

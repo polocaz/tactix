@@ -290,6 +290,13 @@ void Simulation::init(size_t soldierCount) {
     // so this reproduces exactly what the first tick would compute anyway.
     rebuildSquadMembers(soldiers, squads, squadMembers, squadMemberCounts, squadMemberCursor);
 
+    // One army per team. Never destroyed, exactly like squads, so nothing
+    // reading an army index ever needs a liveness check. Rebuilt from scratch
+    // here because reset() calls init() again on a live Simulation.
+    armies = ArmyHot{};
+    armies.spawn();   // Team::A
+    armies.spawn();   // Team::B
+
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
                  soldiers.count, squads.count, worldWidth, worldHeight);
 }
@@ -500,7 +507,13 @@ void Simulation::tick(float dt) {
     phaseSquadAggregate(dt);
     jobSystem.waitAll();
 
-    // Phase 3: parallel over squads. Safe to read every squad's aggregate
+    // Phase 3: serial, two entities. Reads every squad's finalized centroid
+    // and writes each squad's role and target. Placement is forced: after
+    // phase 2's barrier so every centroid is final, and before phase 4 so no
+    // squad chooses an objective from a role it has never been given.
+    phaseArmyDecide();
+
+    // Phase 4: parallel over squads. Safe to read every squad's aggregate
     // only because the barrier above made those values read-only.
     phaseSquadDecide(dt, rng);
     jobSystem.waitAll();
@@ -570,6 +583,24 @@ void Simulation::phaseSquadAggregate(float dt) {
     }
 }
 
+void Simulation::phaseArmyDecide() {
+    // Serial: two entities make that free, and free serial execution makes
+    // bit-reproducibility free too.
+    updateArmyAggregate(squads, armies);
+
+    for (size_t a = 0; a < armies.count; ++a) {
+        // Both armies decide unconditionally on the first tick. Without that,
+        // the stagger below would let a squad act on a role it has never been
+        // given. After that they alternate, so the two armies never re-decide
+        // on the same tick and an assignment persists long enough to read.
+        const bool firstTick = (tickNumber == 1u);
+        if (firstTick || (tickNumber % kArmyDecideInterval) == a) {
+            assignRoles(squads, armies, (Team)a);
+            workCounters.add(workCounters.armyDecisions, 1);
+        }
+    }
+}
+
 void Simulation::phaseSquadDecide(float dt, const Rng&) {
     // Plan 3 replaces the body of selectTargetSquad with a weighted scorer over
     // seven orders, plus hysteresis and a decide stagger. The dispatch shape
@@ -579,7 +610,7 @@ void Simulation::phaseSquadDecide(float dt, const Rng&) {
         const size_t end = std::min(start + chunkSize, squads.count);
         jobSystem.submit([this, start, end, dt]() {
             for (size_t s = start; s < end; ++s) {
-                selectTargetSquad(squads, s, terrain, dt);
+                squadDecide(squads, armies, s, terrain, dt);
                 workCounters.add(workCounters.squadDecisions, 1);
             }
         });
