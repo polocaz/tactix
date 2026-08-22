@@ -97,6 +97,7 @@ add_library(tactix_sim STATIC
     src/Projectiles.cpp
     src/Combat.cpp
     src/Contact.cpp
+    src/Morale.cpp
 )
 target_include_directories(tactix_sim PUBLIC src)
 target_link_libraries(tactix_sim PUBLIC tactix_fp_flags spdlog::spdlog_header_only)
@@ -145,6 +146,7 @@ add_executable(tactix_tests
     tests/test_projectiles.cpp
     tests/test_combat.cpp
     tests/test_contact.cpp
+    tests/test_morale.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE

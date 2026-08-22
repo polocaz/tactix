@@ -6,9 +6,16 @@ enum class UnitType : uint8_t { Infantry = 0, Archer = 1, Cavalry = 2 };
 enum class SoldierState : uint8_t { Forming = 0, Engaged = 1, Routing = 2, Dead = 3 };
 enum class FormationShape : uint8_t { Line = 0, Column = 1, Wedge = 2, Loose = 3 };
 
-// Plan 3 adds FlankLeft, FlankRight, Charge, Withdraw, and Rout. Values are
-// part of the state digest, so append new ones rather than renumbering.
-enum class SquadOrder : uint8_t { Hold = 0, Advance = 1 };
+// Appended, never renumbered: order feeds the state digest, so changing an
+// existing value silently invalidates every committed baseline.
+//
+// Engaged is the contact halt (design 5.2). Withdraw and Rout differ
+// deliberately: a withdrawing squad keeps its formation and rallies on
+// command, a routing one does neither.
+enum class SquadOrder : uint8_t {
+    Hold = 0, Advance = 1, Engaged = 2, Flank = 3,
+    Screen = 4, Withdraw = 5, Rout = 6
+};
 
 constexpr uint32_t kUnitTypeCount = 3;
 
@@ -109,6 +116,40 @@ constexpr float kMinCompression = 0.45f;
 // ranks: compression scales every rank's depth uniformly and never reorders
 // slots, so rank order is preserved at any value.
 constexpr float kContactCompression = 0.8f;
+
+// The simulation is fixed-step by design (see the determinism contract): tick
+// is always called with this value, and the benchmark and tests all use it.
+// Named here so resolution-phase code that has no dt parameter can still
+// express rates per second rather than per tick.
+constexpr float kFixedTimestep = 1.0f / 60.0f;
+
+// Morale (design 6). All tuning knobs; the existence of each input is not.
+//
+// Morale falls from casualties taken this tick as a fraction of squad size,
+// from the officer dying, and from an enemy in the rear arc. It recovers on a
+// base rate. Discipline scales BOTH resistance to loss and recovery rate,
+// which is what makes a disciplined unit meaningfully different rather than
+// just slower to break.
+constexpr float kMoraleLossPerCasualtyFraction = 2.0f;
+constexpr float kMoraleOfficerDeathPenalty     = 0.15f;
+constexpr float kMoraleRearThreatPerSecond     = 0.12f;
+constexpr float kMoraleRecoveryPerSecond       = 0.05f;
+
+// Rout thresholds. routThreshold scales DOWN with discipline, so a
+// disciplined squad holds at a morale a levy would have broken at.
+// kRallyThreshold sits above the worst-case rout threshold: the gap is
+// hysteresis, and without it a squad at the boundary oscillates every tick.
+constexpr float kBaseRoutThreshold = 0.30f;
+constexpr float kRallyThreshold    = 0.45f;
+constexpr float kRallyRadius       = 220.0f;
+constexpr float kRallyDuration     = 3.0f;    // seconds clear of enemies
+
+// Discipline by unit type. Cavalry are the least steady, archers are fragile
+// but not undisciplined, infantry are the anchor. Constant per type for now:
+// per-squad variation is a tuning knob nobody has asked for yet.
+constexpr float kDisciplineInfantry = 0.85f;
+constexpr float kDisciplineArcher   = 0.60f;
+constexpr float kDisciplineCavalry  = 0.70f;
 
 // Shot accuracy. Spread is carried in integer milliradians because Rng::range
 // is integer-only; passing float bounds to it does not compile.

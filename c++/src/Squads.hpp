@@ -54,6 +54,20 @@ struct SquadHot {
     // exactly; only a squad that has just disengaged eases.
     std::vector<float> anchorReleaseTimer;
 
+    // Morale inputs, written in phase 4 by the squad decide (which may read
+    // every squad's centroid, because phase 2's barrier has made them
+    // read-only) and consumed in serial resolution by Morale.cpp.
+    //
+    // Both are computed inside the enemy loop selectTargetSquad ALREADY walks,
+    // so they cost nothing asymptotically. Computing them in resolution
+    // instead would be O(squads squared) on the serial path every tick.
+    std::vector<uint8_t> rearThreat;        // an enemy squad sits behind us
+    std::vector<float>   nearestEnemyDist;  // to the closest live enemy squad
+
+    // Counts UP the time spent clear of enemies while routing. Rally needs
+    // sustained safety, not an instant of it.
+    std::vector<float>   rallyTimer;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -79,6 +93,9 @@ struct SquadHot {
         anchorX.push_back(0.0f);
         anchorY.push_back(0.0f);
         anchorReleaseTimer.push_back(0.0f);
+        rearThreat.push_back(0);
+        nearestEnemyDist.push_back(1e30f);
+        rallyTimer.push_back(0.0f);
         count++;
     }
 };
