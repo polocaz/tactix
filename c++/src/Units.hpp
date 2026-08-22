@@ -240,3 +240,9 @@ constexpr float kFleeSpeedMultiplier = 1.45f;
 // How far back a withdrawing squad aims, measured from its own position along
 // the escape direction.
 constexpr float kWithdrawDistance = 200.0f;
+
+// Archer positioning scorer terms (design 8.2).
+constexpr float kScreenBonusWeight       = 30.0f;  // reward standing behind our own line
+constexpr float kScreenCorridorHalfWidth = 60.0f;  // how wide the "behind them" corridor is
+constexpr float kFriendlyFireWeight      = 45.0f;  // penalty per friendly squad near the impact
+constexpr float kMeleeMixRadius          = 70.0f;  // how close to the target counts as mixed in

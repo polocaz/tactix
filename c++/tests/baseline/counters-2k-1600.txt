@@ -82,11 +82,11 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=1722349793
-cellsVisited=88139412
-gridInsertions=3181132
-jobsDispatched=48733
+candidatesExamined=1740668233
+cellsVisited=88891845
+gridInsertions=3190901
+jobsDispatched=48545
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=56997
-stateDigest=85b1b48343e53101
+projectileHitTests=15475
+stateDigest=4d0b6384db8df8e1

@@ -44,6 +44,47 @@ Vec2 closestOnSegment(Vec2 a, Vec2 b, Vec2 p) {
     }
     return { a.x + dx * t, a.y + dy * t };
 }
+
+// How many friendly squads sit near enough to `point` to be caught by a volley
+// aimed at it. Squad-centroid granularity on purpose: an archer squad decides
+// where to shoot as a unit, and a per-soldier test would give a formation that
+// disagreed with itself about where to be.
+//
+// Archers are excluded: they are neither a screen to shoot past nor the men a
+// volley is likely to land among, since they stand well back.
+uint32_t friendlySquadsNear(const SquadHot& q, size_t self, Vec2 point, float radius) {
+    uint32_t n = 0;
+    const float rSq = radius * radius;
+    for (size_t o = 0; o < q.count; ++o) {
+        if (o == self) continue;
+        if (q.team[o] != q.team[self]) continue;
+        if (q.memberCount[o] == 0) continue;
+        if (q.unitType[o] == UnitType::Archer) continue;
+        const float dx = q.centroidX[o] - point.x;
+        const float dy = q.centroidY[o] - point.y;
+        if (dx * dx + dy * dy <= rSq) n++;
+    }
+    return n;
+}
+
+// Whether a friendly melee squad stands inside the corridor from `from` to
+// `to`, which is what "we have infantry between us and them" means.
+bool friendlyScreenBetween(const SquadHot& q, size_t self, Vec2 from, Vec2 to) {
+    for (size_t o = 0; o < q.count; ++o) {
+        if (o == self) continue;
+        if (q.team[o] != q.team[self]) continue;
+        if (q.memberCount[o] == 0) continue;
+        if (q.unitType[o] == UnitType::Archer) continue;
+        const Vec2 c{ q.centroidX[o], q.centroidY[o] };
+        const Vec2 onLane = closestOnSegment(from, to, c);
+        const float dx = c.x - onLane.x;
+        const float dy = c.y - onLane.y;
+        if (dx * dx + dy * dy <= kScreenCorridorHalfWidth * kScreenCorridorHalfWidth) {
+            return true;
+        }
+    }
+    return false;
+}
 } // namespace
 
 void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
@@ -247,6 +288,18 @@ void chooseTacticalObjective(const TerrainField& terrain, const SquadHot& squads
             if (dT <= unitRange) score += kArcherStandoffWeight;          // can shoot the target
             else                 score -= 0.5f * kArcherStandoffWeight;
             if (terrain.segmentBlocked(p, T)) score -= kArcherStandoffWeight; // blocked line to target
+
+            // Stand behind our own line where we can. The arc (design 8.1) is
+            // what makes this safe rather than suicidal: a friendly screen
+            // directly in front is UNDER the arrows, not in their way.
+            if (friendlyScreenBetween(squads, s, p, T)) score += kScreenBonusWeight;
+
+            // And do not stand somewhere whose impact zone is full of our own
+            // men. Positioning controls what is in front of you; this term is
+            // the half of the problem positioning can address at all.
+            score -= kFriendlyFireWeight
+                   * (float)friendlySquadsNear(squads, s, T, kMeleeMixRadius);
+
             const float side = std::abs(rel.x * toT.y - rel.y * toT.x);  // unitPreferenceBonus: side
             score += 0.05f * side;
         } else if (isCavalry) {
@@ -524,6 +577,56 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     squads.objectiveY[s] = obj.y;
     squads.moveX[s] = mv.x;
     squads.moveY[s] = mv.y;
+
+    // Friendly-fire hold (design 8.3). Where you stand controls what is in
+    // front of you; what you SHOOT AT controls what is around the impact, and
+    // no amount of repositioning fixes a target standing in our own melee.
+    //
+    // Computed here in phase 4 because it reads other squads' centroids.
+    // selectTargetSoldier consumes it in phase 2 of the next tick, where such
+    // a read would race. See the field's declaration.
+    {
+        const Vec2 C2{ squads.centroidX[s], squads.centroidY[s] };
+        uint16_t t2 = squads.targetSquad[s];
+
+        auto unsafeTarget = [&](uint16_t e) {
+            const Vec2 E{ squads.centroidX[e], squads.centroidY[e] };
+            return friendlySquadsNear(squads, s, E, kMeleeMixRadius) > 0;
+        };
+
+        // A Shoot squad LOOKS FOR ANOTHER TARGET before giving up. Holding
+        // fire is the answer only when there is no safe shot to be had, which
+        // is what design 8.3's "its only in-range target" means.
+        //
+        // Without this the hold is far too eager: enemy squads are usually
+        // engaged with our own infantry, so nearly every assigned target is
+        // "mixed in" and archery switches off the moment the lines meet.
+        // Measured, volleys fell about sevenfold. Re-pointing locally is the
+        // same shape as the panic override: the commander says what a squad is
+        // for, and the squad decides the details that cannot wait for it.
+        const float wRange = kUnitStats[(int)squads.unitType[s]].range;
+        if (wRange > 0.0f && t2 < squads.count && unsafeTarget(t2)) {
+            for (size_t e = 0; e < squads.count; ++e) {
+                if (squads.team[e] == squads.team[s]) continue;
+                if (squads.memberCount[e] == 0) continue;
+                const float dx = squads.centroidX[e] - C2.x;
+                const float dy = squads.centroidY[e] - C2.y;
+                if (dx * dx + dy * dy > wRange * wRange) continue;
+                if (unsafeTarget((uint16_t)e)) continue;
+                // Ascending walk, first match wins, so the choice is identical
+                // on every platform and worker count.
+                t2 = (uint16_t)e;
+                squads.targetSquad[s] = t2;
+                break;
+            }
+        }
+
+        if (t2 < squads.count && squads.memberCount[t2] > 0) {
+            squads.friendlyNearTarget[s] = unsafeTarget(t2) ? 1 : 0;
+        } else {
+            squads.friendlyNearTarget[s] = 0;
+        }
+    }
 }
 
 void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
@@ -532,6 +635,11 @@ void selectTargetSoldier(const SoldierHot& soldiers, SquadHot& squads,
 
     const float range = kUnitStats[(int)squads.unitType[s]].range;
     if (range <= 0.0f) return;  // melee units acquire their own targets
+
+    // Hold fire rather than volleying into our own line. The flag was computed
+    // last tick in phase 4; see its declaration for why it cannot be computed
+    // here. Placed after the melee early-out so melee squads are unaffected.
+    if (squads.friendlyNearTarget[s]) return;
 
     const uint16_t t = squads.targetSquad[s];
     if (t >= squads.count || squads.memberCount[t] == 0) return;

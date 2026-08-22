@@ -75,6 +75,17 @@ struct SquadHot {
     std::vector<uint8_t>  role;
     std::vector<uint16_t> wardSquad;
 
+    // Set when this squad's target sits in a melee containing our own men, so
+    // shooting at it would drop arrows on friends (design 8.3).
+    //
+    // Written in phase 4, where reading other squads' centroids is safe, and
+    // read by selectTargetSoldier in phase 2 of the NEXT tick, where it is
+    // not. That one tick of lag is the price of the phase ordering and is
+    // harmless: squads do not teleport in 16ms. Do NOT "fix" it by moving the
+    // computation into selectTargetSoldier -- that reintroduces a real data
+    // race which is benign at one worker thread and so passes every test.
+    std::vector<uint8_t> friendlyNearTarget;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -105,6 +116,7 @@ struct SquadHot {
         rallyTimer.push_back(0.0f);
         role.push_back(0);                 // SquadRole::Reserve
         wardSquad.push_back(UINT16_MAX);
+        friendlyNearTarget.push_back(0);
         count++;
     }
 };
@@ -132,12 +144,6 @@ void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
                           const std::vector<uint32_t>& members,
                           size_t squadIndex);
 
-// Picks the nearest enemy squad by centroid distance. Parallel-safe: writes
-// only the squad it is given, reads other squads' centroids, which phase 2
-// already finished writing.
-//
-// Plan 3 replaces this with the weighted scorer. The FIELD it writes stays the
-// same, so only the choice changes, not the plumbing.
 // Turns the commander's role into an order, a facing, and an objective for
 // squad `s`. Replaces selectTargetSquad: targets now come from the army tier
 // (Army.cpp), so this no longer chooses one.

@@ -424,3 +424,82 @@ TEST_CASE("hysteresis: panic entry and exit use different radii") {
     CHECK(kArcherRallyRadius > kArcherPanicRadius);
     CHECK(kScreenThreatRadius > kArcherRallyRadius);
 }
+
+TEST_CASE("archers prefer a firing position with friendly infantry in front") {
+    // Two otherwise-equal candidate positions, one screened by our own line.
+    // The scorer must pick the screened one.
+    ArmyFixture f;
+    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
+    f.add(Team::A, UnitType::Infantry, 300.0f, 300.0f, 30);   // squarely in front
+    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 700.0f, 300.0f, 30);
+    f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
+    f.squads.targetSquad[archers] = foe;
+    f.squads.facingX[archers] = 1.0f; f.squads.facingY[archers] = 0.0f;
+    updateArmyAggregate(f.squads, f.armies);
+
+    TerrainField empty;   // no obstacles: isolates the screen term
+    const Vec2 anchor = roleAnchorFor(f.squads, f.armies, archers);
+    Vec2 obj{}, mv{};
+    chooseTacticalObjective(empty, f.squads, archers, anchor, obj, mv);
+
+    // The chosen objective must be on our side of the friendly infantry, not
+    // out past it toward the enemy.
+    CHECK(obj.x < 300.0f);
+}
+
+TEST_CASE("a squad holds fire when its target is mixed in with our own men") {
+    ArmyFixture f;
+    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 400.0f, 300.0f, 30);
+    // Our own infantry right on top of the enemy: a melee.
+    f.add(Team::A, UnitType::Infantry, 400.0f + kMeleeMixRadius * 0.4f, 300.0f, 30);
+    f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
+    f.squads.targetSquad[archers] = foe;
+    updateArmyAggregate(f.squads, f.armies);
+
+    TerrainField empty;
+    squadDecide(f.squads, f.armies, archers, empty, 1.0f / 60.0f);
+    CHECK(f.squads.friendlyNearTarget[archers] == 1);
+}
+
+TEST_CASE("a squad with a clean shot does not hold fire") {
+    ArmyFixture f;
+    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 400.0f, 300.0f, 30);
+    f.add(Team::A, UnitType::Infantry, 150.0f, 300.0f, 30);   // well behind the impact
+    f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
+    f.squads.targetSquad[archers] = foe;
+    updateArmyAggregate(f.squads, f.armies);
+
+    TerrainField empty;
+    squadDecide(f.squads, f.armies, archers, empty, 1.0f / 60.0f);
+    CHECK(f.squads.friendlyNearTarget[archers] == 0);
+}
+
+TEST_CASE("holding fire actually stops the squad acquiring a soldier target") {
+    ArmyFixture f;
+    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 200.0f, 300.0f, 4);
+    f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
+    f.squads.targetSquad[archers] = foe;
+    f.squads.friendlyNearTarget[archers] = 1;
+    f.squads.centroidX[archers] = 100.0f; f.squads.centroidY[archers] = 300.0f;
+
+    SoldierHot soldiers;
+    std::vector<uint32_t> members;
+    f.squads.memberStart[foe] = 0;
+    for (uint32_t k = 0; k < 4; ++k) {
+        soldiers.spawn(200.0f, 300.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, foe);
+        soldiers.slotIndex[k] = (uint16_t)k;
+        members.push_back(k);
+    }
+
+    selectTargetSoldier(soldiers, f.squads, members, archers);
+    CHECK(f.squads.targetSoldier[archers] == UINT32_MAX);
+
+    // And clearing the flag lets them shoot again: the hold is a live
+    // condition, not a latch.
+    f.squads.friendlyNearTarget[archers] = 0;
+    selectTargetSoldier(soldiers, f.squads, members, archers);
+    CHECK(f.squads.targetSoldier[archers] != UINT32_MAX);
+}
