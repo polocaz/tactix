@@ -111,6 +111,7 @@ public:
     float  squadCentroidY(size_t s) const { return squads.centroidY[s]; }
     Team   squadTeam(size_t s) const { return squads.team[s]; }
     uint16_t squadTargetSquad(size_t s) const { return squads.targetSquad[s]; }
+    uint8_t  squadContact(size_t s) const { return squads.contact[s]; }
     // Only meaningful mid-tick, between phase 2 (where it is computed) and
     // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
     // clears it to UINT32_MAX once compaction can have invalidated it, so a
@@ -189,6 +190,12 @@ private:
     // Previous state for interpolation
     std::vector<float> prevPosX;
     std::vector<float> prevPosY;
+
+    // Integrated positions, written by phase 8 and consumed by phase 9. The
+    // split exists so non-penetration reads a consistent read-only snapshot
+    // rather than positions other jobs are concurrently updating.
+    std::vector<float> nextPosX;
+    std::vector<float> nextPosY;
     
     // Spatial partitioning (Phase 2)
     SpatialHash spatialHash;
@@ -229,5 +236,7 @@ private:
     void phaseResolution(const Rng& rng);
     void phaseMovement(float dt);
     void phaseMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
+    void phaseContact();                                            // Phase 9: non-penetration
+    void phaseContactChunk(size_t start, size_t end);               // Parallel version
     void clampToWorld();  // Clamps positions to world bounds and bounces velocity (never wraps, despite older code's name for this)
 };

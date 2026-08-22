@@ -79,11 +79,11 @@ uint64_t requireKey(const std::map<std::string, uint64_t>& values, const std::st
 } // namespace
 
 TEST_CASE("counters are non-zero for a real run") {
-    // 700 ticks, not the default 200: at 200 ticks no archer has a legitimate
-    // (cross-team, in-range) target yet -- see counters-2k-700.txt's header --
+    // 1600 ticks, not the default 200: at 200 ticks no archer has a legitimate
+    // (cross-team, in-range) target yet -- see counters-2k-1600.txt's header --
     // so projectileHitTests would be 0 at 200 ticks now that squads no
     // longer acquire a same-team target on tick 1's transient.
-    const CounterSnapshot c = runAndCount(1u, 42u, 700);
+    const CounterSnapshot c = runAndCount(1u, 42u, 1600);
     CHECK(c.candidatesExamined > 0ull);
     CHECK(c.cellsVisited > 0ull);
     CHECK(c.gridInsertions > 0ull);
@@ -134,16 +134,25 @@ TEST_CASE("work counters and state digest match the committed baseline") {
 }
 
 // counters-2k-200.txt never reaches combat: at 2000 agents on the default
-// field, no soldier has died by tick 200 (first death measured at tick 448).
-// It is the ONLY artifact comparing ubuntu and windows output, so without
-// this second baseline, melee resolution, casualty recording, officer
-// capture, and compactDead had NO cross-platform reference at all. 700 ticks
-// is comfortably past first contact (448) while staying cheap: this run
-// completes in a little over a second single-threaded. See that file's
-// header for how to regenerate it -- same rules as counters-2k-200.txt.
+// field, no soldier has died by tick 200. It is the ONLY artifact comparing
+// ubuntu and windows output, so without this second baseline, melee
+// resolution, casualty recording, officer capture, and compactDead had NO
+// cross-platform reference at all.
+//
+// The tick count here is NOT arbitrary and must be re-checked whenever
+// anything changes how fast the armies close. It was 700, chosen when first
+// death landed at tick 448. Non-penetration then slowed the approach by about
+// a third (two dense crowds now physically resist each other), pushing first
+// death past 1100 and leaving the 700-tick run covering no combat at all --
+// which silently defeats the entire purpose of this baseline.
+//
+// 1600 is comfortably past first contact with margin for further tuning. If a
+// later change slows the advance again, move this rather than accepting a
+// green run: the tell is gridInsertions reading exactly agents * ticks, which
+// means nobody died. See that file's header, same rules as counters-2k-200.txt.
 TEST_CASE("work counters and state digest match the committed post-contact baseline") {
-    const auto expected = loadBaseline(std::string(TACTIX_BASELINE_DIR) + "/counters-2k-700.txt");
-    const CounterSnapshot actual = runAndCount(1u, 42u, 700);
+    const auto expected = loadBaseline(std::string(TACTIX_BASELINE_DIR) + "/counters-2k-1600.txt");
+    const CounterSnapshot actual = runAndCount(1u, 42u, 1600);
 
     CHECK(actual.candidatesExamined  == requireKey(expected, "candidatesExamined"));
     CHECK(actual.cellsVisited        == requireKey(expected, "cellsVisited"));

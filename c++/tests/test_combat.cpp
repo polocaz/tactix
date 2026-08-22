@@ -137,7 +137,18 @@ TEST_CASE("melee resolution wired through a full tick draws blood") {
     Simulation sim(1200, 800, 42u);
     sim.init(500);
     sim.setPaused(false);
-    for (int i = 0; i < 900; ++i) sim.tick(1.0f / 60.0f);
+    // 1800 ticks, raised from 900 when non-penetration landed. Bodies now
+    // physically resist each other, which slowed the armies' approach by about
+    // a third, and 900 ticks no longer reaches contact at all on this field.
+    //
+    // Raising a budget to keep a test green is worth being suspicious of, so
+    // to be explicit: this asserts the WIRING (selection, resolution, and the
+    // phase order connect end to end), not the timing. How long an army takes
+    // to cross the field is a separate question, and a real one -- squads
+    // advance at roughly a third of their nominal speed, which is a tuning
+    // matter tracked for the tuning stage, not something this test should
+    // silently encode.
+    for (int i = 0; i < 1800; ++i) sim.tick(1.0f / 60.0f);
 
     bool anyDamaged = false;
     for (size_t i = 0; i < sim.getAgentCount(); ++i) {

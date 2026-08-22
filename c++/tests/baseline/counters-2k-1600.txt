@@ -1,4 +1,4 @@
-# Deterministic work counters and state digest: 2000 agents, 700 ticks, seed 42, 1 thread.
+# Deterministic work counters and state digest: 2000 agents, 1600 ticks, seed 42, 1 thread.
 # Machine-independent by construction. Regenerated 2026-08-22: squad facing is now
 # rate-limited (kFacingSlewRate) instead of snapping to the enemy direction each
 # tick. Facing rotates every formation slot, so this changes where every soldier is
@@ -32,7 +32,7 @@
 # stopped happening and the digest alone will not tell you.
 #
 # Regenerate with:
-#   tactix_bench --agents 2000 --ticks 700 --seed 42 --threads 1 --json
+#   tactix_bench --agents 2000 --ticks 1600 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
 # from that command's JSON output -- stateDigest below is hex, exactly as
@@ -82,10 +82,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=705623983
-cellsVisited=27981086
-gridInsertions=1399979
-jobsDispatched=15431
-squadDecisions=56000
-projectileHitTests=1300
-stateDigest=c243832291bd4efc
+candidatesExamined=2113322916
+cellsVisited=87692421
+gridInsertions=3155411
+jobsDispatched=48832
+squadDecisions=128000
+projectileHitTests=81375
+stateDigest=4c5f2337023c395a

@@ -28,9 +28,14 @@
 # projectileHitTests is 0 in THIS file as of the finding-1 fix to
 # selectTargetSoldier (Squads.cpp): squads no longer acquire a same-team
 # target on tick 1's transient, and at 2000 agents on the default 1280x720
-# field no enemy soldier is within archer range yet at 200 ticks -- first
-# death is at tick 448, first genuine target acquisition later still. See
-# counters-2k-700.txt for a baseline that actually reaches combat.
+# field no enemy soldier is within archer range yet at 200 ticks. See
+# counters-2k-1600.txt for a baseline that actually reaches combat.
+#
+# That companion file was counters-2k-700.txt until non-penetration landed.
+# Bodies now physically resist each other, which slowed the armies' approach by
+# about a third and pushed first death from tick 448 to past 1100, leaving the
+# 700-tick run covering no combat at all. Renamed rather than merely
+# regenerated, so the tick count in the filename cannot quietly go stale again.
 #
 # An intentional optimisation SHOULD change candidatesExamined/cellsVisited/
 # gridInsertions/jobsDispatched/squadDecisions/projectileHitTests. Update
@@ -64,10 +69,10 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=248109254
-cellsVisited=7975469
+candidatesExamined=349862982
+cellsVisited=11477320
 gridInsertions=400000
-jobsDispatched=4400
+jobsDispatched=6000
 squadDecisions=16000
 projectileHitTests=0
-stateDigest=2ba5173a72595e74
+stateDigest=66384e4794a199a0

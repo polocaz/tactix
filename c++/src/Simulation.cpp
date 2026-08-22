@@ -511,8 +511,16 @@ void Simulation::tick(float dt) {
     // Phase 6: serial. The ONLY place cross-agent mutation happens.
     phaseResolution(rng);
 
-    // Phase 7: parallel over soldiers.
+    // Phase 7: parallel over soldiers. Writes nextPos, not pos.
+    nextPosX.resize(soldiers.count);
+    nextPosY.resize(soldiers.count);
     phaseMovement(dt);
+    jobSystem.waitAll();
+
+    // Phase 8: parallel over soldiers. Reads the nextPos snapshot read-only
+    // and writes each soldier's own final position. The barrier above is what
+    // makes that snapshot read-only, so it is load-bearing, not decoration.
+    phaseContact();
     jobSystem.waitAll();
 
     clampToWorld();
@@ -879,8 +887,10 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
             }
         }
 
-        soldiers.posX[i] = newX;
-        soldiers.posY[i] = newY;
+        // Written to the snapshot, not to posX/posY. Phase 9 reads this
+        // snapshot to resolve overlap and is what finally writes position.
+        nextPosX[i] = newX;
+        nextPosY[i] = newY;
 
         // Update direction from velocity (for rendering)
         float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
@@ -1000,4 +1010,29 @@ uint64_t Simulation::stateDigest() const {
         d.mix(projectiles.lifetime[i]);
     }
     return d.value();
+}
+
+void Simulation::phaseContact() {
+    // Parallel over soldiers. Each job reads the nextPos snapshot, which is
+    // read-only for this whole phase, and writes only its own soldier's
+    // position. That is what keeps the result identical at any worker count.
+    const size_t chunkSize = 256;
+    for (size_t start = 0; start < soldiers.count; start += chunkSize) {
+        const size_t end = std::min(start + chunkSize, soldiers.count);
+        jobSystem.submit([this, start, end]() {
+            phaseContactChunk(start, end);
+        });
+        workCounters.add(workCounters.jobsDispatched, 1);
+    }
+
+    // Barrier owned by tick(), not this function -- see the comment on
+    // tick()'s own jobSystem.waitAll() calls.
+}
+
+void Simulation::phaseContactChunk(size_t start, size_t end) {
+    std::vector<uint32_t> localNeighbors;
+    localNeighbors.reserve(64);
+    for (size_t i = start; i < end; ++i) {
+        resolveOverlap(soldiers, nextPosX, nextPosY, spatialHash, i, localNeighbors);
+    }
 }
