@@ -151,6 +151,16 @@ constexpr float kDisciplineInfantry = 0.85f;
 constexpr float kDisciplineArcher   = 0.60f;
 constexpr float kDisciplineCavalry  = 0.70f;
 
+// How close an enemy melee squad must be before an archer squad is judged to
+// need a bodyguard. Deliberately larger than kArcherPanicRadius (design 8.5):
+// the screen should already be in place by the time the archers would panic.
+constexpr float kScreenThreatRadius = 400.0f;
+
+// How often each army re-decides roles, in ticks. The two armies are offset by
+// team so they never decide on the same tick, and an assignment persists long
+// enough to be legible rather than churning every frame.
+constexpr uint32_t kArmyDecideInterval = 30u;
+
 // Combat weight per man, used by the army tier to size how much force an
 // enemy squad demands. Cavalry hit hardest per head, archers least in a
 // stand-up fight, so an equal head count is not an equal threat.

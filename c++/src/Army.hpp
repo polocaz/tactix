@@ -57,3 +57,17 @@ float squadStrength(const SquadHot& squads, size_t squadIndex);
 // Walks squads in ascending index order and accumulates on one thread, so the
 // sums are bit-reproducible regardless of worker count.
 void updateArmyAggregate(const SquadHot& squads, ArmyHot& armies);
+
+// Assigns a role, a ward, and a target to every live squad of `team`
+// (design 7.4). Writes only that team's squads.
+//
+// Serial, and deterministic by construction: every loop walks squads in
+// ascending index and every tie breaks on the lower index. That is what makes
+// the result identical on every platform and at every worker count, which
+// matters because role and targetSquad both reach the state digest.
+//
+// Cost is O(ownSquads x enemySquads), about 40,000 operations at 200 squads a
+// side, run once per team per kArmyDecideInterval ticks. Negligible against a
+// 10,000-agent tick, and the reason an O(squads squared) assignment is
+// affordable where an O(soldiers squared) one would not be.
+void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team);

@@ -68,6 +68,12 @@ struct SquadHot {
     // sustained safety, not an instant of it.
     std::vector<float>   rallyTimer;
 
+    // Commander assignment (design 7.3). Written only by phaseArmyDecide,
+    // read by the squad decide. wardSquad is UINT16_MAX when this squad holds
+    // no Screen assignment.
+    std::vector<uint8_t>  role;
+    std::vector<uint16_t> wardSquad;
+
     size_t count = 0;
 
     void spawn(Team t, UnitType u) {
@@ -96,6 +102,8 @@ struct SquadHot {
         rearThreat.push_back(0);
         nearestEnemyDist.push_back(1e30f);
         rallyTimer.push_back(0.0f);
+        role.push_back(0);                 // SquadRole::Reserve
+        wardSquad.push_back(UINT16_MAX);
         count++;
     }
 };
