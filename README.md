@@ -21,27 +21,40 @@ Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Relea
 | --- | --- |
 | Agents | 10,000 |
 | Simulation rate | 60 ticks/sec, fixed timestep |
-| Tick cost, p50 | 6.6272 ms |
-| Tick cost, p95 | 8.7311 ms |
-| Tick cost, p99 | 8.9762 ms |
-| Tick cost, max | 9.6145 ms |
+| Tick cost, p50 | 9.3526 ms |
+| Tick cost, p95 | 11.3898 ms |
+| Tick cost, p99 | 12.4166 ms |
+| Tick cost, max | 15.4918 ms |
 | Worker threads | 15 (this machine); thread count does not change simulation state (see below) |
-| Agent state | structure of arrays (see `EntityHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
+| Agent state | structure of arrays (see `SoldierHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
 | Neighbor query | uniform grid hash, 3x3 cell lookup |
-| State digest (seed 42) | `303f1e7fa243d549` |
+| State digest (seed 42) | `570e001494b4d711` |
 
-These are roughly double the previously published figures (p50 3.3468 ms), and the cause is
-gameplay, not a performance regression. Arrows used to wound on every contact; they now roll
-against `kArrowHitChancePct` ([`c++/src/Units.hpp`](c++/src/Units.hpp)), so armies survive far
-longer and a 2000-tick run spends most of its ticks simulating a nearly full field instead of the
-handful of survivors left after an early massacre. Measured directly: setting that constant back to
-100 on the same build gives a p50 of 2.8613 ms, below the old figure. Cost per live agent went
-down; the number of live agents went up.
+These are up from a previously published p50 of 6.6272 ms, and the increase has one named cause:
+soldiers now collide with each other. `phaseContact`
+([`c++/src/Contact.cpp`](c++/src/Contact.cpp)) runs one neighbor query per soldier per tick to push
+overlapping bodies apart, which roughly doubles the tick's neighbor-query load.
 
-**This tick cost includes work-counter instrumentation overhead.** `tactix_bench` increments four
+Measured directly rather than asserted: replacing that phase's `queryNeighbors` call with an empty
+candidate set, on the same build and seed, gives a p50 of 6.1557 ms. So the non-penetration pass
+accounts for about 3.2 ms of the 9.35 ms figure, and everything else added in the same body of work
+(front-rank contact detection, formation anchoring, morale and rout, the army coordination tier, and
+the archer arc, settle-time and flight behaviour) together costs under half a millisecond.
+
+That is the same attribution method the earlier `kArrowHitChancePct` note used, and it is what makes
+the claim checkable instead of plausible.
+
+The earlier doubling from p50 3.3468 ms to 6.6272 ms was also gameplay rather than regression:
+arrows used to wound on every contact and now roll against `kArrowHitChancePct`
+([`c++/src/Units.hpp`](c++/src/Units.hpp)), so armies survive far longer and a 2000-tick run spends
+most of its ticks simulating a nearly full field instead of the handful of survivors left after an
+early massacre. Setting that constant back to 100 on that build gave a p50 of 2.8613 ms, below the
+figure before it. Cost per live agent went down; the number of live agents went up.
+
+**This tick cost includes work-counter instrumentation overhead.** `tactix_bench` increments seven
 `std::atomic` counters (`WorkCounters`, see [`c++/src/WorkCounters.hpp`](c++/src/WorkCounters.hpp))
-roughly 216,000 times per tick from worker threads, and the counters share a cache line. That
-contention is real and is baked into every number above; it was deliberately left in place because
+several hundred thousand times per tick from worker threads, and the counters share a cache line.
+That contention is real and is baked into every number above; it was deliberately left in place because
 the proper fix — giving each worker its own cache-line-sized counter block — reshapes a call
 signature that Phase F rewrites wholesale anyway. Phase B's profiler will quantify exactly how much
 of the tick this accounts for.
