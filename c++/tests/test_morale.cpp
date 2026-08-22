@@ -2,6 +2,8 @@
 #include "Morale.hpp"
 #include "Squads.hpp"
 #include "Units.hpp"
+#include "Simulation.hpp"
+#include <algorithm>
 #include <vector>
 
 namespace {
@@ -163,4 +165,76 @@ TEST_CASE("disciplineForUnit gives every type a distinct steadiness") {
     CHECK(disciplineForUnit(UnitType::Infantry) == doctest::Approx(kDisciplineInfantry));
     CHECK(disciplineForUnit(UnitType::Archer)   == doctest::Approx(kDisciplineArcher));
     CHECK(disciplineForUnit(UnitType::Cavalry)  == doctest::Approx(kDisciplineCavalry));
+}
+
+TEST_CASE("discipline is seeded per unit type at deployment") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    bool sawArcher = false, sawInfantry = false;
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        const float d = sim.squadDiscipline(s);
+        CHECK(d > 0.0f);
+        CHECK(d <= 1.0f);
+        if (sim.squadUnitType(s) == UnitType::Archer)   { sawArcher = true;   }
+        if (sim.squadUnitType(s) == UnitType::Infantry) { sawInfantry = true; }
+    }
+    REQUIRE(sawArcher);
+    REQUIRE(sawInfantry);
+}
+
+TEST_CASE("morale actually falls once a battle starts costing lives") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+
+    for (int t = 0; t < 200; ++t) sim.tick(1.0f / 60.0f);
+    // Nobody has died this early, so morale should be pinned at full.
+    float minEarly = 1.0f;
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        minEarly = std::min(minEarly, sim.squadMorale(s));
+    }
+    CHECK(minEarly == doctest::Approx(1.0f));
+
+    // 1600 total, not 900: non-penetration slowed the approach and first death
+    // now lands past tick 1100. See test_counters.cpp for the same trap.
+    for (int t = 0; t < 1400; ++t) sim.tick(1.0f / 60.0f);
+    float minLate = 1.0f;
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        minLate = std::min(minLate, sim.squadMorale(s));
+    }
+    CHECK(minLate < 1.0f);
+}
+
+TEST_CASE("nearestEnemyDist is populated and finite once squads have decided") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    for (int t = 0; t < 10; ++t) sim.tick(1.0f / 60.0f);
+
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        CHECK(sim.squadNearestEnemyDist(s) < 1e29f);
+        CHECK(sim.squadNearestEnemyDist(s) >= 0.0f);
+    }
+}
+
+TEST_CASE("squads actually break in a real battle") {
+    // Without this, Rout is a code path with unit tests and no evidence it
+    // ever fires in the live simulation. It also pins the tuning: if the rout
+    // threshold or the morale rates drift far enough that nobody ever breaks,
+    // the whole morale layer has quietly become decoration.
+    Simulation sim(1280, 720, 42u);
+    sim.init(2000);
+    sim.setPaused(false);
+
+    bool sawRout = false;
+    float lowestMorale = 1.0f;
+    for (int t = 0; t < 3000 && !sawRout; ++t) {
+        sim.tick(1.0f / 60.0f);
+        for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+            lowestMorale = std::min(lowestMorale, sim.squadMorale(s));
+            if (sim.squadOrder(s) == (uint8_t)SquadOrder::Rout) sawRout = true;
+        }
+    }
+    MESSAGE("lowest morale seen " << lowestMorale << ", rout observed " << sawRout);
+    CHECK(sawRout);
 }

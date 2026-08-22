@@ -7,6 +7,7 @@
 #include "DetMath.hpp"
 #include "Combat.hpp"
 #include "Contact.hpp"
+#include "Morale.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -198,6 +199,10 @@ void Simulation::init(size_t soldierCount) {
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
+            // Steadiness is a property of the unit type (Morale.cpp). Set at
+            // deployment rather than defaulted in SquadHot::spawn, because
+            // spawn does not know what it is spawning until the caller says.
+            squads.discipline[squadId] = disciplineForUnit(unit);
             squads.facingX[squadId] = facing;
             squads.facingY[squadId] = 0.0f;
             // Established here, not assumed: slotWorldPosition below (and
@@ -619,8 +624,12 @@ void Simulation::phaseResolution(const Rng& rng) {
         }
     }
     recordCasualties(soldiers, casualties, officerDied);    // step 4
-    // step 5 (morale and discipline) is plan 3; casualties and officerDied are
-    // recorded now precisely so it has something to read when it arrives.
+    // Step 5. Both run BEFORE compaction, because casualties and officerDied
+    // are indexed by squad and describe what happened this tick.
+    // applyRoutTransitions runs second because it consumes the morale
+    // updateMorale just wrote.
+    updateMorale(squads, casualties, officerDied, kFixedTimestep);
+    applyRoutTransitions(squads, kFixedTimestep);
     compactProjectiles(projectiles);
     compactDead(soldiers, prevPosX, prevPosY);              // step 6
     rebuildSquadMembers(soldiers, squads, squadMembers,     // step 7

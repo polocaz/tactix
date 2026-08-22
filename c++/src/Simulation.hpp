@@ -112,6 +112,11 @@ public:
     Team   squadTeam(size_t s) const { return squads.team[s]; }
     uint16_t squadTargetSquad(size_t s) const { return squads.targetSquad[s]; }
     uint8_t  squadContact(size_t s) const { return squads.contact[s]; }
+    float    squadMorale(size_t s) const { return squads.morale[s]; }
+    float    squadDiscipline(size_t s) const { return squads.discipline[s]; }
+    float    squadNearestEnemyDist(size_t s) const { return squads.nearestEnemyDist[s]; }
+    UnitType squadUnitType(size_t s) const { return squads.unitType[s]; }
+    uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
     // Only meaningful mid-tick, between phase 2 (where it is computed) and
     // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
     // clears it to UINT32_MAX once compaction can have invalidated it, so a

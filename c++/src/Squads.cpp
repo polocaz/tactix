@@ -295,6 +295,15 @@ void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, 
     uint16_t best = squads.targetSquad[s];
     bool found = false;
 
+    // Rear-arc threat and nearest-enemy distance are computed HERE, inside the
+    // loop that already visits every enemy squad, so they are free. Morale
+    // (serial resolution) consumes both. Doing it there instead would put an
+    // O(squads squared) walk on the serial path every tick.
+    float nearestSq = 1e30f;
+    uint8_t rear = 0;
+    const float ownFx = squads.facingX[s];
+    const float ownFy = squads.facingY[s];
+
     // Walked in ascending index order so ties resolve identically on every
     // thread and platform.
     for (size_t e = 0; e < squads.count; ++e) {
@@ -303,12 +312,25 @@ void selectTargetSquad(SquadHot& squads, size_t s, const TerrainField& terrain, 
         const float dx = squads.centroidX[e] - squads.centroidX[s];
         const float dy = squads.centroidY[e] - squads.centroidY[s];
         const float d = dx * dx + dy * dy;
+
+        if (d < nearestSq) nearestSq = d;
+
+        // Behind us and close enough to matter. A dot product against facing
+        // is the whole rear-arc test: negative means the enemy is on the side
+        // we are not looking at.
+        if (d < kRallyRadius * kRallyRadius && (dx * ownFx + dy * ownFy) < 0.0f) {
+            rear = 1;
+        }
+
         if (d < bestDistSq) {
             bestDistSq = d;
             best = (uint16_t)e;
             found = true;
         }
     }
+
+    squads.nearestEnemyDist[s] = (nearestSq < 1e30f) ? std::sqrt(nearestSq) : 1e30f;
+    squads.rearThreat[s] = rear;
 
     if (found) {
         squads.targetSquad[s] = best;
