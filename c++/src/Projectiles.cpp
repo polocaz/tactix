@@ -64,8 +64,13 @@ void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
         const float rx = ax * ct - ay * st;
         const float ry = ax * st + ay * ct;
 
+        // The arm distance is computed from the shot actually being taken, so
+        // a point-blank shot arms almost immediately and a long volley stays
+        // above the friendly line for most of its flight. `dist` is already
+        // computed above for the lead, so this costs nothing.
         out.spawn(px, py, rx * kArrowSpeed, ry * kArrowSpeed,
-                  soldiers.team[i], kArrowDamage, kArrowLifetime);
+                  soldiers.team[i], kArrowDamage, kArrowLifetime,
+                  kArrowArcFraction * dist);
     }
 }
 
@@ -104,6 +109,19 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     p.posX[i] = x1;
     p.posY[i] = y1;
 
+    // Distance flown this step, accumulated BEFORE the hit test so an arrow
+    // that arms mid-step is live for the rest of that step rather than waiting
+    // a full tick.
+    const float stepX = x1 - x0;
+    const float stepY = y1 - y0;
+    p.traveled[i] += std::sqrt(stepX * stepX + stepY * stepY);
+
+    // Under the arc: above head height, so it hits nothing at all. This is
+    // what makes a friendly screen directly in front of the archer safe to
+    // shoot over, which is the behaviour the whole positioning layer depends
+    // on being possible.
+    if (p.traveled[i] < p.liveAfter[i]) return;
+
     // Query around the segment's midpoint with a radius covering half its
     // length plus the soldier radius, so nothing along the path is missed.
     // NOTE: SpatialHash::queryNeighbors ignores its radius argument and
@@ -120,7 +138,9 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
 
     uint32_t best = UINT32_MAX;
     for (uint32_t n : scratch) {
-        if (soldiers.team[n] == p.team[i]) continue;
+        // NO team check. A live arrow hits whoever it crosses (design 8.1).
+        // The shooter cannot hit itself, not by a special case but because it
+        // is behind the arm distance by construction.
         if (soldiers.state[n] == SoldierState::Dead) continue;
         if (!segmentHitsCircle(x0, y0, x1, y1,
                                soldiers.posX[n], soldiers.posY[n], kSoldierRadius)) {
@@ -174,6 +194,8 @@ void compactProjectiles(ProjectileHot& p) {
             p.team[i] = p.team[last];
             p.damage[i] = p.damage[last];
             p.lifetime[i] = p.lifetime[last];
+            p.traveled[i] = p.traveled[last];
+            p.liveAfter[i] = p.liveAfter[last];
             p.intentHitTarget[i] = p.intentHitTarget[last];
             // Do not advance i: the entry swapped in is unexamined.
         } else {
@@ -186,6 +208,8 @@ void compactProjectiles(ProjectileHot& p) {
         p.team.pop_back();
         p.damage.pop_back();
         p.lifetime.pop_back();
+        p.traveled.pop_back();
+        p.liveAfter.pop_back();
         p.intentHitTarget.pop_back();
         p.count--;
     }

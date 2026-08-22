@@ -185,3 +185,20 @@ constexpr float kArcherCooldown      = 1.5f;  // seconds between shots
 // decides whether it lands. Tuning knob: lower it for a grindier, melee-led
 // battle, raise it to make archery decisive.
 constexpr int kArrowHitChancePct = 45;
+
+// Fraction of the flight to the target that an arrow spends above head
+// height. Below this it hits nothing at all, friend or foe.
+//
+// This is what resolves a contradiction in the requirements. "Put infantry
+// between yourself and the target" and "avoid friendly fire" are opposites
+// under a flat trajectory, because your own screen is exactly what you would
+// be shooting through. Under an arc they are consistent, for the same reason
+// they were in reality: massed archery was indirect, so the danger to your own
+// side came from where the arrows landed, not from where they were loosed.
+//
+// Two consequences that are correct rather than bugs. A point-blank shot has a
+// tiny liveAfter and so is live almost immediately, which is right: close
+// range archery is direct fire. And an arrow that MISSES stays live for the
+// rest of its flight, so a long overshoot can still strike whatever is behind
+// the target, on either side.
+constexpr float kArrowArcFraction = 0.6f;

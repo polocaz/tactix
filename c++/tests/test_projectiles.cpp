@@ -9,8 +9,8 @@
 TEST_CASE("spawning a projectile appends to every parallel array") {
     ProjectileHot p;
     CHECK(p.count == 0);
-    p.spawn(10.0f, 20.0f, 1.0f, 2.0f, Team::A, 1, 3.0f);
-    p.spawn(30.0f, 40.0f, 3.0f, 4.0f, Team::B, 2, 4.0f);
+    p.spawn(10.0f, 20.0f, 1.0f, 2.0f, Team::A, 1, 3.0f, 0.0f);
+    p.spawn(30.0f, 40.0f, 3.0f, 4.0f, Team::B, 2, 4.0f, 0.0f);
 
     CHECK(p.count == 2);
     CHECK(p.posX.size() == 2);
@@ -157,7 +157,7 @@ TEST_CASE("a swept test catches a target a point test would tunnel through") {
 
 TEST_CASE("an arrow expires when its lifetime runs out") {
     ProjectileHot p;
-    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f);
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f, 0.0f);
     SoldierHot s;
     SpatialHash hash(1280.0f, 720.0f, 50.0f);
     std::vector<uint32_t> scratch;
@@ -191,7 +191,7 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
         const uint8_t before = s.health[0];
 
         ProjectileHot p;
-        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
         p.intentHitTarget[0] = 0;
 
         applyProjectileHits(p, s, Rng{42u, tick});
@@ -214,7 +214,7 @@ TEST_CASE("an arrow cannot finish off an already dead soldier") {
     s.health[0] = 0;
 
     ProjectileHot p;
-    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
     p.intentHitTarget[0] = 0;
 
     applyProjectileHits(p, s, Rng{42u, 1u});
@@ -244,7 +244,8 @@ void checkProjectileArraysConsistent(const ProjectileHot& p) {
 // vector's LENGTH still matches count.
 void spawnProjectileFingerprinted(ProjectileHot& p, int k) {
     p.spawn(100.0f + (float)k, 200.0f + (float)k, 300.0f + (float)k, 400.0f + (float)k,
-           (k % 2 == 0) ? Team::A : Team::B, (uint8_t)(k + 1), 500.0f + (float)k);
+           (k % 2 == 0) ? Team::A : Team::B, (uint8_t)(k + 1), 500.0f + (float)k,
+           600.0f + (float)k);
     p.intentHitTarget[p.count - 1] = (uint32_t)(1000 + k);
 }
 
@@ -264,9 +265,9 @@ void checkProjectileFingerprintIntact(const ProjectileHot& p, size_t i) {
 
 TEST_CASE("spent and expired arrows are removed") {
     ProjectileHot p;
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 1.0f);
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, -0.1f);  // expired
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 2.0f);
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 1.0f, 0.0f);
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, -0.1f, 0.0f);  // expired
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 2.0f, 0.0f);
 
     compactProjectiles(p);
 
@@ -349,4 +350,73 @@ TEST_CASE("arrows exist and are consumed in a running battle") {
     // Archers must actually shoot, and the array must not grow without bound.
     CHECK(peak > 0);
     CHECK(sim.getProjectileCount() < peak * 4 + 100);
+}
+
+namespace {
+// One arrow flying +x from the origin, with a single soldier of the given team
+// planted at `fraction` of the way to a target `dist` away. Returns the arrow's
+// intentHitTarget after flying far enough to reach that soldier.
+uint32_t flyPast(Team arrowTeam, Team soldierTeam, float dist, float fraction) {
+    SoldierHot soldiers;
+    soldiers.spawn(dist * fraction, 0.0f, 0.0f, 0.0f, soldierTeam,
+                   UnitType::Infantry, 0);
+
+    SpatialHash hash(1280.0f, 720.0f, 50.0f);
+    hash.insert(0u, soldiers.posX[0], soldiers.posY[0]);
+
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, arrowTeam, kArrowDamage,
+            kArrowLifetime, kArrowArcFraction * dist);
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    for (int t = 0; t < 600 && p.posX[0] <= dist * fraction + 20.0f; ++t) {
+        integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+        if (p.intentHitTarget[0] != UINT32_MAX) break;
+    }
+    return p.intentHitTarget[0];
+}
+} // namespace
+
+TEST_CASE("an arrow passes harmlessly over anyone under its arc") {
+    // 20 percent along, well inside kArrowArcFraction.
+    CHECK(flyPast(Team::A, Team::A, 400.0f, 0.2f) == UINT32_MAX);
+    CHECK(flyPast(Team::A, Team::B, 400.0f, 0.2f) == UINT32_MAX);
+}
+
+TEST_CASE("an arrow is live near the target and hits either team") {
+    CHECK(flyPast(Team::A, Team::B, 400.0f, 0.95f) == 0u);
+    // The whole point: your own men near the impact are NOT safe.
+    CHECK(flyPast(Team::A, Team::A, 400.0f, 0.95f) == 0u);
+}
+
+TEST_CASE("a point-blank shot is live almost immediately") {
+    // liveAfter scales with the shot distance, so close range is direct fire.
+    CHECK(flyPast(Team::A, Team::B, 30.0f, 0.9f) == 0u);
+}
+
+TEST_CASE("traveled accumulates with flight distance") {
+    SoldierHot soldiers;
+    SpatialHash hash(1280.0f, 720.0f, 50.0f);
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, kArrowDamage,
+            kArrowLifetime, 1e9f);   // never arms, so it just flies
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    for (int t = 0; t < 30; ++t) integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+
+    CHECK(p.traveled[0] == doctest::Approx(kArrowSpeed * dt * 30.0f).epsilon(1e-3));
+}
+
+TEST_CASE("compaction moves the arc fields with everything else") {
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 0.0f, 111.0f);   // expired
+    p.spawn(5.0f, 0.0f, 1.0f, 0.0f, Team::B, 1, 1.0f, 222.0f);   // alive
+    p.traveled[1] = 33.0f;
+
+    compactProjectiles(p);
+    REQUIRE(p.count == 1);
+    CHECK(p.liveAfter[0] == doctest::Approx(222.0f));
+    CHECK(p.traveled[0]  == doctest::Approx(33.0f));
 }
