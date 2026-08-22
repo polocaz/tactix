@@ -151,6 +151,15 @@ constexpr float kDisciplineInfantry = 0.85f;
 constexpr float kDisciplineArcher   = 0.60f;
 constexpr float kDisciplineCavalry  = 0.70f;
 
+// Combat weight per man, used by the army tier to size how much force an
+// enemy squad demands. Cavalry hit hardest per head, archers least in a
+// stand-up fight, so an equal head count is not an equal threat.
+constexpr float kStrengthPerMan[kUnitTypeCount] = {
+    /* Infantry */ 1.0f,
+    /* Archer   */ 0.7f,
+    /* Cavalry  */ 1.6f,
+};
+
 // Shot accuracy. Spread is carried in integer milliradians because Rng::range
 // is integer-only; passing float bounds to it does not compile.
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
