@@ -203,3 +203,34 @@ TEST_CASE("deployment is deterministic for a seed") {
     b.init(500);
     CHECK(a.stateDigest() == b.stateDigest());
 }
+
+TEST_CASE("deployment never spawns a soldier inside an obstacle") {
+    // Design §11.1 / §14.1: no soldier spawned by init may be inside a
+    // building or tree after jitter. Sweep several seeds and scales; the
+    // safe-deployment fix (§5.1) clears each jittered slot, so this must
+    // hold even for a soldier whose jitter would otherwise land on a wall.
+    for (uint32_t seed : {1u, 7u, 42u}) {
+        Simulation sim(1280, 720, seed);
+        sim.init(2000);
+        for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+            CHECK_FALSE(sim.insideAnyObstacle({sim.soldierX(i), sim.soldierY(i)}));
+        }
+    }
+}
+
+TEST_CASE("jittered deployment is obstacle-cleared") {
+    // Design §11.1: the final spawned position -- after jitter AND clearing --
+    // is outside every obstacle's standoff. Equivalent to the no-inside sweep
+    // above but stated as a property of the cleared point itself on a field
+    // that actually contains buildings and trees.
+    Simulation sim(1280, 720, 42u);
+    sim.init(10000);
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        const Vec2 p{sim.soldierX(i), sim.soldierY(i)};
+        CHECK_FALSE(sim.insideAnyObstacle(p));
+        // And the cleared point must itself be the clear point: idempotent.
+        const Vec2 again = sim.clearOfObstacles(p);
+        CHECK(std::abs(again.x - p.x) < 1e-3f);
+        CHECK(std::abs(again.y - p.y) < 1e-3f);
+    }
+}

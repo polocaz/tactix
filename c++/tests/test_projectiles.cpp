@@ -9,8 +9,8 @@
 TEST_CASE("spawning a projectile appends to every parallel array") {
     ProjectileHot p;
     CHECK(p.count == 0);
-    p.spawn(10.0f, 20.0f, 1.0f, 2.0f, Team::A, 1, 3.0f);
-    p.spawn(30.0f, 40.0f, 3.0f, 4.0f, Team::B, 2, 4.0f);
+    p.spawn(10.0f, 20.0f, 1.0f, 2.0f, Team::A, 1, 3.0f, 0.0f);
+    p.spawn(30.0f, 40.0f, 3.0f, 4.0f, Team::B, 2, 4.0f, 0.0f);
 
     CHECK(p.count == 2);
     CHECK(p.posX.size() == 2);
@@ -82,14 +82,20 @@ TEST_CASE("spread is bounded and deterministic") {
     // rather than a pasted number: shot distance is 200px (300 - 100), the
     // shooter here is stationary (shooterSpeed == 0, so that factor drops
     // out), and maxRange comes from the archer's own UnitStats -- giving
-    // spreadMrad = 40 * (1 + 200/280) ~= 68.57, truncated to 68, i.e. a true
-    // bound of 0.068 rad. A 10% margin over that (still ~7x tighter than the
-    // old flat 0.5f, which was loose enough to pass even with excess spread)
-    // is enough to absorb the int truncation without actually being blind to
-    // a regression.
+    // spreadMrad = 40 * (1 + 200/280) * settleMul, truncated to an int. A 10%
+    // margin over that (still far tighter than the old flat 0.5f, which was
+    // loose enough to pass even with excess spread) absorbs the truncation
+    // without being blind to a regression.
+    //
+    // settleMul is kUnsettledSpreadMultiplier here, not 1: these archers are
+    // freshly spawned, so steadyTimer is 0 and they have not settled. Deriving
+    // the bound from the same terms spawnArrows uses is what kept this test
+    // meaningful when the settle term was added rather than merely making it
+    // fail; a pasted number would have had to be re-guessed.
     const float dist = 300.0f - 100.0f;
     const float maxRange = kUnitStats[(int)UnitType::Archer].range;
-    const float maxSpread = (float)kArrowBaseSpreadMrad * (1.0f + dist / maxRange) * 0.001f;
+    const float maxSpread = (float)kArrowBaseSpreadMrad * (1.0f + dist / maxRange)
+                          * kUnsettledSpreadMultiplier * 0.001f;
     const float angle = std::atan2(a.velY[0], a.velX[0]);
     CHECK(std::fabs(angle) < maxSpread * 1.1f);
 }
@@ -157,7 +163,7 @@ TEST_CASE("a swept test catches a target a point test would tunnel through") {
 
 TEST_CASE("an arrow expires when its lifetime runs out") {
     ProjectileHot p;
-    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f);
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f, 0.0f);
     SoldierHot s;
     SpatialHash hash(1280.0f, 720.0f, 50.0f);
     std::vector<uint32_t> scratch;
@@ -179,19 +185,33 @@ TEST_CASE("no target means no arrow") {
     CHECK(p.count == 0);
 }
 
-TEST_CASE("an arrow hit costs the target health and spends the arrow") {
-    SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
-    const uint8_t before = s.health[0];
+TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either way") {
+    // Contact is no longer a guaranteed wound (kArrowHitChancePct). What must
+    // hold for every arrow is that it is SPENT on contact -- a glance that
+    // stayed alive would re-roll next tick and make the chance meaningless.
+    int landed = 0;
+    const int shots = 400;
+    for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
+        SoldierHot s;
+        s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+        const uint8_t before = s.health[0];
 
-    ProjectileHot p;
-    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
-    p.intentHitTarget[0] = 0;
+        ProjectileHot p;
+        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
+        p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s);
+        applyProjectileHits(p, s, Rng{42u, tick});
 
-    CHECK(s.health[0] == before - kArrowDamage);
-    CHECK(p.lifetime[0] <= 0.0f);
+        CHECK(p.lifetime[0] <= 0.0f);
+        const bool hit = s.health[0] == before - kArrowDamage;
+        CHECK((hit || s.health[0] == before));  // never anything in between
+        if (hit) ++landed;
+    }
+
+    // Wide band on purpose: this guards that the roll is wired up and roughly
+    // centred on the constant, not that 400 samples hit it exactly.
+    CHECK(landed > shots * (kArrowHitChancePct - 15) / 100);
+    CHECK(landed < shots * (kArrowHitChancePct + 15) / 100);
 }
 
 TEST_CASE("an arrow cannot finish off an already dead soldier") {
@@ -200,10 +220,10 @@ TEST_CASE("an arrow cannot finish off an already dead soldier") {
     s.health[0] = 0;
 
     ProjectileHot p;
-    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f);
+    p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
     p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s);
+    applyProjectileHits(p, s, Rng{42u, 1u});
     CHECK(s.health[0] == 0);  // no underflow to 255
 }
 
@@ -230,7 +250,8 @@ void checkProjectileArraysConsistent(const ProjectileHot& p) {
 // vector's LENGTH still matches count.
 void spawnProjectileFingerprinted(ProjectileHot& p, int k) {
     p.spawn(100.0f + (float)k, 200.0f + (float)k, 300.0f + (float)k, 400.0f + (float)k,
-           (k % 2 == 0) ? Team::A : Team::B, (uint8_t)(k + 1), 500.0f + (float)k);
+           (k % 2 == 0) ? Team::A : Team::B, (uint8_t)(k + 1), 500.0f + (float)k,
+           600.0f + (float)k);
     p.intentHitTarget[p.count - 1] = (uint32_t)(1000 + k);
 }
 
@@ -250,9 +271,9 @@ void checkProjectileFingerprintIntact(const ProjectileHot& p, size_t i) {
 
 TEST_CASE("spent and expired arrows are removed") {
     ProjectileHot p;
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 1.0f);
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, -0.1f);  // expired
-    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 2.0f);
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 1.0f, 0.0f);
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, -0.1f, 0.0f);  // expired
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 2.0f, 0.0f);
 
     compactProjectiles(p);
 
@@ -304,8 +325,17 @@ TEST_CASE("an archer cannot fire on consecutive ticks") {
     // correctly retargeted, fires for the first time. By the end of tick 2
     // every in-range archer squad has fired exactly once and is on cooldown
     // -- that is the settled state this test actually checks.
-    sim.tick(1.0f / 60.0f);
-    sim.tick(1.0f / 60.0f);
+    // Settle for 8 ticks rather than 2. Two was enough when every archer
+    // squad's first shot landed on tick 1 or 2, but which squads are in range
+    // that early depends on where the commander sends everyone, so a role
+    // change elsewhere can leave one squad firing its FIRST shot on tick 3 and
+    // make this look like a cooldown failure when it is not.
+    //
+    // 8 is still far inside the guarantees this test needs: kArcherCooldown is
+    // 1.5s (90 ticks), so nothing that fired can fire again, and arrows have
+    // moved about 27px against a gap well over 150px, so none have hit or
+    // expired to mask growth by shrinking the count.
+    for (int t = 0; t < 8; ++t) sim.tick(1.0f / 60.0f);
     const size_t afterSettling = sim.getProjectileCount();
     REQUIRE(afterSettling > 0);
 
@@ -335,4 +365,143 @@ TEST_CASE("arrows exist and are consumed in a running battle") {
     // Archers must actually shoot, and the array must not grow without bound.
     CHECK(peak > 0);
     CHECK(sim.getProjectileCount() < peak * 4 + 100);
+}
+
+namespace {
+// One arrow flying +x from the origin, with a single soldier of the given team
+// planted at `fraction` of the way to a target `dist` away. Returns the arrow's
+// intentHitTarget after flying far enough to reach that soldier.
+uint32_t flyPast(Team arrowTeam, Team soldierTeam, float dist, float fraction) {
+    SoldierHot soldiers;
+    soldiers.spawn(dist * fraction, 0.0f, 0.0f, 0.0f, soldierTeam,
+                   UnitType::Infantry, 0);
+
+    SpatialHash hash(1280.0f, 720.0f, 50.0f);
+    hash.insert(0u, soldiers.posX[0], soldiers.posY[0]);
+
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, arrowTeam, kArrowDamage,
+            kArrowLifetime, kArrowArcFraction * dist);
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    for (int t = 0; t < 600 && p.posX[0] <= dist * fraction + 20.0f; ++t) {
+        integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+        if (p.intentHitTarget[0] != UINT32_MAX) break;
+    }
+    return p.intentHitTarget[0];
+}
+} // namespace
+
+TEST_CASE("an arrow passes harmlessly over anyone under its arc") {
+    // 20 percent along, well inside kArrowArcFraction.
+    CHECK(flyPast(Team::A, Team::A, 400.0f, 0.2f) == UINT32_MAX);
+    CHECK(flyPast(Team::A, Team::B, 400.0f, 0.2f) == UINT32_MAX);
+}
+
+TEST_CASE("an arrow is live near the target and hits either team") {
+    CHECK(flyPast(Team::A, Team::B, 400.0f, 0.95f) == 0u);
+    // The whole point: your own men near the impact are NOT safe.
+    CHECK(flyPast(Team::A, Team::A, 400.0f, 0.95f) == 0u);
+}
+
+TEST_CASE("a point-blank shot is live almost immediately") {
+    // liveAfter scales with the shot distance, so close range is direct fire.
+    CHECK(flyPast(Team::A, Team::B, 30.0f, 0.9f) == 0u);
+}
+
+TEST_CASE("traveled accumulates with flight distance") {
+    SoldierHot soldiers;
+    SpatialHash hash(1280.0f, 720.0f, 50.0f);
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, kArrowDamage,
+            kArrowLifetime, 1e9f);   // never arms, so it just flies
+
+    std::vector<uint32_t> scratch;
+    const float dt = 1.0f / 60.0f;
+    for (int t = 0; t < 30; ++t) integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+
+    CHECK(p.traveled[0] == doctest::Approx(kArrowSpeed * dt * 30.0f).epsilon(1e-3));
+}
+
+TEST_CASE("compaction moves the arc fields with everything else") {
+    ProjectileHot p;
+    p.spawn(0.0f, 0.0f, 1.0f, 0.0f, Team::A, 1, 0.0f, 111.0f);   // expired
+    p.spawn(5.0f, 0.0f, 1.0f, 0.0f, Team::B, 1, 1.0f, 222.0f);   // alive
+    p.traveled[1] = 33.0f;
+
+    compactProjectiles(p);
+    REQUIRE(p.count == 1);
+    CHECK(p.liveAfter[0] == doctest::Approx(222.0f));
+    CHECK(p.traveled[0]  == doctest::Approx(33.0f));
+}
+
+namespace {
+// Spawns arrows from `n` archers at the given speed and settle time, all
+// aimed at one target straight ahead, and returns the mean perpendicular
+// deviation at the target's range. Averaged over many soldier indices because
+// the spread roll is keyed on index.
+float meanAimErrorPx(float speed, float steady) {
+    constexpr int kArchers = 64;
+    const float range = 200.0f;
+
+    SoldierHot soldiers;
+    // Index 0 is the target, so squads.targetSoldier can name it directly.
+    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, 1);
+
+    SquadHot squads;
+    squads.spawn(Team::A, UnitType::Archer);
+    squads.spawn(Team::B, UnitType::Infantry);
+    squads.memberCount[0] = kArchers;
+    squads.memberCount[1] = 1;
+    squads.targetSquad[0] = 1;
+    squads.targetSoldier[0] = 0u;
+
+    for (int k = 0; k < kArchers; ++k) {
+        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, UnitType::Archer, 0);
+        const size_t idx = soldiers.count - 1;
+        soldiers.intentFire[idx] = 1;
+        soldiers.steadyTimer[idx] = steady;
+    }
+
+    ProjectileHot p;
+    const Rng rng{ 42u, 7u };
+    spawnArrows(soldiers, squads, p, rng);
+    REQUIRE(p.count > 0);
+
+    float total = 0.0f;
+    for (size_t i = 0; i < p.count; ++i) {
+        const float len = std::sqrt(p.velX[i] * p.velX[i] + p.velY[i] * p.velY[i]);
+        total += std::abs(p.velY[i] / len) * range;
+    }
+    return total / (float)p.count;
+}
+} // namespace
+
+TEST_CASE("a settled archer shoots tighter than an unsettled one") {
+    const float settled   = meanAimErrorPx(0.0f, kSteadyTime * 2.0f);
+    const float unsettled = meanAimErrorPx(0.0f, 0.0f);
+    CHECK(settled < unsettled);
+}
+
+TEST_CASE("a moving archer shoots wider than a stationary one") {
+    const float still  = meanAimErrorPx(0.0f, kSteadyTime * 2.0f);
+    const float moving = meanAimErrorPx(kUnitStats[(int)UnitType::Archer].speed,
+                                        kSteadyTime * 2.0f);
+    CHECK(moving > still);
+}
+
+TEST_CASE("steadyTimer accumulates while still and resets on movement") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    for (int t = 0; t < 120; ++t) sim.tick(1.0f / 60.0f);
+
+    bool sawSettled = false, sawUnsettled = false;
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        if (sim.soldierSteadyTimer(i) > 0.0f) sawSettled = true;
+        if (sim.soldierSteadyTimer(i) == 0.0f) sawUnsettled = true;
+    }
+    CHECK(sawSettled);
+    CHECK(sawUnsettled);
 }

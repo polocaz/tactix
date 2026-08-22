@@ -17,3 +17,21 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t squadIndex,
 // safe to call from a parallel phase.
 void steerToSlot(SoldierHot& soldiers, const SquadHot& squads,
                  size_t soldierIndex, float dt);
+
+// Same arrival behaviour, against a target the caller has already resolved.
+// The live simulation uses this rather than steerToSlot: only Simulation
+// knows where the obstacles are, so only Simulation can slide a slot that
+// landed inside a wall out to a point a soldier can actually stand on
+// (Simulation::clearOfObstacles).
+// `speedScale` multiplies the unit's base speed. Used for flight: a routing or
+// withdrawing squad drops its discipline and runs. Defaulted so existing
+// callers and tests are untouched.
+void steerToward(SoldierHot& soldiers, size_t soldierIndex, Vec2 target, float dt,
+                 float speedScale = 1.0f);
+
+// How tightly this squad stands, applied to formation DEPTH only.
+// cohesion = discipline * morale, mapped onto [kMinCompression, 1], times an
+// extra squeeze while engaged. Lives here rather than in Formation.hpp because
+// it reads squad state, and formationSlot is deliberately a pure function of
+// shape and index with no squad knowledge at all.
+float squadCompression(const SquadHot& squads, size_t squadIndex);

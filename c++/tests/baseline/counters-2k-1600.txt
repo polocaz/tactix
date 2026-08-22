@@ -1,10 +1,15 @@
-# Deterministic work counters and state digest: 2000 agents, 200 ticks, seed 42, 1 thread.
+# Deterministic work counters and state digest: 2000 agents, 1600 ticks, seed 42, 1 thread.
 # Machine-independent by construction. Regenerated 2026-08-22: squad facing is now
 # rate-limited (kFacingSlewRate) instead of snapping to the enemy direction each
 # tick. Facing rotates every formation slot, so this changes where every soldier is
-# told to stand and therefore the whole battle. Deliberate behavioural change, not a
-# bug. stateDigest moves, and the position-dependent counters
-# (candidatesExamined/cellsVisited) move with it.
+# told to stand and therefore the whole battle. Deliberate behavioural change.
+#
+# projectileHitTests moves 150 -> 1500 here, a ten-fold jump worth explaining
+# rather than pasting silently. Archer engagement is a step function of whether a
+# target sits inside the 280px range, so a small change in where formations end up
+# flips whole squads from "no target in range" to "firing every cooldown". The
+# slewed facing delays each squad's turn toward its objective, which changes where
+# the archer line settles. More arrows in flight, not more work per arrow.
 #
 # candidatesExamined/cellsVisited were then updated a SECOND time, for front-rank
 # contact detection (Contact.cpp), which adds a neighbour query per front-rank
@@ -14,8 +19,28 @@
 # consumes the contact flag. If a later change to detection moves the digest
 # while claiming to be observation-only, that is a bug, not a regeneration.
 #
+# Regenerated a THIRD time for anchor latching: a squad in contact now freezes
+# its formation origin instead of rebuilding slots from a centroid its own
+# members are moving. Formations halt on contact rather than interpenetrating.
+#
+# Watch gridInsertions here, not just the digest. It is the sum of live agent
+# counts over every tick, so at 2000 agents and 1600 ticks the value 3200000
+# would mean NOBODY DIED. That is exactly what an early version of the contact
+# halt produced, because kContactRadius was set above kMeleeReach and the halt
+# froze the line permanently out of swinging range. If this key ever reads
+# exactly agents * ticks again, combat has stopped happening and the digest
+# alone will not tell you.
+#
+# The final regeneration was a digest-only move, the third legitimate case
+# described below: stateDigest now covers the contact, anchor, morale-input,
+# commander, settle-timer, arrow-arc and army-tier fields, which it previously
+# did not hash at all. Every OTHER value in this file was byte-identical across
+# that change, and that is the evidence the expansion hashed more state without
+# altering any behaviour. If a future digest-only change moves a counter too,
+# it is not digest-only.
+#
 # Regenerate with:
-#   tactix_bench --agents 2000 --ticks 200 --seed 42 --threads 1 --json
+#   tactix_bench --agents 2000 --ticks 1600 --seed 42 --threads 1 --json
 # Paste the six counters (candidatesExamined/cellsVisited/gridInsertions/
 # jobsDispatched/squadDecisions/projectileHitTests) and stateDigest straight
 # from that command's JSON output -- stateDigest below is hex, exactly as
@@ -25,17 +50,16 @@
 # the wrong slot (or in the wrong base) fails the test loudly instead of
 # silently.
 #
-# projectileHitTests is 0 in THIS file as of the finding-1 fix to
-# selectTargetSoldier (Squads.cpp): squads no longer acquire a same-team
-# target on tick 1's transient, and at 2000 agents on the default 1280x720
-# field no enemy soldier is within archer range yet at 200 ticks. See
-# counters-2k-1600.txt for a baseline that actually reaches combat.
+# 1600 ticks, not 200: counters-2k-200.txt never reaches combat, and it is the
+# ONLY artifact comparing ubuntu and windows output. Without a baseline past
+# first contact, melee resolution, casualty recording, officer capture, and
+# compactDead have NO cross-platform reference at all.
 #
-# That companion file was counters-2k-700.txt until non-penetration landed.
-# Bodies now physically resist each other, which slowed the armies' approach by
-# about a third and pushed first death from tick 448 to past 1100, leaving the
-# 700-tick run covering no combat at all. Renamed rather than merely
-# regenerated, so the tick count in the filename cannot quietly go stale again.
+# This file was 700 ticks when first death landed at tick 448. Non-penetration
+# then slowed the armies' approach by about a third and pushed first death past
+# tick 1100, which left the 700-tick run covering no combat whatsoever. Re-check
+# this tick count whenever anything changes how fast the armies close, using the
+# gridInsertions tell above.
 #
 # An intentional optimisation SHOULD change candidatesExamined/cellsVisited/
 # gridInsertions/jobsDispatched/squadDecisions/projectileHitTests. Update
@@ -69,11 +93,11 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=303068211
-cellsVisited=11283339
-gridInsertions=400000
-jobsDispatched=6000
-squadDecisions=16000
-armyDecisions=14
-projectileHitTests=0
-stateDigest=e164a76b899f14d7
+candidatesExamined=1641521168
+cellsVisited=86340174
+gridInsertions=3150288
+jobsDispatched=49052
+squadDecisions=128000
+armyDecisions=108
+projectileHitTests=65187
+stateDigest=d53a6775ef31f6ca

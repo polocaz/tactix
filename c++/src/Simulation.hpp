@@ -12,6 +12,8 @@
 #include "Units.hpp"
 #include "Squads.hpp"
 #include "Projectiles.hpp"
+#include "Terrain.hpp"
+#include "Army.hpp"
 
 // Structure of Arrays (SoA) for cache-friendly memory layout (Design Doc §2.1)
 struct SoldierHot {
@@ -32,6 +34,10 @@ struct SoldierHot {
     std::vector<uint32_t>     intentTarget;   // UINT32_MAX means none
     std::vector<uint8_t>      intentFire;
 
+    // Seconds spent below a walking pace. Archery accuracy needs a settled
+    // shooter, and this is what makes standing still worth something.
+    std::vector<float>        steadyTimer;
+
     size_t count = 0;
 
     void reserve(size_t n) {
@@ -51,6 +57,7 @@ struct SoldierHot {
         attackCooldown.reserve(n);
         intentTarget.reserve(n);
         intentFire.reserve(n);
+        steadyTimer.reserve(n);
     }
 
     void spawn(float px, float py, float vx, float vy, Team t, UnitType ut, uint16_t squad) {
@@ -76,8 +83,38 @@ struct SoldierHot {
         attackCooldown.push_back(0.0f);
         intentTarget.push_back(std::numeric_limits<uint32_t>::max());
         intentFire.push_back(0);
+        steadyTimer.push_back(0.0f);
 
         count++;
+    }
+
+    // Empties every array and resets the count. Lives HERE, next to spawn(),
+    // and not as a hand-written list in Simulation::reset, because those two
+    // lists have to agree field for field and nothing checks that they do.
+    //
+    // They did not agree: reset() set count to 0 while leaving the newer
+    // arrays populated, so the next init() pushed onto them and every new
+    // field came out offset by the previous run's count, silently reading the
+    // last battle's values. Adding a field is now one edit here instead of a
+    // memory-corruption bug waiting on someone remembering a second list.
+    void clear() {
+        posX.clear();
+        posY.clear();
+        velX.clear();
+        velY.clear();
+        dirX.clear();
+        dirY.clear();
+        team.clear();
+        unitType.clear();
+        state.clear();
+        squadId.clear();
+        slotIndex.clear();
+        health.clear();
+        attackCooldown.clear();
+        intentTarget.clear();
+        intentFire.clear();
+        steadyTimer.clear();
+        count = 0;
     }
 };
 
@@ -110,12 +147,46 @@ public:
     float  squadCentroidY(size_t s) const { return squads.centroidY[s]; }
     Team   squadTeam(size_t s) const { return squads.team[s]; }
     uint16_t squadTargetSquad(size_t s) const { return squads.targetSquad[s]; }
+    uint8_t  squadContact(size_t s) const { return squads.contact[s]; }
+    float    squadMorale(size_t s) const { return squads.morale[s]; }
+    float    squadDiscipline(size_t s) const { return squads.discipline[s]; }
+    float    squadNearestEnemyDist(size_t s) const { return squads.nearestEnemyDist[s]; }
+    UnitType squadUnitType(size_t s) const { return squads.unitType[s]; }
+    uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
+    uint8_t  squadRole(size_t s) const { return squads.role[s]; }
+    float    armyCentroidX(Team t) const { return armies.centroidX[(size_t)t]; }
+    float    armyCentroidY(Team t) const { return armies.centroidY[(size_t)t]; }
+    uint16_t squadWardSquad(size_t s) const { return squads.wardSquad[s]; }
+    float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
+    float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }
+    uint16_t soldierSquadId(size_t i) const { return soldiers.squadId[i]; }
+    float    soldierDirX(size_t i) const { return soldiers.dirX[i]; }
+    float    soldierDirY(size_t i) const { return soldiers.dirY[i]; }
+    float    squadFacingX(size_t s) const { return squads.facingX[s]; }
+    float    squadFacingY(size_t s) const { return squads.facingY[s]; }
+    float    soldierSteadyTimer(size_t i) const { return soldiers.steadyTimer[i]; }
+    float    soldierSpeed(size_t i) const {
+        return std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
+                         soldiers.velY[i] * soldiers.velY[i]);
+    }
     // Only meaningful mid-tick, between phase 2 (where it is computed) and
     // resolution step 3 (where spawnArrows consumes it) -- phaseResolution
     // clears it to UINT32_MAX once compaction can have invalidated it, so a
     // caller reading this between ticks always sees UINT32_MAX, never a
     // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
+
+    // Nearest point to p that a soldier can actually stand on: clear of
+    // every building and tree by kObstacleStandoff. See TerrainField for the
+    // definition and why formation slots are routed through it. Public here
+    // as a thin delegating wrapper so existing callers and tests are
+    // unchanged (design §4.1: Simulation owns generation, terrain owns
+    // geometry).
+    Vec2 clearOfObstacles(Vec2 p) const { return terrain.clearOfObstacles(p); }
+
+    // True if p is inside any building or tree. Exposed so a test can state
+    // the property clearOfObstacles establishes.
+    bool insideAnyObstacle(Vec2 p) const { return terrain.insideAnyObstacle(p); }
 
     // Distance from one soldier to its own formation slot (Task 8).
     float  slotError(size_t i) const;
@@ -159,6 +230,10 @@ private:
 
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
+
+    // The army tier: exactly two entries, one per team. Never destroyed, so
+    // nothing reading an army index needs a liveness check.
+    ArmyHot armies;
     std::vector<uint32_t> squadMembers;
     // Scratch for rebuildSquadMembers, owned here so the once-a-tick serial
     // call reuses this capacity instead of heap-allocating every tick.
@@ -176,6 +251,12 @@ private:
     // Previous state for interpolation
     std::vector<float> prevPosX;
     std::vector<float> prevPosY;
+
+    // Integrated positions, written by phase 8 and consumed by phase 9. The
+    // split exists so non-penetration reads a consistent read-only snapshot
+    // rather than positions other jobs are concurrently updating.
+    std::vector<float> nextPosX;
+    std::vector<float> nextPosY;
     
     // Spatial partitioning (Phase 2)
     SpatialHash spatialHash;
@@ -188,23 +269,19 @@ private:
     bool debugGrid = false;
     bool paused = true;  // Start paused
 
-    // Static obstacles for environment
-    struct Building {
-        float x, y, width, height;
-    };
-    struct Tree {
-        float x, y, radius;
-    };
-    std::vector<Building> buildings;
-    std::vector<Tree> trees;
+    // Static obstacles for environment. Geometry lives on TerrainField; this
+    // is the Simulation-owned instance (design §4.1). generateObstacles
+    // populates it; per-soldier collision and squad terrain scoring read it.
+    TerrainField terrain;
 
     void generateObstacles();  // Procedural obstacle generation
 
     // Tick phases, in the order Simulation::tick calls them (Design Doc §4).
     void rebuildSpatialHash();  // Rebuild spatial hash each tick
     void rebuildInfluence();    // Stub: plan 3 fills this in.
-    void phaseSquadAggregate();       // Plan 7: recomputes each squad's centroid and facing, parallel across squads.
-    void phaseSquadDecide(const Rng& rng);  // Stub: plan 3 fills this in.
+    void phaseSquadAggregate(float dt);       // Plan 7: recomputes each squad's centroid and facing, parallel across squads.
+    void phaseArmyDecide();                  // Phase 3: serial, 2 entities.
+    void phaseSquadDecide(float dt, const Rng& rng);  // Phase 4: parallel over squads.
     void phaseSoldierSteer(float dt, const Rng& rng);  // Collision avoidance
     // Chunks take Rng BY VALUE: they run on worker threads via a lambda that
     // outlives the tick() local the Rng is constructed from.
@@ -221,5 +298,7 @@ private:
     void phaseResolution(const Rng& rng);
     void phaseMovement(float dt);
     void phaseMovementChunk(size_t start, size_t end, float dt);    // Parallel version (draws no randomness)
+    void phaseContact();                                            // Phase 9: non-penetration
+    void phaseContactChunk(size_t start, size_t end);               // Parallel version
     void clampToWorld();  // Clamps positions to world bounds and bounces velocity (never wraps, despite older code's name for this)
 };

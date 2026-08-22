@@ -21,6 +21,17 @@ constexpr float kSlotSpacing = 12.0f;
 // other way around.
 constexpr float kSeparationRadius = 10.0f;
 
+// How far outside an obstacle a soldier is asked to stand. Two things MUST
+// use the same number, for exactly the reason kSeparationRadius documents
+// above: Simulation::clearOfObstacles slides a formation slot this far clear
+// of a wall, and the obstacle-avoidance push in phaseSoldierSteerChunk fades
+// to zero at this distance. If the avoidance reach were larger than the
+// clearance, a soldier standing precisely on its cleared slot would still
+// feel a push, get shoved off, walk back, and grind against the wall for the
+// whole battle -- which is what a 50px avoidance reach against a 4px
+// clearance actually did. Keep them equal.
+constexpr float kObstacleStandoff = kSeparationRadius + kSoldierRadius;
+
 namespace detail {
 
 // Smallest w such that w * ceil(n/w) >= n and w/depth is near the target
@@ -65,6 +76,27 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
     const float right = ((float)col - (float)(width - 1) * 0.5f) * spacing;
     const float forward = -(float)row * spacing;
     return Vec2{ right, forward };
+}
+
+// Which rank a slot belongs to, rank 0 being the front. This MUST mirror
+// formationSlot's own layout: Wedge packs rank r into slots r*r .. r*r+2r, so
+// its rank is floor(sqrt(i)), while the grid shapes rank by integer division
+// on the same width rankWidth computes. Kept next to formationSlot precisely
+// so a change to one is an obvious prompt to change the other. Contact
+// detection (Contact.cpp) is the consumer: it tests only the front rank, and a
+// wrong rank here would silently make a whole squad or none of it eligible.
+inline uint32_t rankOfSlot(FormationShape shape, uint16_t slotIndex, uint32_t memberCount) {
+    if (memberCount == 0) return 0;
+
+    if (shape == FormationShape::Wedge) {
+        return (uint32_t)std::sqrt((float)slotIndex);
+    }
+
+    // Loose differs from Line only in spacing, not in aspect, so it shares
+    // this branch. Column is the narrow-and-deep aspect.
+    const float aspect = (shape == FormationShape::Column) ? 0.5f : 2.0f;
+    const uint32_t width = detail::rankWidth(memberCount, aspect);
+    return (uint32_t)slotIndex / width;
 }
 
 // Mean of every slot offset for this shape and count. slotWorldPosition

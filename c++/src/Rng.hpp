@@ -37,6 +37,7 @@ enum class RngUse : uint32_t {
 
     // Plan 2: archery
     ArrowSpread,
+    ArrowHitRoll,
 
     // Keep this trailing sentinel last.
     Count

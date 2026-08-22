@@ -22,11 +22,19 @@ struct ProjectileHot {
 
     // Written by phase 5, consumed by resolution, mirroring the soldier intent
     // pattern. UINT32_MAX means this arrow hit nothing this tick.
+    // Arc model (design 8.1). An arrow is above head height until it has flown
+    // `liveAfter` px, and hit-tests nothing until then. Once live it can hit
+    // EITHER team: your own screen is under the arc and safe, but volleying
+    // into a mixed melee kills your own men.
+    std::vector<float> traveled;
+    std::vector<float> liveAfter;
+
     std::vector<uint32_t> intentHitTarget;
 
     size_t count = 0;
 
-    void spawn(float px, float py, float vx, float vy, Team t, uint8_t dmg, float life) {
+    void spawn(float px, float py, float vx, float vy, Team t, uint8_t dmg,
+               float life, float armAfter) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
@@ -34,6 +42,8 @@ struct ProjectileHot {
         team.push_back(t);
         damage.push_back(dmg);
         lifetime.push_back(life);
+        traveled.push_back(0.0f);
+        liveAfter.push_back(armAfter);
         intentHitTarget.push_back(UINT32_MAX);
         count++;
     }
@@ -46,6 +56,8 @@ struct ProjectileHot {
         team.clear();
         damage.clear();
         lifetime.clear();
+        traveled.clear();
+        liveAfter.clear();
         intentHitTarget.clear();
         count = 0;
     }
@@ -73,13 +85,14 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
                          const SpatialHash& hash, size_t i, float dt,
                          std::vector<uint32_t>& scratch);
 
-// Resolution step 2 (spec 5.5). Applies each arrow's hit intent to the
-// target's health, then marks the arrow spent (expired) so a single
-// compaction pass removes both hits and misses that ran out of flight time.
+// Resolution step 2 (spec 5.5). Rolls each arrow's hit intent against
+// kArrowHitChancePct, applies the damage if it lands, then marks the arrow
+// spent (expired) either way so a single compaction pass removes both those
+// and the arrows that ran out of flight time.
 // Must run before spawnArrows so an arrow spawned this tick is not
 // hit-tested before it has flown, and before compactDead, because
 // intentHitTarget holds soldier indices that compaction invalidates.
-void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers);
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, const Rng& rng);
 
 // Removes every expired or spent arrow (lifetime <= 0), swap-with-back so
 // the surviving arrows stay contiguous. Must run after applyProjectileHits

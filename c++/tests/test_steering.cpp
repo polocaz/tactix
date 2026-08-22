@@ -21,6 +21,11 @@ TEST_CASE("a slot rotates with squad facing") {
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 100.0f;
     q.centroidY[0] = 100.0f;
+    // slotWorldPosition builds from the ANCHOR, not the centroid (design 5.2).
+    // For a free squad the two are equal, and detectContact keeps them so
+    // every tick; a hand-built SquadHot has to establish that itself.
+    q.anchorX[0] = 100.0f;
+    q.anchorY[0] = 100.0f;
     q.memberCount[0] = 9;
 
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
@@ -52,26 +57,40 @@ TEST_CASE("a slot rotates with squad facing") {
 // different name added nothing but the appearance of coverage.
 
 TEST_CASE("deployment places every soldier on its own slot") {
-    // Deployment (Simulation::init) must position each soldier at exactly
-    // the slot steerToSlot will later target, using the SAME rotation
-    // (slotWorldPosition), plus deploy jitter. Regression test for a bug
-    // where init had its own hand-rolled rotation that disagreed with
-    // slotWorldPosition's sign for team A, so team A soldiers spawned on
-    // the mirror of their real slot and visibly swapped sides on tick 1.
+    // Deployment (Simulation::init) must position each soldier at the slot
+    // steerToSlot will later target, using the SAME rotation
+    // (slotWorldPosition), plus deploy jitter, then obstacle-clearing.
+    // Regression test for a bug where init had its own hand-rolled rotation
+    // that disagreed with slotWorldPosition's sign for team A, so team A
+    // soldiers spawned on the mirror of their real slot and visibly swapped
+    // sides on tick 1.
     Simulation sim(1280, 720, 42u);
     sim.init(500);
 
     // Jitter is drawn as +/-2 on each axis (DeployJitterX/Y in init), so the
-    // farthest a soldier can spawn from its exact slot is the diagonal of a
-    // 4x4 box: sqrt(2^2 + 2^2). A small epsilon covers float rounding.
+    // farthest a soldier can be nudged by jitter alone is the diagonal of a
+    // 4x4 box: sqrt(2^2 + 2^2).
     const float kJitterBound = std::sqrt(2.0f * 2.0f + 2.0f * 2.0f) + 0.01f;
+
+    // Design §5.1: deploy jitter is applied to the raw slot and THEN the
+    // result is obstacle-cleared (the safe-deployment fix). A jittered point
+    // can therefore be pushed back out to the standoff boundary, moving it up
+    // to kObstacleStandoff from the cleared raw slot it is steered toward.
+    // That distance is transient initial noise -- it is NOT baked into the
+    // persistent slot target (§5.2) -- so the bound is jitter + standoff, not
+    // jitter alone. A rotation-mirror bug would land soldiers tens to hundreds
+    // of px off their slot (the formation is far wider than this), so this
+    // still catches the bug it was written for.
+    const float kSpawnBound = kJitterBound + kObstacleStandoff + 0.5f;
 
     // The bug was team-specific (only team A's rotation was wrong), so this
     // must check both teams -- a test that only sampled team B would have
     // missed it.
     bool sawTeamA = false, sawTeamB = false;
     for (size_t i = 0; i < sim.getAgentCount(); ++i) {
-        CHECK(sim.slotError(i) <= kJitterBound);
+        CHECK(sim.slotError(i) <= kSpawnBound);
+        // And the spawn itself is obstacle-cleared (design §11.1 / §14.1).
+        CHECK_FALSE(sim.insideAnyObstacle({sim.soldierX(i), sim.soldierY(i)}));
         if (sim.soldierTeam(i) == Team::A) sawTeamA = true;
         else sawTeamB = true;
     }
@@ -98,6 +117,7 @@ TEST_CASE("steerToSlot points toward the slot when displaced") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 100.0f; q.centroidY[0] = 100.0f;
+    q.anchorX[0] = 100.0f; q.anchorY[0] = 100.0f;  // anchor is the formation origin now
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     q.memberCount[0] = 1;  // a single-member squad's only slot sits exactly on the centroid
 
@@ -122,6 +142,7 @@ TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Cavalry);
     q.centroidX[0] = 0.0f; q.centroidY[0] = 0.0f;
+    q.anchorX[0] = 0.0f; q.anchorY[0] = 0.0f;  // anchor is the formation origin now
     q.facingX[0] = 0.0f; q.facingY[0] = 1.0f;
     q.memberCount[0] = 1;
 
@@ -142,6 +163,7 @@ TEST_CASE("steerToSlot zeroes velocity for a soldier already on its slot") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 50.0f; q.centroidY[0] = 50.0f;
+    q.anchorX[0] = 50.0f; q.anchorY[0] = 50.0f;  // anchor is the formation origin now
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     q.memberCount[0] = 1;
 
@@ -166,6 +188,7 @@ TEST_CASE("repeated steerToSlot monotonically closes the distance") {
     SquadHot q;
     q.spawn(Team::A, UnitType::Infantry);
     q.centroidX[0] = 200.0f; q.centroidY[0] = 200.0f;
+    q.anchorX[0] = 200.0f; q.anchorY[0] = 200.0f;  // anchor is the formation origin now
     q.facingX[0] = 0.0f; q.facingY[0] = -1.0f;
     q.memberCount[0] = 1;
 
@@ -201,24 +224,28 @@ TEST_CASE("repeated steerToSlot monotonically closes the distance") {
 }
 
 TEST_CASE("meanSlotError plateaus instead of drifting") {
-    // This used to assert convergence toward zero error. That assumption
-    // does not hold: generateObstacles() scatters 8 buildings and 30 trees
-    // across the field, and both armies deploy down the field's full height
-    // (Simulation::init), so some soldiers' assigned slots land inside or
-    // beside an obstacle. Obstacle avoidance correctly and permanently holds
-    // those soldiers off their slot -- you cannot stand inside a wall -- so
-    // a nonzero mean error is the correct steady state, not a defect.
+    // This used to assert convergence toward zero error. That assumption does
+    // not hold, and the reason has changed twice, so it is worth being exact
+    // about what this now guards.
     //
-    // Confirmed directly: with obstacles (as shipped), meanSlotError plateaus
-    // around tick120=8.63 / tick400=8.02. With generateObstacles() disabled
-    // for the same seed and agent count, it collapses to tick120=1.63 /
-    // tick400=1.53, near steerToSlot's 2px arrival deadband. The gap between
-    // those two runs is obstacles, not a steering defect, so what is worth
-    // guarding is that the error reaches a STABLE plateau, not that it goes
-    // to zero. If this test starts failing because the plateau crept back
-    // down near zero, that means obstacles stopped blocking slots (a
-    // deployment or generateObstacles change), not a steering regression --
-    // do not "fix" this back into a zero-convergence assertion.
+    // Originally the error was dominated by obstacles: some slots landed
+    // inside a building and no soldier can stand in a wall, which pinned it
+    // at tick120=8.63 / tick400=8.02 against 1.6 with generateObstacles()
+    // disabled. Simulation::clearOfObstacles now slides those slots out to
+    // kObstacleStandoff, so that gap is largely gone.
+    //
+    // What dominates instead is combat: squads lose members, slot layouts
+    // renumber under them, and every squad under an Advance order carries a
+    // steady kAdvanceLead lag. Measured after the clearOfObstacles fix, with
+    // obstacles: 8.9 / 4.8 / 8.1 / 5.9 at ticks 120/400/700/1000. The SAME
+    // run with generateObstacles() disabled gives 5.1 / 7.3 / 20.8 / 30.2 --
+    // higher late, not lower, because the armies close and grind sooner
+    // without terrain in the way.
+    //
+    // So this is a bound, not a convergence: the error stays in a bounded
+    // band rather than drifting without limit. Do not "fix" it back into a
+    // zero-convergence assertion, and do not read a few px of movement in
+    // either direction as a steering regression.
     Simulation sim(1280, 720, 42u);
     sim.init(500);
     sim.setPaused(false);
@@ -229,15 +256,14 @@ TEST_CASE("meanSlotError plateaus instead of drifting") {
     for (int i = 0; i < 280; ++i) sim.tick(1.0f / 60.0f);
     const float at400 = sim.meanSlotError();
 
-    // Measured delta between tick120 and tick400 was ~0.61px; 2px gives
-    // over 3x headroom while still catching a plateau that has not
-    // actually settled (e.g. still climbing toward an unbounded drift).
-    CHECK(std::fabs(at400 - at120) <= 2.0f);
-
-    // Measured plateau was ~8.0-8.6px; 15px gives comfortable headroom
-    // above that without being so loose it would pass the ~16px+ plateau
-    // seen before the separation-radius fix, or the far larger figures
-    // the centroid-drift and rotation bugs produced earlier in this task.
+    // Measured band is ~4.8-9px; 15px gives comfortable headroom above that
+    // without being so loose it would pass the ~16px+ plateau seen before
+    // the separation-radius fix, or the far larger figures the
+    // centroid-drift and rotation bugs produced earlier in this task.
+    // Both checkpoints are bounded rather than compared to each other: the
+    // metric genuinely swings a few px as squads take casualties, so a tight
+    // delta between two arbitrary ticks would be a flake, not a guard.
+    CHECK(at120 <= 15.0f);
     CHECK(at400 <= 15.0f);
 }
 
@@ -268,6 +294,7 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
     q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
     const float startX = 500.0f, startY = 300.0f;
     q.centroidX[0] = startX; q.centroidY[0] = startY;
+    q.anchorX[0] = startX; q.anchorY[0] = startY;  // anchor is the formation origin now
 
     constexpr uint32_t kMembers = 12;
     q.memberCount[0] = kMembers;
@@ -297,6 +324,11 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
         }
         q.centroidX[0] = sumX / (float)kMembers;
         q.centroidY[0] = sumY / (float)kMembers;
+        // A free squad's anchor tracks its centroid exactly, which is what
+        // detectContact does every tick in the live simulation. Mirroring it
+        // here is what keeps this loop a faithful stand-in for a real tick.
+        q.anchorX[0] = q.centroidX[0];
+        q.anchorY[0] = q.centroidY[0];
     }
 
     const float dx = q.centroidX[0] - startX;
@@ -307,4 +339,81 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
     // commit message: stubbing formationMeanOffset to {0,0} reproduces the
     // original bug and fails this bound by roughly two orders of magnitude.
     CHECK(std::sqrt(dx * dx + dy * dy) <= 5.0f);
+}
+
+TEST_CASE("clearOfObstacles never returns a point inside an obstacle") {
+    // The whole point of the function: a formation slot inside a wall is a
+    // target no soldier can ever reach, so it gets slid out to somewhere one
+    // can stand. Swept over the field rather than spot-checked, because the
+    // case that used to break it -- a point wedged between two overlapping
+    // buildings, pushed out of the first and straight into the second -- is
+    // not one you would think to hand-pick.
+    Simulation sim(1280, 720, 42u);
+    sim.init(100);
+
+    int movedAtLeastOne = 0;
+    for (int y = 0; y <= 720; y += 7) {
+        for (int x = 0; x <= 1280; x += 7) {
+            const Vec2 raw{ (float)x, (float)y };
+            const Vec2 clear = sim.clearOfObstacles(raw);
+            CHECK_FALSE(sim.insideAnyObstacle(clear));
+            if (clear.x != raw.x || clear.y != raw.y) ++movedAtLeastOne;
+        }
+    }
+
+    // Guards the test itself: if generateObstacles ever stopped producing
+    // obstacles, every point above would pass trivially and this test would
+    // be measuring nothing.
+    CHECK(movedAtLeastOne > 0);
+}
+
+TEST_CASE("a soldier standing on a cleared slot is not pushed off it") {
+    // kObstacleStandoff is shared by clearOfObstacles and the avoidance push
+    // in phaseSoldierSteerChunk precisely so that a soldier sent to a cleared
+    // slot feels zero force there. When the clearance was smaller than the
+    // avoidance reach, soldiers next to buildings were shoved off their slot,
+    // walked back, and ground against the wall forever -- the bug this pairing
+    // fixes. Measured end to end: after settling, no soldier sits absurdly far
+    // from the point steering is actually sending it to.
+    Simulation sim(1280, 720, 42u);
+    sim.init(500);
+    sim.setPaused(false);
+    for (int i = 0; i < 200; ++i) sim.tick(1.0f / 60.0f);
+
+    size_t stranded = 0;
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        if (sim.slotError(i) > 60.0f) ++stranded;
+    }
+    // Before the fix this ran to dozens of soldiers pinned against walls at
+    // 60px+; the bound is deliberately loose so ordinary marching lag and
+    // squads manoeuvring around a building do not trip it.
+    CHECK(stranded <= sim.getAgentCount() / 20);
+}
+
+TEST_CASE("a soldier holding station renders facing its squad, not its jitter") {
+    // Separation and non-penetration give a stationary soldier a small,
+    // essentially random velocity. Deriving the rendered direction from that
+    // made held formations look like milling crowds even while the formation
+    // itself was perfectly intact. Below a walking pace the squad's facing is
+    // the honest answer.
+    Simulation sim(1280, 720, 42u);
+    sim.init(600);
+    sim.setPaused(false);
+    for (int t = 0; t < 300; ++t) sim.tick(1.0f / 60.0f);
+
+    size_t slow = 0, agreeing = 0;
+    for (size_t i = 0; i < sim.getAgentCount(); ++i) {
+        if (sim.soldierSpeed(i) >= kWalkSpeed) continue;
+        slow++;
+        const uint16_t sq = sim.soldierSquadId(i);
+        // Facing is unit length, and so is the rendered direction, so an exact
+        // match means the soldier took the squad's facing rather than its own
+        // jitter.
+        if (std::abs(sim.soldierDirX(i) - sim.squadFacingX(sq)) < 1e-5f &&
+            std::abs(sim.soldierDirY(i) - sim.squadFacingY(sq)) < 1e-5f) {
+            agreeing++;
+        }
+    }
+    REQUIRE(slow > 0);
+    CHECK(agreeing == slow);
 }

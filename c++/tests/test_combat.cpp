@@ -137,7 +137,18 @@ TEST_CASE("melee resolution wired through a full tick draws blood") {
     Simulation sim(1200, 800, 42u);
     sim.init(500);
     sim.setPaused(false);
-    for (int i = 0; i < 900; ++i) sim.tick(1.0f / 60.0f);
+    // 1800 ticks, raised from 900 when non-penetration landed. Bodies now
+    // physically resist each other, which slowed the armies' approach by about
+    // a third, and 900 ticks no longer reaches contact at all on this field.
+    //
+    // Raising a budget to keep a test green is worth being suspicious of, so
+    // to be explicit: this asserts the WIRING (selection, resolution, and the
+    // phase order connect end to end), not the timing. How long an army takes
+    // to cross the field is a separate question, and a real one -- squads
+    // advance at roughly a third of their nominal speed, which is a tuning
+    // matter tracked for the tuning stage, not something this test should
+    // silently encode.
+    for (int i = 0; i < 1800; ++i) sim.tick(1.0f / 60.0f);
 
     bool anyDamaged = false;
     for (size_t i = 0; i < sim.getAgentCount(); ++i) {
@@ -471,3 +482,23 @@ TEST_CASE("soldiers actually die in a running battle") {
 // very first decide" and "...can acquire a target beyond an individual
 // soldier's own sight"), which exercise the exact same logic without relying
 // on a window that no longer exists from the outside.
+
+TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
+    // A soldier array that compaction does not move desyncs the structure of
+    // arrays, and the corruption then shows up as a wrong value on an
+    // unrelated agent, which is close to impossible to trace back. This is the
+    // cheap guard against forgetting one.
+    SoldierHot s;
+    std::vector<float> prevX, prevY;
+    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    prevX.assign(2, 0.0f);
+    prevY.assign(2, 0.0f);
+
+    s.state[0] = SoldierState::Dead;
+    s.steadyTimer[1] = 1.25f;
+
+    compactDead(s, prevX, prevY);
+    REQUIRE(s.count == 1);
+    CHECK(s.steadyTimer[0] == doctest::Approx(1.25f));
+}

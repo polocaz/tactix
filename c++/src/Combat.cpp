@@ -119,6 +119,7 @@ void compactDead(SoldierHot& soldiers,
             soldiers.attackCooldown[i]  = soldiers.attackCooldown[last];
             soldiers.intentTarget[i]    = soldiers.intentTarget[last];
             soldiers.intentFire[i]      = soldiers.intentFire[last];
+            soldiers.steadyTimer[i]     = soldiers.steadyTimer[last];
             prevPosX[i]                 = prevPosX[last];
             prevPosY[i]                 = prevPosY[last];
             // Do NOT advance i: the soldier just swapped in has not been
@@ -142,6 +143,7 @@ void compactDead(SoldierHot& soldiers,
         soldiers.attackCooldown.pop_back();
         soldiers.intentTarget.pop_back();
         soldiers.intentFire.pop_back();
+        soldiers.steadyTimer.pop_back();
         prevPosX.pop_back();
         prevPosY.pop_back();
         soldiers.count--;

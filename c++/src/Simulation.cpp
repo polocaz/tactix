@@ -6,6 +6,8 @@
 #include "StateDigest.hpp"
 #include "DetMath.hpp"
 #include "Combat.hpp"
+#include "Contact.hpp"
+#include "Morale.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -197,6 +199,10 @@ void Simulation::init(size_t soldierCount) {
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
+            // Steadiness is a property of the unit type (Morale.cpp). Set at
+            // deployment rather than defaulted in SquadHot::spawn, because
+            // spawn does not know what it is spawning until the caller says.
+            squads.discipline[squadId] = disciplineForUnit(unit);
             squads.facingX[squadId] = facing;
             squads.facingY[squadId] = 0.0f;
             // Established here, not assumed: slotWorldPosition below (and
@@ -211,6 +217,14 @@ void Simulation::init(size_t soldierCount) {
 
             squads.centroidX[squadId] = squadX;
             squads.centroidY[squadId] = squadY;
+            // The anchor, not the centroid, is what slotWorldPosition builds
+            // slots from (design 5.2), and the deployment loop below calls it
+            // to place every soldier. Seed it HERE, in the same breath as the
+            // centroid: seeding it after deployment would be too late, and
+            // every squad would deploy around the world origin instead of
+            // around its own position.
+            squads.anchorX[squadId] = squadX;
+            squads.anchorY[squadId] = squadY;
 
             // sq < squadsPerTeam = ceil(perTeam / kSquadSize), so by the
             // definition of ceiling division sq * kSquadSize < perTeam here:
@@ -229,12 +243,24 @@ void Simulation::init(size_t soldierCount) {
                 const uint32_t agent = (uint32_t)soldiers.count;
                 const float jx = (float)rng.range(agent, RngUse::DeployJitterX, -2, 2);
                 const float jy = (float)rng.range(agent, RngUse::DeployJitterY, -2, 2);
-                const Vec2 slot = slotWorldPosition(squads, squadId, (uint16_t)k,
-                                                    squads.memberCount[squadId]);
-                const float px = slot.x + jx;
-                const float py = slot.y + jy;
+                // Spawn exactly on the slot steerToSlot will target, using the
+                // same rotation (slotWorldPosition), so tick 1 moves nobody.
+                // Squad centroid/facing above must be set before this call.
+                //
+                // Clear AFTER jitter (design §5.1): the raw slot is already
+                // obstacle-cleared, but a soldier standing at the standoff
+                // boundary can be jittered back inside a wall before spawning.
+                // Clearing the jittered point is the correctness fix; jitter
+                // stays transient deployment noise and is NOT baked into the
+                // persistent slot target (§5.2), so steering still settles to
+                // the true assigned slot. This intentionally moves the state
+                // digest for soldiers whose jitter crossed the standoff.
+                const Vec2 rawSlot = slotWorldPosition(squads, squadId, (uint16_t)k,
+                                                       squads.memberCount[squadId]);
+                const Vec2 jittered{ rawSlot.x + jx, rawSlot.y + jy };
+                const Vec2 clear = clearOfObstacles(jittered);
 
-                soldiers.spawn(clampf(px, 0.0f, w), clampf(py, 0.0f, h),
+                soldiers.spawn(clampf(clear.x, 0.0f, w), clampf(clear.y, 0.0f, h),
                                0.0f, 0.0f, team, unit, squadId);
                 soldiers.slotIndex[agent] = (uint16_t)k;
                 // A soldier that never moves keeps the velocity-derived
@@ -264,6 +290,13 @@ void Simulation::init(size_t soldierCount) {
     // so this reproduces exactly what the first tick would compute anyway.
     rebuildSquadMembers(soldiers, squads, squadMembers, squadMemberCounts, squadMemberCursor);
 
+    // One army per team. Never destroyed, exactly like squads, so nothing
+    // reading an army index ever needs a liveness check. Rebuilt from scratch
+    // here because reset() calls init() again on a live Simulation.
+    armies = ArmyHot{};
+    armies.spawn();   // Team::A
+    armies.spawn();   // Team::B
+
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
                  soldiers.count, squads.count, worldWidth, worldHeight);
 }
@@ -289,8 +322,11 @@ float Simulation::teamCentroidX(Team t) const {
 
 float Simulation::slotError(size_t i) const {
     const uint16_t s = soldiers.squadId[i];
-    const Vec2 t = slotWorldPosition(squads, s, soldiers.slotIndex[i],
-                                     squads.memberCount[s]);
+    // Measured against the same obstacle-cleared point steering actually
+    // sends the soldier to, not the raw grid slot: a slot inside a wall is
+    // not an error the soldier can close.
+    const Vec2 t = clearOfObstacles(slotWorldPosition(squads, s, soldiers.slotIndex[i],
+                                                      squads.memberCount[s]));
     const float dx = t.x - soldiers.posX[i];
     const float dy = t.y - soldiers.posY[i];
     return std::sqrt(dx * dx + dy * dy);
@@ -317,37 +353,14 @@ bool Simulation::everySoldierHasASquadSlot() const {
 }
 
 void Simulation::reset(size_t count) {
-    soldiers.posX.clear();
-    soldiers.posY.clear();
-    soldiers.velX.clear();
-    soldiers.velY.clear();
-    soldiers.dirX.clear();
-    soldiers.dirY.clear();
-    soldiers.team.clear();
-    soldiers.unitType.clear();
-    soldiers.state.clear();
-    soldiers.squadId.clear();
-    soldiers.slotIndex.clear();
-    soldiers.health.clear();
-    soldiers.attackCooldown.clear();
-    soldiers.intentTarget.clear();
-    soldiers.intentFire.clear();
-    soldiers.count = 0;
+    // Each tier owns its own field list, beside its spawn(). Do NOT expand
+    // these back into per-array clears here: that is what let reset() and
+    // spawn() drift apart, which silently offset every newer field by the
+    // previous run's count.
+    soldiers.clear();
+    squads.clear();
+    armies = ArmyHot{};
 
-    squads.team.clear();
-    squads.unitType.clear();
-    squads.centroidX.clear();
-    squads.centroidY.clear();
-    squads.facingX.clear();
-    squads.facingY.clear();
-    squads.order.clear();
-    squads.targetSquad.clear();
-    squads.targetSoldier.clear();
-    squads.morale.clear();
-    squads.discipline.clear();
-    squads.memberStart.clear();
-    squads.memberCount.clear();
-    squads.count = 0;
     squadMembers.clear();
     squadMemberCounts.clear();
     squadMemberCursor.clear();
@@ -359,8 +372,8 @@ void Simulation::reset(size_t count) {
     prevPosX.clear();
     prevPosY.clear();
 
-    buildings.clear();
-    trees.clear();
+    terrain.buildings.clear();
+    terrain.trees.clear();
 
     tickNumber = 0;
 
@@ -371,26 +384,69 @@ void Simulation::generateObstacles() {
     // Runs before any tick; no agent involved, so the obstacle index keys the draw.
     const Rng rng{worldSeed, 0u};
 
+    // Obstacles are placed with rejection sampling so that no two of them come
+    // within kObstacleStandoff of each other. That gap is not decoration: it is
+    // what makes clearOfObstacles' push correct. Sliding a point kObstacleStandoff
+    // clear of one obstacle only helps if it cannot land inside the next one,
+    // and with the old overlap-free-for-all placement it regularly did -- 263
+    // of 18k sampled field positions stayed embedded in a wall no matter how
+    // many push passes ran, because two overlapping buildings bounced the
+    // point back and forth between them. Keeping the obstacles apart removes
+    // the trap instead of teaching the push to escape it.
+    //
+    // A placement that cannot find a free spot in kPlacementTries is dropped
+    // rather than forced, so a crowded field simply gets fewer trees. Each
+    // try folds the attempt number into the draw key, the same way every
+    // other repeated draw in this file varies its input.
+    constexpr uint32_t kPlacementTries = 24;
+    const float gap = kObstacleStandoff;
+
+    auto farEnough = [&](float minX, float minY, float maxX, float maxY) {
+        for (const auto& b : terrain.buildings) {
+            if (minX < b.x + b.width + gap && maxX > b.x - gap &&
+                minY < b.y + b.height + gap && maxY > b.y - gap) {
+                return false;
+            }
+        }
+        for (const auto& t : terrain.trees) {
+            if (minX < t.x + t.radius + gap && maxX > t.x - t.radius - gap &&
+                minY < t.y + t.radius + gap && maxY > t.y - t.radius - gap) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     // City blocks (buildings)
     const int blockCount = 8;
     for (int i = 0; i < blockCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingX, 100, worldWidth - 200);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingY, 100, worldHeight - 200);
-        float w = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingW, 80, 150);
-        float h = (float)rng.range((uint32_t)i, RngUse::ObstacleBuildingH, 80, 150);
-        buildings.push_back({x, y, w, h});
+        for (uint32_t attempt = 0; attempt < kPlacementTries; ++attempt) {
+            const uint32_t key = (uint32_t)i * kPlacementTries + attempt;
+            float x = (float)rng.range(key, RngUse::ObstacleBuildingX, 100, worldWidth - 200);
+            float y = (float)rng.range(key, RngUse::ObstacleBuildingY, 100, worldHeight - 200);
+            float w = (float)rng.range(key, RngUse::ObstacleBuildingW, 80, 150);
+            float h = (float)rng.range(key, RngUse::ObstacleBuildingH, 80, 150);
+            if (!farEnough(x, y, x + w, y + h)) continue;
+            terrain.buildings.push_back({x, y, w, h});
+            break;
+        }
     }
 
     // Scattered trees
     const int treeCount = 30;
     for (int i = 0; i < treeCount; i++) {
-        float x = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeX, 50, worldWidth - 50);
-        float y = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeY, 50, worldHeight - 50);
-        float r = (float)rng.range((uint32_t)i, RngUse::ObstacleTreeRadius, 15, 25);
-        trees.push_back({x, y, r});
+        for (uint32_t attempt = 0; attempt < kPlacementTries; ++attempt) {
+            const uint32_t key = (uint32_t)i * kPlacementTries + attempt;
+            float x = (float)rng.range(key, RngUse::ObstacleTreeX, 50, worldWidth - 50);
+            float y = (float)rng.range(key, RngUse::ObstacleTreeY, 50, worldHeight - 50);
+            float r = (float)rng.range(key, RngUse::ObstacleTreeRadius, 15, 25);
+            if (!farEnough(x - r, y - r, x + r, y + r)) continue;
+            terrain.trees.push_back({x, y, r});
+            break;
+        }
     }
 
-    spdlog::info("Generated {} buildings and {} trees", buildings.size(), trees.size());
+    spdlog::info("Generated {} buildings and {} trees", terrain.buildings.size(), terrain.trees.size());
 }
 
 void Simulation::tick(float dt) {
@@ -421,12 +477,18 @@ void Simulation::tick(float dt) {
     rebuildInfluence();
 
     // Phase 2: parallel over squads. Writes only its own squad.
-    phaseSquadAggregate();
+    phaseSquadAggregate(dt);
     jobSystem.waitAll();
 
-    // Phase 3: parallel over squads. Safe to read every squad's aggregate
+    // Phase 3: serial, two entities. Reads every squad's finalized centroid
+    // and writes each squad's role and target. Placement is forced: after
+    // phase 2's barrier so every centroid is final, and before phase 4 so no
+    // squad chooses an objective from a role it has never been given.
+    phaseArmyDecide();
+
+    // Phase 4: parallel over squads. Safe to read every squad's aggregate
     // only because the barrier above made those values read-only.
-    phaseSquadDecide(rng);
+    phaseSquadDecide(dt, rng);
     jobSystem.waitAll();
 
     // Phase 4: parallel over soldiers. Writes only its own soldier.
@@ -440,8 +502,16 @@ void Simulation::tick(float dt) {
     // Phase 6: serial. The ONLY place cross-agent mutation happens.
     phaseResolution(rng);
 
-    // Phase 7: parallel over soldiers.
+    // Phase 7: parallel over soldiers. Writes nextPos, not pos.
+    nextPosX.resize(soldiers.count);
+    nextPosY.resize(soldiers.count);
     phaseMovement(dt);
+    jobSystem.waitAll();
+
+    // Phase 8: parallel over soldiers. Reads the nextPos snapshot read-only
+    // and writes each soldier's own final position. The barrier above is what
+    // makes that snapshot read-only, so it is load-bearing, not decoration.
+    phaseContact();
     jobSystem.waitAll();
 
     clampToWorld();
@@ -464,16 +534,21 @@ void Simulation::rebuildInfluence() {
     // fixed from the start rather than being inserted later.
 }
 
-void Simulation::phaseSquadAggregate() {
+void Simulation::phaseSquadAggregate(float dt) {
     // Plan 7: recompute each squad's centroid and facing. Parallel across
     // squads, never within one -- updateSquadAggregate sums one squad's
     // members on a single thread so the accumulation order is fixed.
     const size_t chunkSize = 32;
     for (size_t start = 0; start < squads.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, squads.count);
-        jobSystem.submit([this, start, end]() {
+        jobSystem.submit([this, start, end, dt]() {
+            // Neighbour buffer reused across every squad in this chunk, so
+            // contact detection does not allocate per squad per tick.
+            std::vector<uint32_t> scratch;
+            scratch.reserve(64);
             for (size_t s = start; s < end; ++s) {
                 updateSquadAggregate(soldiers, squads, squadMembers, s);
+                detectContact(soldiers, squads, squadMembers, spatialHash, s, dt, scratch);
                 selectTargetSoldier(soldiers, squads, squadMembers, s);
             }
         });
@@ -481,16 +556,34 @@ void Simulation::phaseSquadAggregate() {
     }
 }
 
-void Simulation::phaseSquadDecide(const Rng&) {
+void Simulation::phaseArmyDecide() {
+    // Serial: two entities make that free, and free serial execution makes
+    // bit-reproducibility free too.
+    updateArmyAggregate(squads, armies);
+
+    for (size_t a = 0; a < armies.count; ++a) {
+        // Both armies decide unconditionally on the first tick. Without that,
+        // the stagger below would let a squad act on a role it has never been
+        // given. After that they alternate, so the two armies never re-decide
+        // on the same tick and an assignment persists long enough to read.
+        const bool firstTick = (tickNumber == 1u);
+        if (firstTick || (tickNumber % kArmyDecideInterval) == a) {
+            assignRoles(squads, armies, (Team)a);
+            workCounters.add(workCounters.armyDecisions, 1);
+        }
+    }
+}
+
+void Simulation::phaseSquadDecide(float dt, const Rng&) {
     // Plan 3 replaces the body of selectTargetSquad with a weighted scorer over
     // seven orders, plus hysteresis and a decide stagger. The dispatch shape
     // here does not change.
     const size_t chunkSize = 32;
     for (size_t start = 0; start < squads.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, squads.count);
-        jobSystem.submit([this, start, end]() {
+        jobSystem.submit([this, start, end, dt]() {
             for (size_t s = start; s < end; ++s) {
-                selectTargetSquad(squads, s);
+                squadDecide(squads, armies, s, terrain, dt);
                 workCounters.add(workCounters.squadDecisions, 1);
             }
         });
@@ -526,7 +619,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     officerDied.assign(squads.count, 0u);
 
     applyMeleeIntents(soldiers);                            // step 1
-    applyProjectileHits(projectiles, soldiers);             // step 2
+    applyProjectileHits(projectiles, soldiers, rng);        // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
@@ -535,8 +628,12 @@ void Simulation::phaseResolution(const Rng& rng) {
         }
     }
     recordCasualties(soldiers, casualties, officerDied);    // step 4
-    // step 5 (morale and discipline) is plan 3; casualties and officerDied are
-    // recorded now precisely so it has something to read when it arrives.
+    // Step 5. Both run BEFORE compaction, because casualties and officerDied
+    // are indexed by squad and describe what happened this tick.
+    // applyRoutTransitions runs second because it consumes the morale
+    // updateMorale just wrote.
+    updateMorale(squads, casualties, officerDied, kFixedTimestep);
+    applyRoutTransitions(squads, kFixedTimestep);
     compactProjectiles(projectiles);
     compactDead(soldiers, prevPosX, prevPosY);              // step 6
     rebuildSquadMembers(soldiers, squads, squadMembers,     // step 7
@@ -592,7 +689,22 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         // Sets base velocity toward this soldier's formation slot. Must run
         // first: separation and obstacle avoidance below ADD to velocity,
         // so calling this after would erase them instead of blending in.
-        steerToSlot(soldiers, squads, i, dt);
+        // The slot goes through clearOfObstacles rather than being used raw:
+        // a slot inside a building is a target no soldier can ever reach, and
+        // one sent there grinds against the wall for the whole battle.
+        {
+            const uint16_t sq = soldiers.squadId[i];
+            // Withdrawing and routing squads run. Keyed on order rather than
+            // on role, so it covers both an ordered retreat and a break.
+            const uint8_t ord = squads.order[sq];
+            const float speedScale =
+                (ord == (uint8_t)SquadOrder::Withdraw || ord == (uint8_t)SquadOrder::Rout)
+                ? kFleeSpeedMultiplier : 1.0f;
+            steerToward(soldiers, i,
+                        clearOfObstacles(slotWorldPosition(squads, sq, soldiers.slotIndex[i],
+                                                           squads.memberCount[sq])),
+                        dt, speedScale);
+        }
 
         float px = soldiers.posX[i];
         float py = soldiers.posY[i];
@@ -621,8 +733,8 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         }
 
         // Obstacle avoidance - buildings (rectangles)
-        for (size_t b = 0; b < buildings.size(); b++) {
-            const auto& building = buildings[b];
+        for (size_t b = 0; b < terrain.buildings.size(); b++) {
+            const auto& building = terrain.buildings[b];
             // Find closest point on rectangle to agent
             float closestX = std::max(building.x, std::min(px, building.x + building.width));
             float closestY = std::max(building.y, std::min(py, building.y + building.height));
@@ -631,48 +743,59 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             float dy = py - closestY;
             float distSq = dx * dx + dy * dy;
 
-            const float obstacleAvoidDist = 50.0f;  // Start avoiding earlier
+            // Sized like separation, not like a keep-out zone. At the old
+            // 50px/x5 the push was ~750px/s against an infantryman who walks
+            // at 45: every building carried a 50px halo no formation could
+            // stand in, and any squad ordered near one was shoved off its
+            // slots. Hard collision in phaseMovementChunk is what stops
+            // soldiers entering a building; this only has to make them
+            // round the corner rather than walk into it.
+            const float obstacleAvoidDist = kObstacleStandoff;
             if (distSq < obstacleAvoidDist * obstacleAvoidDist) {
                 if (distSq < 0.01f) {
                     // Inside obstacle - push out strongly in any direction.
-                    // Buildings are generated without overlap rejection, so one agent
-                    // can be inside two at once and reach this line twice per tick.
-                    // The obstacle index is folded into the key: without it both draws
-                    // share an input, always return the same sign, and can only
-                    // reinforce -- the old code's cancelling case became unreachable.
-                    const uint32_t key = (uint32_t)(i * buildings.size() + b);
+                    // generateObstacles now keeps obstacles kObstacleStandoff
+                    // apart, so an agent can no longer be inside two at once
+                    // and this should fire at most once per agent-tick. The
+                    // obstacle index stays folded into the key anyway: it costs
+                    // nothing, and without it two draws in one tick would share
+                    // an input, always return the same sign, and could only
+                    // reinforce rather than cancel.
+                    const uint32_t key = (uint32_t)(i * terrain.buildings.size() + b);
                     steerX += (rng.range(key, RngUse::SeparationPushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                     steerY += (rng.range(key, RngUse::SeparationPushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (obstacleAvoidDist - dist) / obstacleAvoidDist;
-                    steerX += (dx / dist) * force * 5.0f;  // Much stronger avoidance
-                    steerY += (dy / dist) * force * 5.0f;
+                    steerX += (dx / dist) * force;
+                    steerY += (dy / dist) * force;
                 }
             }
         }
 
         // Obstacle avoidance - trees (circles)
-        for (size_t t = 0; t < trees.size(); t++) {
-            const auto& tree = trees[t];
+        for (size_t t = 0; t < terrain.trees.size(); t++) {
+            const auto& tree = terrain.trees[t];
             float dx = px - tree.x;
             float dy = py - tree.y;
             float distSq = dx * dx + dy * dy;
-            float avoidRadius = tree.radius + 20.0f;  // Extra buffer
+            // Same scaling argument as the building standoff above: a soldier
+            // brushes past a trunk, it does not orbit it at 20px.
+            const float avoidRadius = tree.radius + kObstacleStandoff;
 
             if (distSq < avoidRadius * avoidRadius) {
                 if (distSq < 0.01f) {
                     // Inside obstacle - push out strongly. Same per-obstacle keying as
                     // the building push above; two tree centres within 0.1px of each
                     // other is practically unreachable, but the shape should match.
-                    const uint32_t key = (uint32_t)(i * trees.size() + t);
+                    const uint32_t key = (uint32_t)(i * terrain.trees.size() + t);
                     steerX += (rng.range(key, RngUse::SeparationTreePushX, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                     steerY += (rng.range(key, RngUse::SeparationTreePushY, -10, 10) > 0 ? 1.0f : -1.0f) * 10.0f;
                 } else {
                     float dist = std::sqrt(distSq);
                     float force = (avoidRadius - dist) / avoidRadius;
-                    steerX += (dx / dist) * force * 5.0f;
-                    steerY += (dy / dist) * force * 5.0f;
+                    steerX += (dx / dist) * force;
+                    steerY += (dy / dist) * force;
                 }
             }
         }
@@ -702,8 +825,31 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             soldiers.attackCooldown[i] <= 0.0f &&
             soldiers.state[i] != SoldierState::Dead) {
             const uint16_t sq = soldiers.squadId[i];
-            if (sq < squads.count && squads.targetSoldier[sq] != UINT32_MAX) {
-                soldiers.intentFire[i] = 1;
+            const uint32_t t = (sq < squads.count) ? squads.targetSoldier[sq] : UINT32_MAX;
+            if (t != UINT32_MAX && (size_t)t < soldiers.count) {
+                // Fire arc. An archer moving faster than a walk may not loose
+                // at anything more than kMaxFireCos off its heading. This is
+                // the whole of "cannot fire backward while fleeing": flight
+                // points away from the enemy, so a fleeing archer's target is
+                // behind it, and no state check is needed. A slow sidestep is
+                // under kWalkSpeed and unaffected.
+                //
+                // Reading another soldier's position is safe here: positions
+                // are written in phases 7 and 8, never in this one.
+                const float vx = soldiers.velX[i];
+                const float vy = soldiers.velY[i];
+                const float sp = std::sqrt(vx * vx + vy * vy);
+
+                bool arcOk = true;
+                if (sp > kWalkSpeed) {
+                    const float tx = soldiers.posX[t] - soldiers.posX[i];
+                    const float ty = soldiers.posY[t] - soldiers.posY[i];
+                    const float tlen = std::sqrt(tx * tx + ty * ty);
+                    if (tlen > 1e-4f) {
+                        arcOk = ((tx * vx + ty * vy) / (tlen * sp)) >= kMaxFireCos;
+                    }
+                }
+                if (arcOk) soldiers.intentFire[i] = 1;
             }
         }
     }
@@ -733,7 +879,7 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
 
         // Check collision with buildings
         bool blocked = false;
-        for (const auto& building : buildings) {
+        for (const auto& building : terrain.buildings) {
             if (newX > building.x - 5 && newX < building.x + building.width + 5 &&
                 newY > building.y - 5 && newY < building.y + building.height + 5) {
                 // Inside or very close to building - block movement
@@ -762,7 +908,7 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
 
         // Check collision with trees
         if (!blocked) {
-            for (const auto& tree : trees) {
+            for (const auto& tree : terrain.trees) {
                 float dx = newX - tree.x;
                 float dy = newY - tree.y;
                 float distSq = dx * dx + dy * dy;
@@ -783,21 +929,52 @@ void Simulation::phaseMovementChunk(size_t start, size_t end, float dt) {
             }
         }
 
-        soldiers.posX[i] = newX;
-        soldiers.posY[i] = newY;
+        // Written to the snapshot, not to posX/posY. Phase 9 reads this
+        // snapshot to resolve overlap and is what finally writes position.
+        nextPosX[i] = newX;
+        nextPosY[i] = newY;
 
-        // Update direction from velocity (for rendering)
-        float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
-                               soldiers.velY[i] * soldiers.velY[i]);
-        if (speed > 0.1f) {  // Only update if moving
+        // Direction, for rendering.
+        //
+        // A soldier standing on its slot has almost no velocity of its own.
+        // What little it has comes from separation and from non-penetration
+        // jostling with its neighbours, and that points in an essentially
+        // random direction, so a formation holding perfect station rendered as
+        // a milling crowd of arrows pointing every way at once. The formation
+        // was fine; only the arrows were lying.
+        //
+        // Below a walking pace, show the SQUAD's facing instead, which is what
+        // the man is actually facing. init() already seeds direction this way
+        // at deployment, for exactly this reason.
+        //
+        // Reading squads.facingX here is safe: facing is written in phase 4
+        // and this is phase 7, so that barrier has already made it read-only.
+        const float speed = std::sqrt(soldiers.velX[i] * soldiers.velX[i] +
+                                      soldiers.velY[i] * soldiers.velY[i]);
+        if (speed >= kWalkSpeed) {
             soldiers.dirX[i] = soldiers.velX[i] / speed;
             soldiers.dirY[i] = soldiers.velY[i] / speed;
+        } else {
+            const uint16_t sq = soldiers.squadId[i];
+            if (sq < squads.count) {
+                soldiers.dirX[i] = squads.facingX[sq];
+                soldiers.dirY[i] = squads.facingY[sq];
+            }
         }
 
         // Decay the melee attack cooldown (Task 3). This phase already
         // writes only its own soldier, so it is safe to do here too.
         if (soldiers.attackCooldown[i] > 0.0f) {
             soldiers.attackCooldown[i] -= dt;
+        }
+
+        // Settle timer. A soldier below a walking pace is standing still for
+        // archery purposes. `speed` is already computed just above for the
+        // direction update, so this is free.
+        if (speed < kWalkSpeed) {
+            soldiers.steadyTimer[i] += dt;
+        } else {
+            soldiers.steadyTimer[i] = 0.0f;
         }
     }
 }
@@ -861,6 +1038,10 @@ uint64_t Simulation::stateDigest() const {
         d.mix(soldiers.attackCooldown[i]);
         d.mix(soldiers.dirX[i]);
         d.mix(soldiers.dirY[i]);
+        // Written by phaseMovementChunk, read by spawnArrows. In the digest
+        // for the same reason as the fields above it: the thread-invariance
+        // gate can only exercise what the digest actually hashes.
+        d.mix(soldiers.steadyTimer[i]);
     }
 
     // The squad tier now has real per-tick state (centroid, facing) written
@@ -883,6 +1064,30 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.facingY[s]);
         d.mix(squads.morale[s]);
         d.mix(squads.discipline[s]);
+        // Terrain tactical objective / movement direction (design §7). New squad
+        // fields, so they belong in the digest: a divergence here across worker
+        // counts would otherwise be invisible to the thread-invariance gate.
+        d.mix(squads.objectiveX[s]);
+        d.mix(squads.objectiveY[s]);
+        d.mix(squads.moveX[s]);
+        d.mix(squads.moveY[s]);
+
+        // Contact, anchor, morale-input, and commander state. Every one of
+        // these is written by a phase and read by another, so a divergence in
+        // any of them across worker counts would otherwise be completely
+        // invisible to the gate: the phase could be wrong and every test would
+        // still pass, because nothing would ever compare its output.
+        d.mix(static_cast<uint32_t>(squads.contact[s]));
+        d.mix(squads.contactTimer[s]);
+        d.mix(squads.anchorX[s]);
+        d.mix(squads.anchorY[s]);
+        d.mix(squads.anchorReleaseTimer[s]);
+        d.mix(static_cast<uint32_t>(squads.rearThreat[s]));
+        d.mix(squads.nearestEnemyDist[s]);
+        d.mix(squads.rallyTimer[s]);
+        d.mix(static_cast<uint32_t>(squads.role[s]));
+        d.mix(static_cast<uint32_t>(squads.wardSquad[s]));
+        d.mix(static_cast<uint32_t>(squads.friendlyNearTarget[s]));
     }
 
     // Projectiles are included from the moment the array exists, so the
@@ -895,6 +1100,54 @@ uint64_t Simulation::stateDigest() const {
         d.mix(projectiles.velY[i]);
         d.mix(static_cast<uint32_t>(projectiles.team[i]));
         d.mix(projectiles.lifetime[i]);
+        // Arc state. traveled advances every tick in a parallel phase, and
+        // liveAfter decides whether this arrow can hit anything at all.
+        d.mix(projectiles.traveled[i]);
+        d.mix(projectiles.liveAfter[i]);
+    }
+
+    // The army tier is written by a SERIAL phase, so it cannot diverge on
+    // thread count by construction. It is digested anyway, for exactly the
+    // reason the squad tier was digested before it had any live fields: so the
+    // gate already covers it the day anything about that phase becomes
+    // parallel, rather than being blind to it from that day onward.
+    d.mix(static_cast<uint32_t>(armies.count));
+    for (size_t a = 0; a < armies.count; ++a) {
+        d.mix(armies.strengthInfantry[a]);
+        d.mix(armies.strengthArcher[a]);
+        d.mix(armies.strengthCavalry[a]);
+        d.mix(armies.centroidX[a]);
+        d.mix(armies.centroidY[a]);
+        d.mix(armies.frontX[a]);
+        d.mix(armies.frontY[a]);
+        d.mix(armies.frontDirX[a]);
+        d.mix(armies.frontDirY[a]);
+        d.mix(static_cast<uint32_t>(armies.posture[a]));
     }
     return d.value();
+}
+
+void Simulation::phaseContact() {
+    // Parallel over soldiers. Each job reads the nextPos snapshot, which is
+    // read-only for this whole phase, and writes only its own soldier's
+    // position. That is what keeps the result identical at any worker count.
+    const size_t chunkSize = 256;
+    for (size_t start = 0; start < soldiers.count; start += chunkSize) {
+        const size_t end = std::min(start + chunkSize, soldiers.count);
+        jobSystem.submit([this, start, end]() {
+            phaseContactChunk(start, end);
+        });
+        workCounters.add(workCounters.jobsDispatched, 1);
+    }
+
+    // Barrier owned by tick(), not this function -- see the comment on
+    // tick()'s own jobSystem.waitAll() calls.
+}
+
+void Simulation::phaseContactChunk(size_t start, size_t end) {
+    std::vector<uint32_t> localNeighbors;
+    localNeighbors.reserve(64);
+    for (size_t i = start; i < end; ++i) {
+        resolveOverlap(soldiers, nextPosX, nextPosY, spatialHash, i, localNeighbors);
+    }
 }
