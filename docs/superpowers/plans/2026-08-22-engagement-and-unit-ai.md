@@ -704,7 +704,13 @@ Add `#include "Contact.hpp"` to `Simulation.cpp`.
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `scripts/build.bat -t`
-Expected: all five new cases PASS. `test_counters.cpp` still passes: `contact` is not yet in the digest and nothing reads it yet, so behavior is unchanged. If the digest moved, something reads contact prematurely; find it before continuing.
+Expected: all five new cases PASS.
+
+`test_counters.cpp` FAILS on `candidatesExamined` and `cellsVisited` only. Detection adds a neighbour query per front-rank soldier per tick, and those two counters measure exactly that. Update just those two values in both baselines.
+
+**`stateDigest` must NOT move, and neither must the other four counters.** Nothing reads the contact flag yet, so behavior is unchanged, and the digest holding still is the evidence for that. If the digest moved, something consumes contact prematurely: find it before regenerating anything.
+
+Note on sizing the lone-skirmisher case: the front rank is much narrower than the squad. `rankWidth` at aspect 2.0 puts 7 of a 20-man squad in rank 0, and one enemy at half `kContactRadius` reaches TWO of them, which is 0.29 and above the threshold. Use 60 members, whose front rank is 11 wide, so two of eleven lands at 0.18 and the case tests what it claims to.
 
 - [ ] **Step 6: Commit**
 
@@ -1545,6 +1551,24 @@ slot offsets stays at zero and the anchor remains a genuine fixed point.
 Morale and discipline are still constant at 1.0, so only the extra squeeze
 on engaged squads changes behaviour today."
 ```
+
+---
+
+## Stage 1 outcome (recorded after execution)
+
+Stage 1 landed as commits `9d8f6f7` through `c96d292`. Four things differed from the plan as written, and later stages should assume the corrected versions:
+
+1. **`kContactRadius` must sit BELOW `kMeleeReach`, not above it.** The plan's `kMeleeReach * 1.4` reasoning was backwards: the halt freezes the anchor, so whatever gap exists at that instant persists, and a halt outside reach means nobody ever swings. Measured: zero deaths in 700 ticks. Now `kMeleeReach * 0.85`.
+2. **Free anchor tracking and post-contact release are separate states.** The plan's single blended ease leaves a marching squad's anchor trailing its centroid by about 22px. `SquadHot::anchorReleaseTimer` gates them.
+3. **The anchor must be seeded where deployment sets the centroid**, not in a loop after deployment. `init` calls `slotWorldPosition` while placing soldiers, so a late seed deploys every squad around the world origin.
+4. **Non-penetration sums and clamps its corrections.** Averaging by contact count, the textbook Jacobi fix, measured worse. See `resolveOverlap` for all four measurements.
+
+**Two knock-on effects later stages inherit:**
+
+- **The armies close about a third slower**, because bodies now resist each other. First death moved from tick 448 to past 1100. Two artifacts silently stopped covering combat as a result, and both were retargeted: `counters-2k-700.txt` is now `counters-2k-1600.txt`, and the melee wiring test runs 1800 ticks instead of 900. **Any later task that adds a tick budget must check it actually reaches combat**, and the tell is `gridInsertions` reading exactly `agents * ticks`.
+- **Squads advance at roughly a third of nominal unit speed**, which predates this work but is now more visible. This is a real tuning question and belongs to Task 17.
+
+**Also note:** `slotWorldPosition` reads `anchorX/Y`, so any hand-built `SquadHot` in a test must set the anchor, not just the centroid.
 
 ---
 
