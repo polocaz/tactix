@@ -16,6 +16,11 @@ struct SquadHot {
     // a value that cannot differ across the squad would be an indirection into
     // a different array for nothing.
     std::vector<uint8_t>  troopClass;
+    // The formation this squad is standing in RIGHT NOW. Previously derived
+    // from unitType through shapeForUnit on every read, which made a formation
+    // a permanent property of a unit type. Per-squad state is what lets a squad
+    // change shape mid-battle.
+    std::vector<uint8_t>  shape;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -98,6 +103,7 @@ struct SquadHot {
         team.push_back(t);
         unitType.push_back(u);
         troopClass.push_back((uint8_t)TroopClass::Levy);
+        shape.push_back((uint8_t)FormationShape::Line);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -140,6 +146,7 @@ struct SquadHot {
         team.clear();
         unitType.clear();
         troopClass.clear();
+        shape.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();

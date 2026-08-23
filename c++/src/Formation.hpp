@@ -32,6 +32,47 @@ constexpr float kSeparationRadius = 10.0f;
 // clearance actually did. Keep them equal.
 constexpr float kObstacleStandoff = kSeparationRadius + kSoldierRadius;
 
+constexpr uint32_t kFormationShapeCount = 9;
+
+// Everything a formation IS, in one row. Geometry (spacing, aspect) and
+// behavior (the rest) live together because they are the same decision: a
+// shieldwall is tight AND slow AND covered, and splitting those across three
+// files is how they drift apart.
+//
+// cover is in PERCENTAGE POINTS added to the shield block chance, per arc
+// (front, side, rear). Signed because Mob subtracts.
+struct FormationTraits {
+    float   spacing;        // multiplies kSlotSpacing
+    float   aspect;         // target width/depth for the grid shapes
+    float   speed;          // multiplies the unit's base speed
+    float   turn;           // multiplies kFacingSlewRate
+    uint8_t fightingRanks;  // how many ranks may reach an enemy
+    float   reach;          // multiplies kMeleeReach
+    float   cooldown;       // multiplies kMeleeCooldown
+    int8_t  cover[3];       // front, side, rear
+};
+
+// The first four rows reproduce the pre-table behavior exactly, so introducing
+// this table is not a behavior change for any existing shape. Wedge's aspect is
+// never read (its rank layout is floor(sqrt(i))) and is set to Line's value so
+// the row is not a special case for anything but the two functions that already
+// branch on it.
+constexpr FormationTraits kFormationTraits[kFormationShapeCount] = {
+    /* Line       */ { 1.00f, 2.0f, 1.00f, 1.00f, 1, 1.0f, 1.0f, {   0,   0,   0 } },
+    /* Column     */ { 1.00f, 0.5f, 1.00f, 1.00f, 1, 1.0f, 1.0f, {   0,   0,   0 } },
+    /* Wedge      */ { 1.00f, 2.0f, 1.00f, 1.20f, 1, 1.0f, 1.0f, {   0,   0,   0 } },
+    /* Loose      */ { 2.00f, 2.0f, 1.00f, 1.00f, 1, 1.0f, 1.0f, {   0,   0,   0 } },
+    /* Shieldwall */ { 0.75f, 3.0f, 0.60f, 0.50f, 1, 1.0f, 1.0f, { +30,  +5,   0 } },
+    /* Phalanx    */ { 0.85f, 1.5f, 0.50f, 0.35f, 3, 1.6f, 1.0f, { +20,   0,   0 } },
+    /* Testudo    */ { 0.60f, 1.2f, 0.30f, 0.40f, 1, 1.0f, 2.2f, { +55, +45, +35 } },
+    /* Manipular  */ { 1.00f, 2.5f, 0.95f, 1.00f, 1, 1.0f, 1.0f, { +10,   0,   0 } },
+    /* Mob        */ { 1.50f, 1.0f, 1.05f, 2.00f, 1, 1.0f, 1.2f, { -10, -10, -10 } },
+};
+
+constexpr const FormationTraits& traitsOf(FormationShape s) {
+    return kFormationTraits[(uint32_t)s < kFormationShapeCount ? (uint32_t)s : 0u];
+}
+
 namespace detail {
 
 // Smallest w such that w * ceil(n/w) >= n and w/depth is near the target
@@ -44,6 +85,13 @@ inline uint32_t rankWidth(uint32_t memberCount, float aspect) {
     if (w < 1) w = 1;
     if (w > memberCount) w = memberCount;
     return w;
+}
+
+// The single definition of how wide a shape stands. formationSlot and
+// rankOfSlot BOTH call this, which is what makes their agreement structural
+// instead of a promise in a comment that a future edit has to remember.
+inline uint32_t shapeWidth(FormationShape shape, uint32_t memberCount) {
+    return rankWidth(memberCount, traitsOf(shape).aspect);
 }
 
 } // namespace detail
@@ -61,15 +109,9 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
         return Vec2{ col * kSlotSpacing, -(float)r * kSlotSpacing };
     }
 
-    float spacing = kSlotSpacing;
-    float aspect  = 2.0f;
-    if (shape == FormationShape::Column) {
-        aspect = 0.5f;
-    } else if (shape == FormationShape::Loose) {
-        spacing = kSlotSpacing * 2.0f;
-    }
+    const float spacing = kSlotSpacing * traitsOf(shape).spacing;
 
-    const uint32_t width = detail::rankWidth(memberCount, aspect);
+    const uint32_t width = detail::shapeWidth(shape, memberCount);
     const uint32_t row = slotIndex / width;
     const uint32_t col = slotIndex % width;
 
@@ -78,13 +120,17 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
     return Vec2{ right, forward };
 }
 
-// Which rank a slot belongs to, rank 0 being the front. This MUST mirror
-// formationSlot's own layout: Wedge packs rank r into slots r*r .. r*r+2r, so
-// its rank is floor(sqrt(i)), while the grid shapes rank by integer division
-// on the same width rankWidth computes. Kept next to formationSlot precisely
-// so a change to one is an obvious prompt to change the other. Contact
-// detection (Contact.cpp) is the consumer: it tests only the front rank, and a
-// wrong rank here would silently make a whole squad or none of it eligible.
+// Which rank a slot belongs to, rank 0 being the front. Wedge packs rank r into
+// slots r*r .. r*r+2r, so its rank is floor(sqrt(i)); every grid shape ranks by
+// integer division on the width detail::shapeWidth computes, which is the same
+// call formationSlot makes.
+//
+// This used to be a hand-maintained mirror of formationSlot, asking a future
+// edit to remember to change two switches together. It is now structural: both
+// functions read one aspect value out of kFormationTraits through one helper.
+// Contact detection (Contact.cpp) and melee fighting depth (Combat.cpp) are the
+// consumers, and a wrong rank here would silently make a whole squad or none of
+// it eligible to fight.
 inline uint32_t rankOfSlot(FormationShape shape, uint16_t slotIndex, uint32_t memberCount) {
     if (memberCount == 0) return 0;
 
@@ -92,10 +138,11 @@ inline uint32_t rankOfSlot(FormationShape shape, uint16_t slotIndex, uint32_t me
         return (uint32_t)std::sqrt((float)slotIndex);
     }
 
-    // Loose differs from Line only in spacing, not in aspect, so it shares
-    // this branch. Column is the narrow-and-deep aspect.
-    const float aspect = (shape == FormationShape::Column) ? 0.5f : 2.0f;
-    const uint32_t width = detail::rankWidth(memberCount, aspect);
+    // Both this and formationSlot derive their width from detail::shapeWidth,
+    // which reads one aspect value out of kFormationTraits. That is what makes
+    // the mirror structural: there is one definition of how wide a shape
+    // stands, and a change to it moves both functions together.
+    const uint32_t width = detail::shapeWidth(shape, memberCount);
     return (uint32_t)slotIndex / width;
 }
 

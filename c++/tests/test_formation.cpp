@@ -213,3 +213,34 @@ TEST_CASE("compression keeps the mean slot offset at the anchor") {
     CHECK(sumX / 37.0f == doctest::Approx(500.0f).epsilon(1e-4));
     CHECK(sumY / 37.0f == doctest::Approx(300.0f).epsilon(1e-4));
 }
+
+TEST_CASE("rankOfSlot agrees with formationSlot for every shape and count") {
+    const FormationShape shapes[] = {
+        FormationShape::Line, FormationShape::Column,
+        FormationShape::Wedge, FormationShape::Loose,
+    };
+    for (FormationShape shape : shapes) {
+        for (uint32_t n = 1; n <= 200; ++n) {
+            for (uint16_t i = 0; i < (uint16_t)n; ++i) {
+                const Vec2 s = formationSlot(shape, i, n);
+                const uint32_t rank = rankOfSlot(shape, i, n);
+                // Rank r sits at depth -r * spacing. Recovering r from y is
+                // the whole mirror those two functions must maintain.
+                const float spacing = kSlotSpacing * traitsOf(shape).spacing;
+                CHECK(s.y == doctest::Approx(-(float)rank * spacing));
+            }
+        }
+    }
+}
+
+TEST_CASE("every formation shape has a traits row") {
+    for (uint32_t i = 0; i < kFormationShapeCount; ++i) {
+        const FormationTraits& t = traitsOf((FormationShape)i);
+        CHECK(t.spacing > 0.0f);
+        CHECK(t.speed > 0.0f);
+        CHECK(t.turn > 0.0f);
+        CHECK(t.reach >= 1.0f);
+        CHECK(t.cooldown > 0.0f);
+        CHECK(t.fightingRanks >= 1);
+    }
+}

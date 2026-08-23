@@ -105,4 +105,8 @@ jobsDispatched=48512
 squadDecisions=128000
 armyDecisions=108
 projectileHitTests=24596
-stateDigest=7fe4b8eb5560c75d
+# stateDigest updated again on 2026-08-22 for the formation traits table: the
+# new SquadHot::shape field enters the hash. Counters held fixed across it, which
+# is the evidence the traits refactor changed no geometry. See the companion
+# 200-tick file for the full argument.
+stateDigest=5594e8a96916b37d

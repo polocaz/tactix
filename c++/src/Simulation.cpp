@@ -217,6 +217,9 @@ void Simulation::init(size_t soldierCount) {
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
             squads.troopClass[squadId] = (uint8_t)troop;
+            // Seeded to exactly what shapeForUnit would have returned, so
+            // making formation per-squad state changes no behavior here.
+            squads.shape[squadId] = (uint8_t)shapeForUnit(unit);
             // Steadiness is a property of the troops (Loadout.hpp). Set at
             // deployment rather than defaulted in SquadHot::spawn, because
             // spawn does not know what it is spawning until the caller says.
@@ -1090,6 +1093,7 @@ uint64_t Simulation::stateDigest() const {
     for (size_t s = 0; s < squads.count; ++s) {
         d.mix(static_cast<uint32_t>(squads.memberCount[s]));
         d.mix(static_cast<uint32_t>(squads.troopClass[s]));
+        d.mix(static_cast<uint32_t>(squads.shape[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);

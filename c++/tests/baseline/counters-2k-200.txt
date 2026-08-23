@@ -82,4 +82,16 @@ jobsDispatched=6000
 squadDecisions=16000
 armyDecisions=14
 projectileHitTests=0
-stateDigest=e2d07b3520a6370e
+# stateDigest updated again on 2026-08-22 for the formation traits table. This
+# one is case 3 in the list above rather than a behavioural change: SquadHot
+# gained a `shape` field and stateDigest hashes it, so the hash covers one more
+# byte per squad and necessarily moves even though the battle is identical.
+#
+# The evidence that it IS identical is that every counter above was held FIXED
+# across this change and did not move by one: candidatesExamined, cellsVisited,
+# gridInsertions, jobsDispatched and projectileHitTests are all position
+# dependent. Same argument the contact-detection note above makes, inverted:
+# there the digest was held fixed to prove observation, here the counters are.
+# If a later refactor claims to be shape-preserving while moving a counter, that
+# is a bug, not a regeneration.
+stateDigest=6b6dc43e6c4c89aa

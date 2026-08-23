@@ -21,7 +21,7 @@ float squadCompression(const SquadHot& squads, size_t s) {
 
 Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
                        uint16_t slotIndex, uint32_t memberCount) {
-    const FormationShape shape = shapeForUnit(squads.unitType[s]);
+    const FormationShape shape = (FormationShape)squads.shape[s];
     const Vec2 raw = formationSlot(shape, slotIndex, memberCount);
     // updateSquadAggregate sets centroid to the mean of member positions, but
     // formationSlot's local origin is the formation's front-center, not its
