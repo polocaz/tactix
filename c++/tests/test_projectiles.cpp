@@ -192,19 +192,22 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
     //
     // The rate is now the target's own kWoundChancePct row rather than one
     // global constant, so the band below is built from what the defender is
-    // wearing. A legionary wears mail, so a bow lands 30 percent of the time.
+    // wearing. The defender is an ARCHER deliberately: he carries no shield, so
+    // this isolates the wound roll from the block roll that would otherwise sit
+    // in front of it. Shield cover has its own tests in test_shields.cpp.
     int landed = 0;
     const int shots = 400;
     const int expectedPct =
         kWoundChancePct[(int)WeaponClass::Bow]
-                       [(int)loadoutOf(TroopClass::Legionary).armor];
+                       [(int)loadoutOf(TroopClass::Archer).armor];
+    REQUIRE(loadoutOf(TroopClass::Archer).shield == ShieldClass::None);
 
     for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
         SoldierHot s;
         SquadHot q;
-        q.spawn(Team::B, UnitType::Infantry);
+        q.spawn(Team::B, UnitType::Archer);
         q.memberCount[0] = 1;
-        s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
+        s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Archer, 0);
         const uint8_t before = s.health[0];
 
         ProjectileHot p;

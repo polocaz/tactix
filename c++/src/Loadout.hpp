@@ -88,3 +88,17 @@ constexpr uint8_t kWoundChancePct[kWeaponCount][kArmorCount] = {
 // Plate has to cost something or it is not a choice. Applied through the
 // speedScale parameter steerToward already accepts.
 constexpr float kArmorSpeedScale[kArmorCount] = { 1.00f, 0.97f, 0.92f, 0.86f };
+
+// Chance in percent that a shield stops a missile arriving in the FRONT arc.
+constexpr uint8_t kShieldCoverPct[kShieldCount] = { 0, 20, 40, 55 };
+
+// Front, side, rear. A shield covers what a man faces and nothing behind him.
+constexpr float kArcCoverScale[3] = { 1.0f, 0.35f, 0.0f };
+
+// A shield stops an arrow better than it stops a man determined to push past
+// it. Applied to the whole block chance, formation bonus included.
+constexpr float kShieldMeleeScale = 0.6f;
+
+// Ceiling on any block chance. Nothing is ever certain, and without this a
+// tower shield in testudo reaches 110 and is literally invulnerable.
+constexpr uint8_t kMaxBlockPct = 90;

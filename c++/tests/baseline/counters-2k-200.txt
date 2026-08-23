@@ -99,4 +99,9 @@ projectileHitTests=0
 # there the digest was held fixed to prove observation, here the counters are.
 # If a later refactor claims to be shape-preserving while moving a counter, that
 # is a bug, not a regeneration.
-stateDigest=6c81a4aff2b46ff0
+# stateDigest updated 2026-08-22 for shields. Case 3 again, not a behavioural
+# change: SquadHot gained prevShape and shapeBlend and both enter the hash. The
+# counters above were held FIXED across this change, which is the evidence no
+# shield blocked anything within 200 ticks, and no shield should: the armies
+# have not met yet at that point in the battle.
+stateDigest=a0cc9a8b4913e370

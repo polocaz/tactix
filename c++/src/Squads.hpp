@@ -21,6 +21,13 @@ struct SquadHot {
     // a permanent property of a unit type. Per-squad state is what lets a squad
     // change shape mid-battle.
     std::vector<uint8_t>  shape;
+    // Formation transition state. shapeBlend counts DOWN the seconds remaining
+    // in a change, and while it runs the squad has the WORSE of the two shapes
+    // in every respect that matters. Written from the formation-choice commit
+    // onward; declared here because shieldBlockPct already has to read them to
+    // charge that cost.
+    std::vector<uint8_t>  prevShape;
+    std::vector<float>    shapeBlend;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -104,6 +111,8 @@ struct SquadHot {
         unitType.push_back(u);
         troopClass.push_back((uint8_t)TroopClass::Levy);
         shape.push_back((uint8_t)FormationShape::Line);
+        prevShape.push_back((uint8_t)FormationShape::Line);
+        shapeBlend.push_back(0.0f);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -147,6 +156,8 @@ struct SquadHot {
         unitType.clear();
         troopClass.clear();
         shape.clear();
+        prevShape.clear();
+        shapeBlend.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();

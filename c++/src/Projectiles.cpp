@@ -1,4 +1,5 @@
 #include "Projectiles.hpp"
+#include "Shields.hpp"
 #include "DetMath.hpp"
 #include "Simulation.hpp"
 #include "Squads.hpp"
@@ -174,10 +175,19 @@ void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, SquadHot& squad
         // the chance is what he is WEARING rather than a global constant. The
         // roll is consumed either way: an arrow that glances off gets no second
         // attempt next tick, which would make the chance meaningless.
+        // Stage one: his shield may stop it. The arrow's velocity IS its
+        // direction of travel, and impactArc normalizes, so no separate
+        // direction vector is needed.
+        const uint8_t blockPct =
+            shieldBlockPct(soldiers, squads, t, p.velX[i], p.velY[i], false);
+        const bool blocked =
+            rng.range((uint32_t)i, RngUse::ShieldBlockRoll, 1, 100) <= blockPct;
+
+        // Stage two: what he is wearing may turn it.
         const Loadout& defender = loadoutOf(soldiers.troopClass[t]);
         const uint8_t woundPct = kWoundChancePct[(int)p.weapon[i]][(int)defender.armor];
 
-        const bool lands =
+        const bool lands = !blocked &&
             rng.range((uint32_t)i, RngUse::MissileWoundRoll, 1, 100) <= woundPct;
         if (lands) {
             soldiers.health[t] = (soldiers.health[t] > p.damage[i])

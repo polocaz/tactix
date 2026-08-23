@@ -1,4 +1,5 @@
 #include "Combat.hpp"
+#include "Shields.hpp"
 #include "Simulation.hpp"
 #include "SpatialHash.hpp"
 #include "Units.hpp"
@@ -41,7 +42,6 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
 }
 
 void applyMeleeIntents(SoldierHot& soldiers, const SquadHot& squads, const Rng& rng) {
-    (void)squads;   // read from Task 7 onward, for the formation swing rate
     for (size_t i = 0; i < soldiers.count; ++i) {
         const uint32_t t = soldiers.intentTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
@@ -54,15 +54,24 @@ void applyMeleeIntents(SoldierHot& soldiers, const SquadHot& squads, const Rng& 
         if (soldiers.health[i] == 0) continue;
         if (soldiers.health[t] == 0) continue;
 
-        // A blow that reaches still has to get through what the target is
-        // wearing. The SIDEARM, not the weapon: a legionary inside melee range
-        // has already thrown his pilum and is fighting with a sword.
+        // Stage one: his shield may take it. The blow travels from the attacker
+        // toward the target, which is the direction impactArc wants.
+        const float ix = soldiers.posX[t] - soldiers.posX[i];
+        const float iy = soldiers.posY[t] - soldiers.posY[i];
+        const uint8_t blockPct = shieldBlockPct(soldiers, squads, t, ix, iy, true);
+        const bool blocked =
+            rng.range((uint32_t)i, RngUse::MeleeBlockRoll, 1, 100) <= blockPct;
+
+        // Stage two: a blow that gets past the shield still has to get through
+        // what he is wearing. The SIDEARM, not the weapon: a legionary inside
+        // melee range has already thrown his pilum and is fighting with a sword.
         const Loadout& attacker = loadoutOf(soldiers.troopClass[i]);
         const Loadout& defender = loadoutOf(soldiers.troopClass[t]);
         const uint8_t woundPct =
             kWoundChancePct[(int)attacker.sidearm][(int)defender.armor];
 
-        if (rng.range((uint32_t)i, RngUse::MeleeWoundRoll, 1, 100) <= woundPct) {
+        if (!blocked &&
+            rng.range((uint32_t)i, RngUse::MeleeWoundRoll, 1, 100) <= woundPct) {
             soldiers.health[t] = (soldiers.health[t] > kMeleeDamage)
                                ? (uint8_t)(soldiers.health[t] - kMeleeDamage)
                                : (uint8_t)0;
