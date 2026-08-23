@@ -120,4 +120,8 @@ projectileHitTests=0
 # fields enter the hash, and the counters above held fixed, which is the
 # evidence no maniple is relieved within 200 ticks. None can be: relief needs a
 # squad that has been in contact, and the lines have not met yet.
-stateDigest=72abe0a6abb8bf68
+# stateDigest updated for the multi-army foundation. Case 3 again:
+# ArmyHot::primaryEnemy enters the hash, and the counters above held fixed,
+# which is the evidence the default two-army deployment and work shape did not
+# move while the commander learned to store a non-binary front.
+stateDigest=8607f1576fe64ae5

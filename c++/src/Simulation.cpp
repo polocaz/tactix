@@ -14,9 +14,11 @@
 #include <chrono>
 #include "spdlog/spdlog.h"
 
-Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
+Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads,
+                       uint32_t teamCount)
     : worldWidth(w), worldHeight(h)
     , worldSeed(seed)
+    , activeTeamCount(std::clamp(teamCount, 2u, kMaxTeams))
     , spatialHash(static_cast<float>(w), static_cast<float>(h), 50.0f)  // 50 pixel cells (Design Doc §5.1)
     , jobSystem(workerThreads)
 {
@@ -25,6 +27,11 @@ Simulation::Simulation(int w, int h, uint32_t seed, uint32_t workerThreads)
 
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
+}
+
+static Vec2 normalizeOr(Vec2 v, Vec2 fallback) {
+    const float len = std::sqrt(v.x * v.x + v.y * v.y);
+    return len > 1e-6f ? Vec2{ v.x / len, v.y / len } : fallback;
 }
 
 // Composition scales with squad count rather than cycling a fixed modulo,
@@ -83,7 +90,13 @@ static TroopClass troopClassForSquad(uint32_t sq, uint32_t squadsPerTeam, Team t
     switch (unitTypeForSquad(sq, squadsPerTeam)) {
         case UnitType::Archer:  return TroopClass::Archer;
         case UnitType::Cavalry: return TroopClass::Knight;
-        default: return (team == Team::A) ? TroopClass::Legionary : TroopClass::Hoplite;
+        default:
+            switch (team) {
+                case Team::A: return TroopClass::Legionary;
+                case Team::B: return TroopClass::Hoplite;
+                case Team::C: return TroopClass::Huscarl;
+            }
+            return TroopClass::Levy;
     }
 }
 
@@ -103,11 +116,19 @@ void Simulation::init(size_t soldierCount) {
     // (10 squads/team) lands on 60/20/20 (6 infantry, 2 archer, 2 cavalry
     // squads), not an exact 60/25/15.
     constexpr uint32_t kSquadSize = 25;
-    // Team A gets the floor half, team B the remainder, so an odd
-    // soldierCount still deploys every soldier requested (off by one
-    // between the two armies rather than one soldier short overall).
-    const size_t perTeamA = soldierCount / 2;
-    const size_t perTeamB = soldierCount - perTeamA;
+    std::vector<size_t> perTeam(activeTeamCount, soldierCount / activeTeamCount);
+    size_t remainder = soldierCount % activeTeamCount;
+    if (activeTeamCount == 2u) {
+        // Preserve the old odd-count split: team A gets the floor half, team B
+        // gets the extra soldier. Existing two-army regression tests and
+        // baselines keep their deployment shape.
+        perTeam[0] = soldierCount / 2;
+        perTeam[1] = soldierCount - perTeam[0];
+    } else {
+        for (uint32_t t = 0; t < activeTeamCount && remainder > 0; ++t, --remainder) {
+            perTeam[t]++;
+        }
+    }
 
     // Composition (which unit type squad index N gets) is driven by ONE
     // shared squadsPerTeam for both teams, not each team's own. perTeamA and
@@ -121,9 +142,12 @@ void Simulation::init(size_t soldierCount) {
     // of two symmetric armies. Using the larger of the two here means squad
     // index N always means the same type on both sides; the smaller team
     // simply never reaches as high an index.
-    const uint32_t squadsPerTeamA = (uint32_t)((perTeamA + kSquadSize - 1) / kSquadSize);
-    const uint32_t squadsPerTeamB = (uint32_t)((perTeamB + kSquadSize - 1) / kSquadSize);
-    const uint32_t compositionSquadsPerTeam = std::max(squadsPerTeamA, squadsPerTeamB);
+    std::vector<uint32_t> squadsPerTeam(activeTeamCount, 0u);
+    uint32_t compositionSquadsPerTeam = 0u;
+    for (uint32_t t = 0; t < activeTeamCount; ++t) {
+        squadsPerTeam[t] = (uint32_t)((perTeam[t] + kSquadSize - 1) / kSquadSize);
+        compositionSquadsPerTeam = std::max(compositionSquadsPerTeam, squadsPerTeam[t]);
+    }
 
     const float w = (float)worldWidth;
     const float h = (float)worldHeight;
@@ -138,19 +162,33 @@ void Simulation::init(size_t soldierCount) {
     // below.
     bool packedTighter = false;
 
-    for (int t = 0; t < 2; ++t) {
-        const Team team = (t == 0) ? Team::A : Team::B;
-        const size_t perTeam = (t == 0) ? perTeamA : perTeamB;
-        const uint32_t squadsPerTeam = (t == 0) ? squadsPerTeamA : squadsPerTeamB;
-        if (squadsPerTeam == 0) continue;
+    for (uint32_t t = 0; t < activeTeamCount; ++t) {
+        const Team team = teamFromIndex(t);
+        const size_t teamSoldiers = perTeam[t];
+        const uint32_t teamSquads = squadsPerTeam[t];
+        if (teamSquads == 0) continue;
 
-        // Team A faces right from the left margin, team B faces left.
-        const float baseX = (t == 0) ? w * 0.15f : w * 0.85f;
-        const float facing = (t == 0) ? 1.0f : -1.0f;
+        Vec2 base{ w * 0.5f, h * 0.5f };
+        Vec2 facing{ 1.0f, 0.0f };
+        if (t == 0u) {
+            base = { w * 0.15f, h * 0.5f };
+            facing = { 1.0f, 0.0f };
+        } else if (t == 1u) {
+            base = { w * 0.85f, h * 0.5f };
+            facing = { -1.0f, 0.0f };
+        } else {
+            base = { w * 0.5f, h * 0.15f };
+            facing = { 0.0f, 1.0f };
+        }
+        facing = normalizeOr(facing, { 1.0f, 0.0f });
+        const Vec2 rowDir{ -facing.y, facing.x };
+
         // Depth behind the front line before the corridor runs into the
         // world edge -- exactly the distance from baseX to that edge, so a
         // column offset (below) can never carry a squad past it.
-        const float colBandDepth = (t == 0) ? baseX : (w - baseX);
+        const float colBandDepth =
+            std::max(kSlotSpacing,
+                     std::min({ base.x, w - base.x, base.y, h - base.y }));
 
         // Pass 1: every squad's shape and member count is knowable without
         // touching a soldier, so scan them first for the largest formation
@@ -160,10 +198,10 @@ void Simulation::init(size_t soldierCount) {
         // so a pitch is never zero regardless of member counts.
         float neededRowPitch = kSlotSpacing;
         float neededColPitch = kSlotSpacing;
-        for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
+        for (uint32_t sq = 0; sq < teamSquads; ++sq) {
             UnitType unit = unitTypeForSquad(sq, compositionSquadsPerTeam);
             const uint32_t members = (uint32_t)std::min<size_t>(
-                kSquadSize, perTeam - (size_t)sq * kSquadSize);
+                kSquadSize, teamSoldiers - (size_t)sq * kSquadSize);
             const Vec2 extent = formationExtent(shapeForUnit(unit), members);
             neededRowPitch = std::max(neededRowPitch, extent.x);
             neededColPitch = std::max(neededColPitch, extent.y);
@@ -199,7 +237,7 @@ void Simulation::init(size_t soldierCount) {
         const float rowBand = std::max(neededRowPitch, h - 2.0f * rowMargin);
 
         const uint32_t perColumn = std::max(1u, (uint32_t)(rowBand / neededRowPitch));
-        const uint32_t columnsNeeded = (squadsPerTeam + perColumn - 1) / perColumn;
+        const uint32_t columnsNeeded = (teamSquads + perColumn - 1) / perColumn;
         const float rowPitch = rowBand / (float)perColumn;
         const float colPitch = colBandDepth / (float)columnsNeeded;
         // Both loops above only ever shrink a pitch relative to what the
@@ -210,7 +248,7 @@ void Simulation::init(size_t soldierCount) {
         }
 
         // Pass 2: place squads and spawn their soldiers.
-        for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
+        for (uint32_t sq = 0; sq < teamSquads; ++sq) {
             const TroopClass troop = troopClassForSquad(sq, compositionSquadsPerTeam, team);
             const UnitType unit = loadoutOf(troop).unit;
 
@@ -224,8 +262,8 @@ void Simulation::init(size_t soldierCount) {
             // deployment rather than defaulted in SquadHot::spawn, because
             // spawn does not know what it is spawning until the caller says.
             squads.discipline[squadId] = loadoutOf(troop).discipline;
-            squads.facingX[squadId] = facing;
-            squads.facingY[squadId] = 0.0f;
+            squads.facingX[squadId] = facing.x;
+            squads.facingY[squadId] = facing.y;
             // Established here, not assumed: slotWorldPosition below (and
             // every steerToSlot call this tick and after) depends on facing
             // being unit length (see Soldiers.hpp).
@@ -233,8 +271,24 @@ void Simulation::init(size_t soldierCount) {
 
             const uint32_t column = sq / perColumn;
             const uint32_t row = sq % perColumn;
-            const float squadX = baseX - facing * (float)column * colPitch;
-            const float squadY = rowMargin + (float)row * rowPitch;
+            float squadX = 0.0f;
+            float squadY = 0.0f;
+            if (activeTeamCount == 2u) {
+                // Exact old deployment: rows stack from rowMargin downward.
+                // Two-army benchmarks and tuning depend on this opening
+                // geometry, so the generalized row basis starts at three
+                // active teams rather than silently retuning the default.
+                squadX = base.x - facing.x * (float)column * colPitch;
+                squadY = rowMargin + (float)row * rowPitch;
+            } else {
+                const float rowOffset = -rowBand * 0.5f + (float)row * rowPitch;
+                squadX = base.x - facing.x * (float)column * colPitch
+                       + rowDir.x * rowOffset;
+                squadY = base.y - facing.y * (float)column * colPitch
+                       + rowDir.y * rowOffset;
+            }
+            squadX = clampf(squadX, 0.0f, w);
+            squadY = clampf(squadY, 0.0f, h);
 
             squads.centroidX[squadId] = squadX;
             squads.centroidY[squadId] = squadY;
@@ -251,7 +305,7 @@ void Simulation::init(size_t soldierCount) {
             // definition of ceiling division sq * kSquadSize < perTeam here:
             // the subtraction below never underflows.
             const uint32_t members = (uint32_t)std::min<size_t>(
-                kSquadSize, perTeam - (size_t)sq * kSquadSize);
+                kSquadSize, teamSoldiers - (size_t)sq * kSquadSize);
             // steerToSlot reads squads.memberCount, not a local variable --
             // set the field itself so deployment and steering agree by
             // construction, not by coincidence (finding 4).
@@ -314,12 +368,11 @@ void Simulation::init(size_t soldierCount) {
     // so this reproduces exactly what the first tick would compute anyway.
     rebuildSquadMembers(soldiers, squads, squadMembers, squadMemberCounts, squadMemberCursor);
 
-    // One army per team. Never destroyed, exactly like squads, so nothing
-    // reading an army index ever needs a liveness check. Rebuilt from scratch
-    // here because reset() calls init() again on a live Simulation.
+    // One army per active team. Never destroyed, exactly like squads, so
+    // nothing reading an army index ever needs a liveness check. Rebuilt from
+    // scratch here because reset() calls init() again on a live Simulation.
     armies = ArmyHot{};
-    armies.spawn();   // Team::A
-    armies.spawn();   // Team::B
+    for (uint32_t t = 0; t < activeTeamCount; ++t) armies.spawn();
 
     spdlog::info("Deployed {} soldiers in {} squads on a {}x{} field",
                  soldiers.count, squads.count, worldWidth, worldHeight);
@@ -328,7 +381,7 @@ void Simulation::init(size_t soldierCount) {
 size_t Simulation::getTeamCount(Team t) const {
     size_t n = 0;
     for (size_t i = 0; i < soldiers.count; ++i) {
-        if (soldiers.team[i] == t) n++;
+        if (sameTeam(soldiers.team[i], t)) n++;
     }
     return n;
 }
@@ -337,8 +390,19 @@ float Simulation::teamCentroidX(Team t) const {
     double sum = 0.0;
     size_t n = 0;
     for (size_t i = 0; i < soldiers.count; ++i) {
-        if (soldiers.team[i] != t) continue;
+        if (!sameTeam(soldiers.team[i], t)) continue;
         sum += soldiers.posX[i];
+        n++;
+    }
+    return n ? (float)(sum / (double)n) : 0.0f;
+}
+
+float Simulation::teamCentroidY(Team t) const {
+    double sum = 0.0;
+    size_t n = 0;
+    for (size_t i = 0; i < soldiers.count; ++i) {
+        if (!sameTeam(soldiers.team[i], t)) continue;
+        sum += soldiers.posY[i];
         n++;
     }
     return n ? (float)(sum / (double)n) : 0.0f;
@@ -377,10 +441,15 @@ bool Simulation::everySoldierHasASquadSlot() const {
 }
 
 void Simulation::reset(size_t count) {
+    reset(count, activeTeamCount);
+}
+
+void Simulation::reset(size_t count, uint32_t teamCount) {
     // Each tier owns its own field list, beside its spawn(). Do NOT expand
     // these back into per-array clears here: that is what let reset() and
     // spawn() drift apart, which silently offset every newer field by the
     // previous run's count.
+    activeTeamCount = std::clamp(teamCount, 2u, kMaxTeams);
     soldiers.clear();
     squads.clear();
     armies = ArmyHot{};
@@ -593,10 +662,11 @@ void Simulation::phaseArmyDecide() {
         // on the same tick and an assignment persists long enough to read.
         const bool firstTick = (tickNumber == 1u);
         if (firstTick || (tickNumber % kArmyDecideInterval) == a) {
-            assignRoles(squads, armies, (Team)a);
+            const Team team = teamFromIndex((uint32_t)a);
+            assignRoles(squads, armies, team);
             // After the roles, because relief overrides two of them and would
             // otherwise be undone the moment it was decided.
-            updateLineRelief(squads, armies, (Team)a);
+            updateLineRelief(squads, armies, team);
             workCounters.add(workCounters.armyDecisions, 1);
         }
     }
@@ -1202,6 +1272,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(armies.frontDirX[a]);
         d.mix(armies.frontDirY[a]);
         d.mix(static_cast<uint32_t>(armies.posture[a]));
+        d.mix(static_cast<uint32_t>(armies.primaryEnemy[a]));
     }
     return d.value();
 }

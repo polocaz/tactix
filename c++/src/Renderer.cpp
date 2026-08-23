@@ -22,6 +22,7 @@ constexpr Color kBorder     = {128, 142, 160, 255 };
 
 constexpr Color kTeamA      = { 92, 154, 236, 255 };  // steel blue
 constexpr Color kTeamB      = {218,  96,  66, 255 };  // rust red
+constexpr Color kTeamC      = {222, 178,  72, 255 };  // ochre gold
 
 constexpr Color kArrow      = {244, 218, 156, 255 };
 constexpr Color kBlood      = { 74,  20,  20, 255 };
@@ -34,6 +35,15 @@ constexpr Color kCanopy     = { 44,  74,  42, 255 };
 constexpr Color kCanopyLit  = { 71, 105,  60, 255 };
 constexpr Color kTrunk      = { 46,  36,  28, 255 };
 }  // namespace pal
+
+static Color teamColor(Team team) {
+    switch (team) {
+        case Team::A: return pal::kTeamA;
+        case Team::B: return pal::kTeamB;
+        case Team::C: return pal::kTeamC;
+    }
+    return pal::kTeamA;
+}
 
 // The sun sits up and to the left, so every shadow in the scene falls down
 // and to the right. Sizes differ, direction never does -- inconsistent shadow
@@ -291,8 +301,7 @@ void renderUpdateEffects(Simulation& sim, float dtSeconds) {
             d.life     = 90.0f;
             // Tinted a little toward the team so a field tells you who died
             // where, without ever reading as anything but blood.
-            d.color = mix(pal::kBlood,
-                          e.team == Team::A ? pal::kTeamA : pal::kTeamB, 0.12f);
+            d.color = mix(pal::kBlood, teamColor(e.team), 0.12f);
             pushDecal(d);
         }
         gFlashes.push_back(Flash{ e.x, e.y, 0.0f, 0.22f, pal::kSpark });
@@ -506,8 +515,7 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
 
                 const float cx = sim.squads.centroidX[s];
                 const float cy = sim.squads.centroidY[s];
-                const bool  teamA = sim.squads.team[s] == Team::A;
-                const Color base  = teamA ? pal::kTeamA : pal::kTeamB;
+                const Color base  = teamColor(sim.squads.team[s]);
                 const float morale = std::clamp(sim.squads.morale[s], 0.0f, 1.0f);
                 const bool  routing = sim.squads.order[s] == (uint8_t)SquadOrder::Rout;
 
@@ -629,8 +637,7 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
         const float ry = sim.prevPosY[i] + (sim.soldiers.posY[i] - sim.prevPosY[i]) * alpha_;
 
         const UnitType type = sim.soldiers.unitType[i];
-        const bool teamA = sim.soldiers.team[i] == Team::A;
-        Color c = teamA ? pal::kTeamA : pal::kTeamB;
+        Color c = teamColor(sim.soldiers.team[i]);
 
         // Unit type shifts value, never hue: archers lighter, cavalry deeper,
         // so type stays legible without either team drifting toward the other.
@@ -687,7 +694,7 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
             const float fy = sim.squads.facingY[sq];
             const float half = 2.0f + 1.1f * (float)(int)lo.shield;   // buckler to tower
             const float off = kSoldierRadius + 1.0f;
-            const Color shieldCol = shade(teamA ? pal::kTeamA : pal::kTeamB, 1.35f);
+            const Color shieldCol = shade(teamColor(sim.soldiers.team[i]), 1.35f);
             // Across the facing, not along it: a shield is a wall, not a spike.
             DrawLineEx(Vector2{ rx + fx * off - fy * half, ry + fy * off + fx * half },
                        Vector2{ rx + fx * off + fy * half, ry + fy * off - fx * half },
@@ -804,12 +811,17 @@ void drawHud(const Simulation& sim, const ViewSettings& view,
     if (view.vignette) drawVignette(sw, sh);
 
     // --- Strength bar -------------------------------------------------------
-    // One bar with a moving seam, not two bars side by side. The question a
-    // viewer actually has is "who is winning", and a seam answers it at a
-    // glance where two independent lengths require arithmetic.
-    const size_t a = sim.getTeamCount(Team::A);
-    const size_t b = sim.getTeamCount(Team::B);
-    const float total = (float)std::max<size_t>(1, a + b);
+    // One segmented bar, not one independent bar per team. The question a
+    // viewer has is still "who is winning"; with three armies the seams answer
+    // that at a glance without turning the HUD into arithmetic.
+    size_t counts[kMaxTeams] = {};
+    size_t totalCount = 0;
+    const uint32_t teams = sim.getTeamSlotCount();
+    for (uint32_t t = 0; t < teams; ++t) {
+        counts[t] = sim.getTeamCount(teamFromIndex(t));
+        totalCount += counts[t];
+    }
+    const float total = (float)std::max<size_t>(1, totalCount);
     // Centred over the FIELD, not over the window: the panel rail on the right
     // is not part of the battlefield, and a bar centred on the window sits
     // visibly off-axis from the world it describes.
@@ -820,21 +832,35 @@ void drawHud(const Simulation& sim, const ViewSettings& view,
     const float barH = 18.0f;
 
     panel(barX - 10.0f, barY - 10.0f, barW + 20.0f, barH + 40.0f);
-    const float split = barW * ((float)a / total);
-    DrawRectangleRec(Rectangle{ barX, barY, split, barH }, shade(pal::kTeamA, 0.92f));
-    DrawRectangleRec(Rectangle{ barX + split, barY, barW - split, barH },
-                     shade(pal::kTeamB, 0.92f));
-    DrawRectangleRec(Rectangle{ barX + split - 1.0f, barY, 2.0f, barH },
-                     Color{ 240, 240, 245, 220 });
+    float x = barX;
+    for (uint32_t t = 0; t < teams; ++t) {
+        const float segW = (t + 1u == teams)
+                         ? (barX + barW - x)
+                         : barW * ((float)counts[t] / total);
+        DrawRectangleRec(Rectangle{ x, barY, segW, barH },
+                         shade(teamColor(teamFromIndex(t)), 0.92f));
+        if (t > 0) {
+            DrawRectangleRec(Rectangle{ x - 1.0f, barY, 2.0f, barH },
+                             Color{ 240, 240, 245, 220 });
+        }
+        x += segW;
+    }
     DrawRectangleLinesEx(Rectangle{ barX, barY, barW, barH }, 1.0f,
                          Color{ 20, 22, 28, 200 });
 
     char buf[96];
-    std::snprintf(buf, sizeof(buf), "%zu", a);
-    DrawText(buf, (int)(barX + 6.0f), (int)(barY + barH + 6.0f), 20, pal::kTeamA);
-    std::snprintf(buf, sizeof(buf), "%zu", b);
-    DrawText(buf, (int)(barX + barW - 6.0f - MeasureText(buf, 20)),
-             (int)(barY + barH + 6.0f), 20, pal::kTeamB);
+    x = barX;
+    for (uint32_t t = 0; t < teams; ++t) {
+        const float segW = (t + 1u == teams)
+                         ? (barX + barW - x)
+                         : barW * ((float)counts[t] / total);
+        std::snprintf(buf, sizeof(buf), "%s %zu", teamName(teamFromIndex(t)), counts[t]);
+        const int tw = MeasureText(buf, 20);
+        const float tx = x + std::max(6.0f, (segW - (float)tw) * 0.5f);
+        DrawText(buf, (int)tx, (int)(barY + barH + 6.0f), 20,
+                 teamColor(teamFromIndex(t)));
+        x += segW;
+    }
 
     const int mins = (int)battleSeconds / 60;
     const int secs = (int)battleSeconds % 60;

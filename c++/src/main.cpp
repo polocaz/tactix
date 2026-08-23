@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <vector>
 
 #include "Simulation.hpp"
 #include "Renderer.hpp"
@@ -20,6 +21,15 @@
 // ---------------------------------------------------------------------------
 static ImVec4 rgba(int r, int g, int b, float a = 1.0f) {
     return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a);
+}
+
+static ImVec4 teamUiColor(uint32_t teamIndex) {
+    switch (teamIndex) {
+        case 0: return rgba( 92, 154, 236);
+        case 1: return rgba(218,  96,  66);
+        case 2: return rgba(222, 178,  72);
+    }
+    return rgba(214, 220, 232);
 }
 
 static void applyTactixStyle() {
@@ -122,7 +132,8 @@ int main() {
     rlImGuiSetup(true);
     applyTactixStyle();
 
-    Simulation sim(worldWidth, worldHeight);
+    uint32_t armyCount = 3;
+    Simulation sim(worldWidth, worldHeight, 1u, 0u, armyCount);
     size_t agentCount = 100;
     sim.init(agentCount);
     // Presentation-only, and only ever set here: the headless benchmark shares
@@ -172,8 +183,14 @@ int main() {
     float lastFrameTime = 0.0f;
     int tickCount = 0;
     float battleSeconds = 0.0f;
-    size_t startingA = sim.getTeamCount(Team::A);
-    size_t startingB = sim.getTeamCount(Team::B);
+    std::vector<size_t> startingTeams;
+    auto refreshStartingTeams = [&]() {
+        startingTeams.assign(sim.getTeamSlotCount(), 0u);
+        for (uint32_t t = 0; t < sim.getTeamSlotCount(); ++t) {
+            startingTeams[t] = sim.getTeamCount(teamFromIndex(t));
+        }
+    };
+    refreshStartingTeams();
 
     spdlog::info("Starting simulation with {} agents", agentCount);
 
@@ -339,27 +356,27 @@ int main() {
         ImGui::Spacing();
 
         if (ImGui::CollapsingHeader("Battle", ImGuiTreeNodeFlags_DefaultOpen)) {
-            const size_t a = sim.getTeamCount(Team::A);
-            const size_t b = sim.getTeamCount(Team::B);
-
-            // Survivors as a fraction of what each side started with. Raw head
-            // counts alone hide the thing you want to know, which is who is
-            // spending men faster.
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, rgba(92, 154, 236));
-            ImGui::ProgressBar(startingA ? (float)a / (float)startingA : 0.0f,
-                               ImVec2(-1, 14), TextFormat("A  %zu / %zu", a, startingA));
-            ImGui::PopStyleColor();
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, rgba(218, 96, 66));
-            ImGui::ProgressBar(startingB ? (float)b / (float)startingB : 0.0f,
-                               ImVec2(-1, 14), TextFormat("B  %zu / %zu", b, startingB));
-            ImGui::PopStyleColor();
+            size_t liveTotal = 0;
+            for (uint32_t t = 0; t < sim.getTeamSlotCount(); ++t) {
+                const Team team = teamFromIndex(t);
+                const size_t live = sim.getTeamCount(team);
+                liveTotal += live;
+                const size_t start = (t < startingTeams.size()) ? startingTeams[t] : 0u;
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, teamUiColor(t));
+                ImGui::ProgressBar(start ? (float)live / (float)start : 0.0f,
+                                   ImVec2(-1, 14),
+                                   TextFormat("%s  %zu / %zu", teamName(team), live, start));
+                ImGui::PopStyleColor();
+            }
 
             ImGui::Spacing();
             statLine("Squads",  TextFormat("%zu", sim.getSquadCount()), rgba(214, 220, 232));
             statLine("Arrows in flight", TextFormat("%zu", sim.getProjectileCount()),
                      rgba(244, 218, 156));
-            statLine("Fallen", TextFormat("%zu",
-                     (startingA + startingB) - (a + b)), rgba(198, 110, 96));
+            size_t startingTotal = 0;
+            for (size_t n : startingTeams) startingTotal += n;
+            statLine("Fallen", TextFormat("%zu", startingTotal - liveTotal),
+                     rgba(198, 110, 96));
             statLine("Elapsed", TextFormat("%02d:%02d", (int)battleSeconds / 60,
                      (int)battleSeconds % 60), rgba(214, 220, 232));
 
@@ -367,12 +384,19 @@ int main() {
             int agentCountInt = static_cast<int>(agentCount);
             ImGui::TextColored(rgba(126, 136, 154), "Army size (restarts the battle)");
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::SliderInt("##agents", &agentCountInt, 100, 10000)) {
+            const bool agentsChanged = ImGui::SliderInt("##agents", &agentCountInt, 100, 10000);
+
+            int armyCountInt = static_cast<int>(armyCount);
+            ImGui::TextColored(rgba(126, 136, 154), "Armies (restarts the battle)");
+            ImGui::SetNextItemWidth(-1);
+            const bool armiesChanged = ImGui::SliderInt("##armies", &armyCountInt, 2, (int)kMaxTeams);
+
+            if (agentsChanged || armiesChanged) {
                 agentCount = static_cast<size_t>(agentCountInt);
-                sim.reset(agentCount);
+                armyCount = (uint32_t)armyCountInt;
+                sim.reset(agentCount, armyCount);
                 renderResetEffects();
-                startingA = sim.getTeamCount(Team::A);
-                startingB = sim.getTeamCount(Team::B);
+                refreshStartingTeams();
                 tickCount = 0;
                 battleSeconds = 0.0f;
                 accumulator = 0.0f;
