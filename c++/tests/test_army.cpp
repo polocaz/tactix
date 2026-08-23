@@ -16,9 +16,14 @@ struct ArmyFixture {
 
     ArmyFixture() { armies.spawn(); armies.spawn(); }
 
-    uint16_t add(Team t, UnitType u, float cx, float cy, uint32_t members) {
+    // Takes a TroopClass and derives the UnitType from it, exactly as
+    // deployment does, so a fixture squad can never have a role and an
+    // equipment set that disagree.
+    uint16_t add(Team t, TroopClass tc, float cx, float cy, uint32_t members) {
         const uint16_t s = (uint16_t)squads.count;
-        squads.spawn(t, u);
+        squads.spawn(t, loadoutOf(tc).unit);
+        squads.troopClass[s] = (uint8_t)tc;
+        squads.discipline[s] = loadoutOf(tc).discipline;
         squads.centroidX[s] = cx;
         squads.centroidY[s] = cy;
         squads.memberCount[s] = members;
@@ -29,10 +34,10 @@ struct ArmyFixture {
 
 TEST_CASE("army strength sums its live squads by unit type") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 100.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Infantry, 140.0f, 100.0f, 10);
-    f.add(Team::A, UnitType::Archer,   100.0f,  60.0f, 12);
-    f.add(Team::B, UnitType::Cavalry,  600.0f, 100.0f,  8);
+    f.add(Team::A, TroopClass::Legionary, 100.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 140.0f, 100.0f, 10);
+    f.add(Team::A, TroopClass::Archer,   100.0f,  60.0f, 12);
+    f.add(Team::B, TroopClass::Knight,  600.0f, 100.0f,  8);
     updateArmyAggregate(f.squads, f.armies);
 
     CHECK(f.armies.strengthInfantry[0] == doctest::Approx(30.0f));
@@ -43,8 +48,8 @@ TEST_CASE("army strength sums its live squads by unit type") {
 
 TEST_CASE("a wiped-out squad contributes nothing") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 100.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Infantry, 140.0f, 100.0f, 0);   // annihilated
+    f.add(Team::A, TroopClass::Legionary, 100.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 140.0f, 100.0f, 0);   // annihilated
     updateArmyAggregate(f.squads, f.armies);
     CHECK(f.armies.strengthInfantry[0] == doctest::Approx(20.0f));
 }
@@ -54,10 +59,10 @@ TEST_CASE("the front line sits on the infantry, not on the whole army") {
     // squad it would be dragged backward and 'behind our line' would stop
     // meaning anything useful.
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 140.0f, 20);
-    f.add(Team::A, UnitType::Archer,    50.0f, 120.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 120.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 140.0f, 20);
+    f.add(Team::A, TroopClass::Archer,    50.0f, 120.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 120.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
 
     CHECK(f.armies.frontX[0] == doctest::Approx(200.0f));
@@ -66,8 +71,8 @@ TEST_CASE("the front line sits on the infantry, not on the whole army") {
 
 TEST_CASE("the front direction points at the enemy army and is unit length") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 100.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
 
     CHECK(f.armies.frontDirX[0] == doctest::Approx(1.0f));
@@ -81,16 +86,16 @@ TEST_CASE("the front direction points at the enemy army and is unit length") {
 
 TEST_CASE("an army with no infantry falls back to its whole-army centroid") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Archer, 300.0f, 200.0f, 10);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 200.0f, 10);
+    f.add(Team::A, TroopClass::Archer, 300.0f, 200.0f, 10);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 200.0f, 10);
     updateArmyAggregate(f.squads, f.armies);
     CHECK(f.armies.frontX[0] == doctest::Approx(300.0f));
 }
 
 TEST_CASE("an annihilated army produces no NaN") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 0);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 0);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 100.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
 
     CHECK(f.armies.frontX[0] == f.armies.frontX[0]);            // not NaN
@@ -101,8 +106,8 @@ TEST_CASE("an annihilated army produces no NaN") {
 
 TEST_CASE("squadStrength weights members by unit type") {
     ArmyFixture f;
-    const uint16_t inf = f.add(Team::A, UnitType::Infantry, 0.0f, 0.0f, 10);
-    const uint16_t cav = f.add(Team::A, UnitType::Cavalry,  0.0f, 0.0f, 10);
+    const uint16_t inf = f.add(Team::A, TroopClass::Legionary, 0.0f, 0.0f, 10);
+    const uint16_t cav = f.add(Team::A, TroopClass::Knight,  0.0f, 0.0f, 10);
     // Cavalry hit harder per man, so an equal head count is not equal strength.
     CHECK(squadStrength(f.squads, cav) > squadStrength(f.squads, inf));
 }
@@ -119,10 +124,10 @@ size_t countRole(const SquadHot& q, Team t, SquadRole r) {
 
 TEST_CASE("every archer squad is told to shoot") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Archer,   100.0f, 100.0f, 12);
-    f.add(Team::A, UnitType::Archer,   100.0f, 140.0f, 12);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 120.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 900.0f, 120.0f, 20);
+    f.add(Team::A, TroopClass::Archer,   100.0f, 100.0f, 12);
+    f.add(Team::A, TroopClass::Archer,   100.0f, 140.0f, 12);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 120.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 900.0f, 120.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -131,12 +136,12 @@ TEST_CASE("every archer squad is told to shoot") {
 
 TEST_CASE("a threatened archer squad gets exactly one screen") {
     ArmyFixture f;
-    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 100.0f, 12);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Infantry, 260.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Infantry, 320.0f, 100.0f, 20);
+    const uint16_t archers = f.add(Team::A, TroopClass::Archer, 100.0f, 100.0f, 12);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 260.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Legionary, 320.0f, 100.0f, 20);
     // An enemy well inside kScreenThreatRadius of the archers.
-    f.add(Team::B, UnitType::Infantry, 100.0f + kScreenThreatRadius * 0.5f, 100.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 100.0f + kScreenThreatRadius * 0.5f, 100.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -150,9 +155,9 @@ TEST_CASE("a threatened archer squad gets exactly one screen") {
 
 TEST_CASE("an unthreatened archer squad gets no screen") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Archer,   100.0f, 100.0f, 12);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 100.0f + kScreenThreatRadius * 3.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Archer,   100.0f, 100.0f, 12);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 100.0f + kScreenThreatRadius * 3.0f, 100.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -162,9 +167,9 @@ TEST_CASE("an unthreatened archer squad gets no screen") {
 TEST_CASE("an army with no archers assigns no screens") {
     ArmyFixture f;
     for (int i = 0; i < 4; ++i) {
-        f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 40.0f, 20);
+        f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f + (float)i * 40.0f, 20);
     }
-    f.add(Team::B, UnitType::Infantry, 300.0f, 160.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 300.0f, 160.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -176,11 +181,11 @@ TEST_CASE("line squads spread across enemies instead of piling on the nearest") 
     // squads against four equal enemies: each enemy should draw one.
     ArmyFixture f;
     for (int i = 0; i < 4; ++i) {
-        f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 40.0f, 20);
+        f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f + (float)i * 40.0f, 20);
     }
     std::vector<uint16_t> enemies;
     for (int i = 0; i < 4; ++i) {
-        enemies.push_back(f.add(Team::B, UnitType::Infantry,
+        enemies.push_back(f.add(Team::B, TroopClass::Legionary,
                                 800.0f, 100.0f + (float)i * 40.0f, 20));
     }
     updateArmyAggregate(f.squads, f.armies);
@@ -200,10 +205,10 @@ TEST_CASE("line squads spread across enemies instead of piling on the nearest") 
 TEST_CASE("a stronger enemy squad draws proportionally more attackers") {
     ArmyFixture f;
     for (int i = 0; i < 6; ++i) {
-        f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 40.0f, 20);
+        f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f + (float)i * 40.0f, 20);
     }
-    const uint16_t big   = f.add(Team::B, UnitType::Infantry, 800.0f, 100.0f, 60);
-    const uint16_t small = f.add(Team::B, UnitType::Infantry, 800.0f, 300.0f, 20);
+    const uint16_t big   = f.add(Team::B, TroopClass::Legionary, 800.0f, 100.0f, 60);
+    const uint16_t small = f.add(Team::B, TroopClass::Legionary, 800.0f, 300.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -219,9 +224,9 @@ TEST_CASE("a stronger enemy squad draws proportionally more attackers") {
 
 TEST_CASE("cavalry are sent to flank") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Cavalry,  200.0f, 100.0f, 10);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 200.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 200.0f, 20);
+    f.add(Team::A, TroopClass::Knight,  200.0f, 100.0f, 10);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 200.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 200.0f, 20);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -230,11 +235,11 @@ TEST_CASE("cavalry are sent to flank") {
 
 TEST_CASE("every squad ends up with a live enemy target") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Archer,   100.0f, 100.0f, 12);
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::A, UnitType::Cavalry,  200.0f, 200.0f, 10);
-    const uint16_t enemy = f.add(Team::B, UnitType::Infantry, 800.0f, 150.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 850.0f, 150.0f, 0);   // wiped out
+    f.add(Team::A, TroopClass::Archer,   100.0f, 100.0f, 12);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::A, TroopClass::Knight,  200.0f, 200.0f, 10);
+    const uint16_t enemy = f.add(Team::B, TroopClass::Legionary, 800.0f, 150.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 850.0f, 150.0f, 0);   // wiped out
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);
 
@@ -246,8 +251,8 @@ TEST_CASE("every squad ends up with a live enemy target") {
 
 TEST_CASE("assignment leaves an army with no live enemies untouched") {
     ArmyFixture f;
-    f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f, 20);
-    f.add(Team::B, UnitType::Infantry, 800.0f, 100.0f, 0);
+    f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 800.0f, 100.0f, 0);
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);   // must not crash or hang
     CHECK(f.squads.count == 2);
@@ -257,12 +262,12 @@ TEST_CASE("assignment is deterministic from identical input") {
     auto build = []() {
         auto f = std::make_unique<ArmyFixture>();
         for (int i = 0; i < 5; ++i) {
-            f->add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 37.0f, 18 + i);
+            f->add(Team::A, TroopClass::Legionary, 200.0f, 100.0f + (float)i * 37.0f, 18 + i);
         }
-        f->add(Team::A, UnitType::Archer,  120.0f, 180.0f, 12);
-        f->add(Team::A, UnitType::Cavalry, 210.0f, 300.0f, 10);
+        f->add(Team::A, TroopClass::Archer,  120.0f, 180.0f, 12);
+        f->add(Team::A, TroopClass::Knight, 210.0f, 300.0f, 10);
         for (int i = 0; i < 4; ++i) {
-            f->add(Team::B, UnitType::Infantry, 800.0f, 90.0f + (float)i * 41.0f, 15 + i * 3);
+            f->add(Team::B, TroopClass::Legionary, 800.0f, 90.0f + (float)i * 41.0f, 15 + i * 3);
         }
         updateArmyAggregate(f->squads, f->armies);
         assignRoles(f->squads, f->armies, Team::A);
@@ -442,9 +447,9 @@ TEST_CASE("archers prefer a firing position with friendly infantry in front") {
     // Two otherwise-equal candidate positions, one screened by our own line.
     // The scorer must pick the screened one.
     ArmyFixture f;
-    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
-    f.add(Team::A, UnitType::Infantry, 300.0f, 300.0f, 30);   // squarely in front
-    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 700.0f, 300.0f, 30);
+    const uint16_t archers = f.add(Team::A, TroopClass::Archer, 100.0f, 300.0f, 12);
+    f.add(Team::A, TroopClass::Legionary, 300.0f, 300.0f, 30);   // squarely in front
+    const uint16_t foe = f.add(Team::B, TroopClass::Legionary, 700.0f, 300.0f, 30);
     f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
     f.squads.targetSquad[archers] = foe;
     f.squads.facingX[archers] = 1.0f; f.squads.facingY[archers] = 0.0f;
@@ -462,10 +467,10 @@ TEST_CASE("archers prefer a firing position with friendly infantry in front") {
 
 TEST_CASE("a squad holds fire when its target is mixed in with our own men") {
     ArmyFixture f;
-    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
-    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 400.0f, 300.0f, 30);
+    const uint16_t archers = f.add(Team::A, TroopClass::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, TroopClass::Legionary, 400.0f, 300.0f, 30);
     // Our own infantry right on top of the enemy: a melee.
-    f.add(Team::A, UnitType::Infantry, 400.0f + kMeleeMixRadius * 0.4f, 300.0f, 30);
+    f.add(Team::A, TroopClass::Legionary, 400.0f + kMeleeMixRadius * 0.4f, 300.0f, 30);
     f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
     f.squads.targetSquad[archers] = foe;
     updateArmyAggregate(f.squads, f.armies);
@@ -477,9 +482,9 @@ TEST_CASE("a squad holds fire when its target is mixed in with our own men") {
 
 TEST_CASE("a squad with a clean shot does not hold fire") {
     ArmyFixture f;
-    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
-    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 400.0f, 300.0f, 30);
-    f.add(Team::A, UnitType::Infantry, 150.0f, 300.0f, 30);   // well behind the impact
+    const uint16_t archers = f.add(Team::A, TroopClass::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, TroopClass::Legionary, 400.0f, 300.0f, 30);
+    f.add(Team::A, TroopClass::Legionary, 150.0f, 300.0f, 30);   // well behind the impact
     f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
     f.squads.targetSquad[archers] = foe;
     updateArmyAggregate(f.squads, f.armies);
@@ -491,8 +496,8 @@ TEST_CASE("a squad with a clean shot does not hold fire") {
 
 TEST_CASE("holding fire actually stops the squad acquiring a soldier target") {
     ArmyFixture f;
-    const uint16_t archers = f.add(Team::A, UnitType::Archer, 100.0f, 300.0f, 12);
-    const uint16_t foe = f.add(Team::B, UnitType::Infantry, 200.0f, 300.0f, 4);
+    const uint16_t archers = f.add(Team::A, TroopClass::Archer, 100.0f, 300.0f, 12);
+    const uint16_t foe = f.add(Team::B, TroopClass::Legionary, 200.0f, 300.0f, 4);
     f.squads.role[archers] = (uint8_t)SquadRole::Shoot;
     f.squads.targetSquad[archers] = foe;
     f.squads.friendlyNearTarget[archers] = 1;
@@ -502,7 +507,7 @@ TEST_CASE("holding fire actually stops the squad acquiring a soldier target") {
     std::vector<uint32_t> members;
     f.squads.memberStart[foe] = 0;
     for (uint32_t k = 0; k < 4; ++k) {
-        soldiers.spawn(200.0f, 300.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, foe);
+        soldiers.spawn(200.0f, 300.0f, 0.0f, 0.0f, Team::B, TroopClass::Legionary, foe);
         soldiers.slotIndex[k] = (uint16_t)k;
         members.push_back(k);
     }
@@ -529,13 +534,13 @@ TEST_CASE("screening never consumes more than its share of the infantry") {
     ArmyFixture f;
     std::vector<uint16_t> archers, infantry;
     for (int i = 0; i < 10; ++i) {
-        archers.push_back(f.add(Team::A, UnitType::Archer, 100.0f, 100.0f + (float)i * 30.0f, 12));
+        archers.push_back(f.add(Team::A, TroopClass::Archer, 100.0f, 100.0f + (float)i * 30.0f, 12));
     }
     for (int i = 0; i < 10; ++i) {
-        infantry.push_back(f.add(Team::A, UnitType::Infantry, 200.0f, 100.0f + (float)i * 30.0f, 20));
+        infantry.push_back(f.add(Team::A, TroopClass::Legionary, 200.0f, 100.0f + (float)i * 30.0f, 20));
     }
     // One enemy close enough to threaten every archer squad at once.
-    f.add(Team::B, UnitType::Infantry, 100.0f + kScreenThreatRadius * 0.5f, 250.0f, 20);
+    f.add(Team::B, TroopClass::Legionary, 100.0f + kScreenThreatRadius * 0.5f, 250.0f, 20);
 
     updateArmyAggregate(f.squads, f.armies);
     assignRoles(f.squads, f.armies, Team::A);

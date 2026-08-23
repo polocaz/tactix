@@ -13,7 +13,7 @@ SoldierHot makeSoldiers(const std::vector<uint16_t>& squadIds,
                         const std::vector<uint16_t>& slotIndices) {
     SoldierHot s;
     for (size_t i = 0; i < squadIds.size(); ++i) {
-        s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Infantry, squadIds[i]);
+        s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Legionary, squadIds[i]);
         s.slotIndex[i] = slotIndices[i];
     }
     return s;
@@ -181,8 +181,8 @@ TEST_CASE("rebuilding twice is idempotent") {
 
 TEST_CASE("centroid is the mean of member positions") {
     SoldierHot s;
-    s.spawn(10.0f, 20.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(30.0f, 40.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(10.0f, 20.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(30.0f, 40.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     SquadHot q = makeSquads(1);
     std::vector<uint32_t> members;
     rebuild(s, q, members);
@@ -209,7 +209,7 @@ TEST_CASE("an empty squad keeps its previous centroid rather than producing NaN"
 
 TEST_CASE("facing stays normalized") {
     SoldierHot s;
-    s.spawn(0.0f, 0.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(0.0f, 0.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     SquadHot q = makeSquads(1);
     q.facingX[0] = 3.0f;   // deliberately not unit length
     q.facingY[0] = 4.0f;
@@ -236,7 +236,7 @@ TEST_CASE("selectTargetSoldier does not acquire a same-team target on a squad's 
     q.spawn(Team::A, UnitType::Archer);  // squad 1: targetSquad defaults to 0, same team
 
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);  // squad 0's only member
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);  // squad 0's only member
 
     std::vector<uint32_t> members;
     rebuild(s, q, members);
@@ -261,9 +261,9 @@ TEST_CASE("selectTargetSoldier can acquire a target beyond an individual soldier
     q.targetSquad[0] = 1;
 
     SoldierHot s;
-    s.spawn(0.0f, 0.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(0.0f, 0.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     // 200px: beyond kSeekRadius (150), within archer range (280).
-    s.spawn(200.0f, 0.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(200.0f, 0.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     REQUIRE(200.0f > kSeekRadius);
 
     std::vector<uint32_t> members;

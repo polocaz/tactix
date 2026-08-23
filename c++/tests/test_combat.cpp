@@ -20,11 +20,11 @@ SpatialHash buildHash(const SoldierHot& s, float w = 1200.0f, float h = 800.0f) 
 
 TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 0: seeker
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 1: friendly, in reach
-    s.spawn(108.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);  // 2: enemy, in reach
-    s.spawn(300.0f, 300.0f, 0, 0, Team::B, UnitType::Infantry, 1);  // 3: enemy, out of reach
-    s.spawn(400.0f, 400.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 4: friendly, out of reach
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 0: seeker
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 1: friendly, in reach
+    s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 2: enemy, in reach
+    s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 3: enemy, out of reach
+    s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 4: friendly, out of reach
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -38,11 +38,11 @@ TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
 
 TEST_CASE("selectMeleeTarget never picks a target beyond melee reach") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(108.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
-    s.spawn(300.0f, 300.0f, 0, 0, Team::B, UnitType::Infantry, 1);
-    s.spawn(400.0f, 400.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -58,8 +58,8 @@ TEST_CASE("selectMeleeTarget never picks a target beyond melee reach") {
 
 TEST_CASE("a soldier with an enemy just inside melee reach acquires it") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f + kMeleeReach - 0.1f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f + kMeleeReach - 0.1f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -70,8 +70,8 @@ TEST_CASE("a soldier with an enemy just inside melee reach acquires it") {
 
 TEST_CASE("a soldier with the nearest enemy just outside melee reach gets no target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f + kMeleeReach + 0.5f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f + kMeleeReach + 0.5f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -82,10 +82,10 @@ TEST_CASE("a soldier with the nearest enemy just outside melee reach gets no tar
 
 TEST_CASE("a soldier surrounded by friendlies only gets no target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(95.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f, 105.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(95.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f, 105.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -96,8 +96,8 @@ TEST_CASE("a soldier surrounded by friendlies only gets no target") {
 
 TEST_CASE("a soldier on cooldown gets no target even with an enemy in reach") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.attackCooldown[0] = kMeleeCooldown;
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
@@ -113,9 +113,9 @@ TEST_CASE("of two equidistant enemies the lower soldier index wins the tie") {
     // queryNeighbors walks insertion-ordered vectors, so the winner must be
     // index 1 (inserted before index 2) on every thread count and platform.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);        // 0: seeker
-    s.spawn(100.0f, 105.0f, 0, 0, Team::B, UnitType::Infantry, 1);        // 1: enemy, dist 5
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);        // 2: enemy, dist 5
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);        // 0: seeker
+    s.spawn(100.0f, 105.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 1: enemy, dist 5
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 2: enemy, dist 5
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
@@ -152,7 +152,7 @@ TEST_CASE("melee resolution wired through a full tick draws blood") {
 
     bool anyDamaged = false;
     for (size_t i = 0; i < sim.getAgentCount(); ++i) {
-        if (sim.soldierHealth(i) < kUnitStats[(int)sim.soldierUnitType(i)].maxHealth) {
+        if (sim.soldierHealth(i) < loadoutOf(sim.soldierTroopClass(i)).maxHealth) {
             anyDamaged = true;
             break;
         }
@@ -164,8 +164,8 @@ namespace {
 // Builds two soldiers on opposing teams, adjacent, both able to swing.
 SoldierHot makeDuel() {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     return s;
 }
 } // namespace
@@ -186,9 +186,9 @@ TEST_CASE("overkill is dropped rather than carried over") {
     // second must find health == 0 and waste its swing. Without the guard the
     // second attack would underflow the uint8_t to 255.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(101.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(102.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(101.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(102.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.health[2] = 1;
     s.intentTarget[0] = 2;
     s.intentTarget[1] = 2;
@@ -214,7 +214,7 @@ TEST_CASE("an out of range index is ignored rather than read") {
     SoldierHot s = makeDuel();
     s.intentTarget[0] = 999;
     applyMeleeIntents(s);  // must not read past the end
-    CHECK(s.health[1] == kUnitStats[(int)UnitType::Infantry].maxHealth);
+    CHECK(s.health[1] == loadoutOf(TroopClass::Legionary).maxHealth);
 }
 
 TEST_CASE("a soldier reduced to zero health is marked dead and counted") {
@@ -234,8 +234,8 @@ TEST_CASE("officer death is captured before compaction destroys the evidence") {
     // soldier is gone and the next man has inherited the slot, so the flag has
     // to be set while the corpse still holds it.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.slotIndex[0] = 0;   // officer
     s.slotIndex[1] = 1;
     s.health[0] = 0;
@@ -249,8 +249,8 @@ TEST_CASE("officer death is captured before compaction destroys the evidence") {
 
 TEST_CASE("a non officer death does not raise the officer flag") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.slotIndex[0] = 0;
     s.slotIndex[1] = 1;
     s.health[1] = 0;
@@ -296,7 +296,7 @@ void checkArraysConsistent(const SoldierHot& s) {
 // what actually defends the swap block, by making a single left-behind
 // field detectable after the fact.
 void spawnFingerprinted(SoldierHot& s, int k) {
-    s.spawn(100.0f + (float)k, 200.0f + (float)k, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f + (float)k, 200.0f + (float)k, 0.0f, 0.0f, Team::A, TroopClass::Legionary, 0);
     const size_t i = s.count - 1;
     s.velX[i]           = 300.0f + (float)k;
     s.velY[i]           = 400.0f + (float)k;
@@ -346,7 +346,7 @@ void checkFingerprintIntact(const SoldierHot& s, size_t i,
 TEST_CASE("compaction removes the dead and keeps every array the same length") {
     SoldierHot s;
     for (int k = 0; k < 5; ++k) {
-        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     }
     std::vector<float> prevX(5, 0.0f), prevY(5, 0.0f);
     s.state[1] = SoldierState::Dead;
@@ -366,7 +366,7 @@ TEST_CASE("compaction removes the dead and keeps every array the same length") {
 TEST_CASE("compacting an army with no dead changes nothing") {
     SoldierHot s;
     for (int k = 0; k < 4; ++k) {
-        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     }
     std::vector<float> prevX(4, 0.0f), prevY(4, 0.0f);
 
@@ -490,8 +490,8 @@ TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
     // cheap guard against forgetting one.
     SoldierHot s;
     std::vector<float> prevX, prevY;
-    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
-    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Archer, 0);
+    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Archer, 0);
     prevX.assign(2, 0.0f);
     prevY.assign(2, 0.0f);
 

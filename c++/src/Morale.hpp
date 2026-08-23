@@ -5,10 +5,10 @@
 
 struct SquadHot;
 
-// Steadiness of a unit type, 0..1. Scales both resistance to morale loss and
-// recovery rate, so a disciplined unit is genuinely different in kind rather
-// than merely slower to break.
-float disciplineForUnit(UnitType u);
+// Steadiness is 0..1 and scales both resistance to morale loss and recovery
+// rate, so a disciplined unit is genuinely different in kind rather than
+// merely slower to break. It is a column of kTroopLoadout (Loadout.hpp) and is
+// seeded onto a squad at deployment.
 
 // Resolution step 5 (design 6). Updates every squad's morale from the
 // casualties recorded this tick, the officer-death flag, and the rear-arc

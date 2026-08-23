@@ -567,7 +567,7 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
 
         // Health reads as brightness, so a worn-down line is visible before it
         // breaks rather than only when it vanishes.
-        const uint8_t maxHp = kUnitStats[(int)type].maxHealth;
+        const uint8_t maxHp = loadoutOf(sim.soldiers.troopClass[i]).maxHealth;
         const float hpFrac = (maxHp > 1)
             ? (float)sim.soldiers.health[i] / (float)maxHp
             : 1.0f;

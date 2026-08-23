@@ -35,9 +35,9 @@ TEST_CASE("a fresh simulation has no projectiles in flight") {
 
 TEST_CASE("an arrow leaves at arrow speed and roughly toward the target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
-    s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
 
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -60,9 +60,9 @@ TEST_CASE("spread is bounded and deterministic") {
     // must stay inside the configured spread.
     auto fire = [](uint32_t tick) {
         SoldierHot s;
-        s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+        s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
         s.intentFire[0] = 1;
-        s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+        s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
         SquadHot q;
         q.spawn(Team::A, UnitType::Archer);
         q.targetSoldier[0] = 1;
@@ -107,10 +107,10 @@ TEST_CASE("a dead archer does not shoot") {
     // AFTER spawnArrows (step 3). Without the health guard in spawnArrows, a
     // soldier killed earlier this same tick still looses an arrow.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
     s.health[0] = 0;
-    s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
 
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -174,7 +174,7 @@ TEST_CASE("an arrow expires when its lifetime runs out") {
 
 TEST_CASE("no target means no arrow") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -193,7 +193,7 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
     const int shots = 400;
     for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
         SoldierHot s;
-        s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+        s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
         const uint8_t before = s.health[0];
 
         ProjectileHot p;
@@ -216,7 +216,7 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
 
 TEST_CASE("an arrow cannot finish off an already dead soldier") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
     s.health[0] = 0;
 
     ProjectileHot p;
@@ -374,7 +374,7 @@ namespace {
 uint32_t flyPast(Team arrowTeam, Team soldierTeam, float dist, float fraction) {
     SoldierHot soldiers;
     soldiers.spawn(dist * fraction, 0.0f, 0.0f, 0.0f, soldierTeam,
-                   UnitType::Infantry, 0);
+                   TroopClass::Legionary, 0);
 
     SpatialHash hash(1280.0f, 720.0f, 50.0f);
     hash.insert(0u, soldiers.posX[0], soldiers.posY[0]);
@@ -447,7 +447,7 @@ float meanAimErrorPx(float speed, float steady) {
 
     SoldierHot soldiers;
     // Index 0 is the target, so squads.targetSoldier can name it directly.
-    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, 1);
+    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, TroopClass::Legionary, 1);
 
     SquadHot squads;
     squads.spawn(Team::A, UnitType::Archer);
@@ -458,7 +458,7 @@ float meanAimErrorPx(float speed, float steady) {
     squads.targetSoldier[0] = 0u;
 
     for (int k = 0; k < kArchers; ++k) {
-        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, UnitType::Archer, 0);
+        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, TroopClass::Archer, 0);
         const size_t idx = soldiers.count - 1;
         soldiers.intentFire[idx] = 1;
         soldiers.steadyTimer[idx] = steady;

@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include "Loadout.hpp"
 #include "Terrain.hpp"
 #include "Army.hpp"
 #include <cstdint>
@@ -10,6 +11,11 @@ struct SoldierHot;  // defined in Simulation.hpp
 struct SquadHot {
     std::vector<Team>     team;
     std::vector<UnitType> unitType;
+    // A squad is uniform, so this duplicates its members' value. Deliberate:
+    // squadDecide reads it every tick, and reaching into a member soldier for
+    // a value that cannot differ across the squad would be an indirection into
+    // a different array for nothing.
+    std::vector<uint8_t>  troopClass;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -91,6 +97,7 @@ struct SquadHot {
     void spawn(Team t, UnitType u) {
         team.push_back(t);
         unitType.push_back(u);
+        troopClass.push_back((uint8_t)TroopClass::Levy);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -132,6 +139,7 @@ struct SquadHot {
     void clear() {
         team.clear();
         unitType.clear();
+        troopClass.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();

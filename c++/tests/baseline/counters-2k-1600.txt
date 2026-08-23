@@ -93,11 +93,16 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=1641521168
-cellsVisited=86340174
-gridInsertions=3150288
-jobsDispatched=49052
+# Regenerated 2026-08-22 for the troop-class model, same cause as the companion
+# 200-tick file: discipline is now per troop rather than per UnitType, and
+# discipline scales formation compression. This file reaches combat, so it also
+# moves projectileHitTests (65187 to 24596) and jobsDispatched: the armies close
+# and break differently once their formations sit at different depths.
+candidatesExamined=1654318698
+cellsVisited=87448311
+gridInsertions=3168969
+jobsDispatched=48512
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=65187
-stateDigest=d53a6775ef31f6ca
+projectileHitTests=24596
+stateDigest=7fe4b8eb5560c75d

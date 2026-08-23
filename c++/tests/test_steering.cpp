@@ -122,7 +122,7 @@ TEST_CASE("steerToSlot points toward the slot when displaced") {
     q.memberCount[0] = 1;  // a single-member squad's only slot sits exactly on the centroid
 
     SoldierHot s;
-    s.spawn(40.0f, 20.0f, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    s.spawn(40.0f, 20.0f, 0.0f, 0.0f, Team::A, TroopClass::Legionary, 0);
     // Displaced (60, 80) from its slot, magnitude 100px: well outside the
     // approach-easing zone (speed*dt*4 = 3px for infantry at 60fps).
     steerToSlot(s, q, 0, 1.0f / 60.0f);
@@ -147,7 +147,7 @@ TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
     q.memberCount[0] = 1;
 
     SoldierHot s;
-    s.spawn(100.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Cavalry, 0);
+    s.spawn(100.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Knight, 0);
     steerToSlot(s, q, 0, 1.0f / 60.0f);
 
     const float speed = std::sqrt(s.velX[0] * s.velX[0] + s.velY[0] * s.velY[0]);
@@ -172,7 +172,7 @@ TEST_CASE("steerToSlot zeroes velocity for a soldier already on its slot") {
     // would leave this untouched, so this is what makes the assertion
     // below load-bearing rather than trivially true of an unstarted
     // soldier that already has zero velocity.
-    s.spawn(50.0f, 50.0f, 3.0f, -4.0f, Team::A, UnitType::Infantry, 0);  // exactly on its slot
+    s.spawn(50.0f, 50.0f, 3.0f, -4.0f, Team::A, TroopClass::Legionary, 0);  // exactly on its slot
     steerToSlot(s, q, 0, 1.0f / 60.0f);
 
     CHECK(s.velX[0] == 0.0f);
@@ -193,7 +193,7 @@ TEST_CASE("repeated steerToSlot monotonically closes the distance") {
     q.memberCount[0] = 1;
 
     SoldierHot s;
-    s.spawn(200.0f - 60.0f, 200.0f - 80.0f, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    s.spawn(200.0f - 60.0f, 200.0f - 80.0f, 0.0f, 0.0f, Team::A, TroopClass::Legionary, 0);
     const float dt = 1.0f / 60.0f;
 
     auto distToSlot = [&]() {
@@ -304,7 +304,7 @@ TEST_CASE("a squad on Hold does not drift: centroid stays formationMeanOffset's 
         // Placed exactly on its slot, as deployment does, so any movement
         // that follows is the drift under test, not arrival transient.
         const Vec2 slot = slotWorldPosition(q, 0, (uint16_t)k, kMembers);
-        soldiers.spawn(slot.x, slot.y, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+        soldiers.spawn(slot.x, slot.y, 0.0f, 0.0f, Team::A, TroopClass::Legionary, 0);
         soldiers.slotIndex[k] = (uint16_t)k;
     }
 

@@ -69,11 +69,17 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=303068211
-cellsVisited=11283339
+# Regenerated 2026-08-22 for the troop-class model. Discipline moved out of three
+# per-UnitType constants into a column of kTroopLoadout (Loadout.hpp), so Team A
+# legionaries now stand at 0.90 and Team B hoplites at 0.85 where both were 0.85
+# before. Discipline scales formation compression (squadCompression in
+# Soldiers.cpp), so every soldier is told to stand somewhere slightly different
+# and the whole battle follows. Deliberate behavioural change, not a bug.
+candidatesExamined=303497213
+cellsVisited=11283096
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
 armyDecisions=14
 projectileHitTests=0
-stateDigest=e164a76b899f14d7
+stateDigest=e2d07b3520a6370e

@@ -26,7 +26,7 @@ struct Fixture {
         for (uint32_t k = 0; k < n; ++k) {
             const uint32_t idx = (uint32_t)soldiers.count;
             soldiers.spawn(originX + (float)k * spacing, originY,
-                           0.0f, 0.0f, team, UnitType::Infantry, sq);
+                           0.0f, 0.0f, team, TroopClass::Legionary, sq);
             soldiers.slotIndex[idx] = (uint16_t)k;
             members.push_back(idx);
         }

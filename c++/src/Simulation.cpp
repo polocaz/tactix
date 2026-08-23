@@ -71,6 +71,22 @@ static UnitType unitTypeForSquad(uint32_t sq, uint32_t squadsPerTeam) {
     return UnitType::Infantry;
 }
 
+// Which troops a squad is made of. Composition (how many infantry, archer and
+// cavalry squads) is unchanged: this maps the type unitTypeForSquad already
+// chose onto a concrete troop, per team.
+//
+// Team A fields legionaries and Team B hoplites so the default battle is the
+// one this feature exists to show: a rotating manipular line against a spear
+// wall. Both sides keep the same archers and knights, so the asymmetry is
+// exactly one thing and its effect on the field is readable.
+static TroopClass troopClassForSquad(uint32_t sq, uint32_t squadsPerTeam, Team team) {
+    switch (unitTypeForSquad(sq, squadsPerTeam)) {
+        case UnitType::Archer:  return TroopClass::Archer;
+        case UnitType::Cavalry: return TroopClass::Knight;
+        default: return (team == Team::A) ? TroopClass::Legionary : TroopClass::Hoplite;
+    }
+}
+
 void Simulation::init(size_t soldierCount) {
     spdlog::info("Initializing {} agents", soldierCount);
     // init() runs before any tick, so tick 0 is reserved for setup draws.
@@ -195,14 +211,16 @@ void Simulation::init(size_t soldierCount) {
 
         // Pass 2: place squads and spawn their soldiers.
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = unitTypeForSquad(sq, compositionSquadsPerTeam);
+            const TroopClass troop = troopClassForSquad(sq, compositionSquadsPerTeam, team);
+            const UnitType unit = loadoutOf(troop).unit;
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
-            // Steadiness is a property of the unit type (Morale.cpp). Set at
+            squads.troopClass[squadId] = (uint8_t)troop;
+            // Steadiness is a property of the troops (Loadout.hpp). Set at
             // deployment rather than defaulted in SquadHot::spawn, because
             // spawn does not know what it is spawning until the caller says.
-            squads.discipline[squadId] = disciplineForUnit(unit);
+            squads.discipline[squadId] = loadoutOf(troop).discipline;
             squads.facingX[squadId] = facing;
             squads.facingY[squadId] = 0.0f;
             // Established here, not assumed: slotWorldPosition below (and
@@ -261,7 +279,7 @@ void Simulation::init(size_t soldierCount) {
                 const Vec2 clear = clearOfObstacles(jittered);
 
                 soldiers.spawn(clampf(clear.x, 0.0f, w), clampf(clear.y, 0.0f, h),
-                               0.0f, 0.0f, team, unit, squadId);
+                               0.0f, 0.0f, team, troop, squadId);
                 soldiers.slotIndex[agent] = (uint16_t)k;
                 // A soldier that never moves keeps the velocity-derived
                 // direction SoldierHot::spawn defaults to, (1,0), forever --
@@ -1037,6 +1055,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(soldiers.velY[i]);
         d.mix(static_cast<uint32_t>(soldiers.team[i]));
         d.mix(static_cast<uint32_t>(soldiers.unitType[i]));
+        d.mix(static_cast<uint32_t>(soldiers.troopClass[i]));
         d.mix(static_cast<uint32_t>(soldiers.state[i]));
         d.mix(static_cast<uint32_t>(soldiers.squadId[i]));
         d.mix(static_cast<uint32_t>(soldiers.slotIndex[i]));
@@ -1070,6 +1089,7 @@ uint64_t Simulation::stateDigest() const {
     d.mix(static_cast<uint32_t>(squads.count));
     for (size_t s = 0; s < squads.count; ++s) {
         d.mix(static_cast<uint32_t>(squads.memberCount[s]));
+        d.mix(static_cast<uint32_t>(squads.troopClass[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);

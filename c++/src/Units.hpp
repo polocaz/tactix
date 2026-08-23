@@ -54,16 +54,19 @@ struct Vec2 { float x, y; };
 // exceeds it, which is why target assignment lives on the squad.
 constexpr float kSeekRadius = 150.0f;
 
+// Health, discipline and equipment moved to kTroopLoadout (Loadout.hpp).
+// Speed and range stayed here, and the split is not arbitrary: these two are
+// genuinely properties of the ROLE. A mounted man is fast because he is
+// mounted, and a bow reaches 280px whoever is holding it.
 struct UnitStats {
     float   speed;      // px/s
     float   range;      // px, 0 means melee only
-    uint8_t maxHealth;
 };
 
 constexpr UnitStats kUnitStats[kUnitTypeCount] = {
-    /* Infantry */ { 45.0f,   0.0f, 3 },
-    /* Archer   */ { 42.0f, 280.0f, 2 },
-    /* Cavalry  */ { 95.0f,   0.0f, 3 },
+    /* Infantry */ { 45.0f,   0.0f },
+    /* Archer   */ { 42.0f, 280.0f },
+    /* Cavalry  */ { 95.0f,   0.0f },
 };
 
 // Shared by Simulation.cpp (deployment) and Soldiers.cpp (Task 8) so both
@@ -158,12 +161,10 @@ constexpr float kRallyThreshold    = 0.45f;
 constexpr float kRallyRadius       = 220.0f;
 constexpr float kRallyDuration     = 3.0f;    // seconds clear of enemies
 
-// Discipline by unit type. Cavalry are the least steady, archers are fragile
-// but not undisciplined, infantry are the anchor. Constant per type for now:
-// per-squad variation is a tuning knob nobody has asked for yet.
-constexpr float kDisciplineInfantry = 0.85f;
-constexpr float kDisciplineArcher   = 0.60f;
-constexpr float kDisciplineCavalry  = 0.70f;
+// Discipline used to live here as three per-UnitType constants. It is now a
+// column of kTroopLoadout (Loadout.hpp), because steadiness is a property of
+// who the men are rather than of what role they fill: a levy spearman and a
+// hoplite are both Infantry and are not remotely the same troops.
 
 // How close an enemy melee squad must be before an archer squad is judged to
 // need a bodyguard. Deliberately larger than kArcherPanicRadius (design 8.5):

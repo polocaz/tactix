@@ -112,6 +112,7 @@ void compactDead(SoldierHot& soldiers,
             soldiers.dirY[i]            = soldiers.dirY[last];
             soldiers.team[i]            = soldiers.team[last];
             soldiers.unitType[i]        = soldiers.unitType[last];
+            soldiers.troopClass[i]      = soldiers.troopClass[last];
             soldiers.state[i]           = soldiers.state[last];
             soldiers.squadId[i]         = soldiers.squadId[last];
             soldiers.slotIndex[i]       = soldiers.slotIndex[last];
@@ -136,6 +137,7 @@ void compactDead(SoldierHot& soldiers,
         soldiers.dirY.pop_back();
         soldiers.team.pop_back();
         soldiers.unitType.pop_back();
+        soldiers.troopClass.pop_back();
         soldiers.state.pop_back();
         soldiers.squadId.pop_back();
         soldiers.slotIndex.pop_back();
