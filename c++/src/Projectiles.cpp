@@ -1,5 +1,7 @@
 #include "Projectiles.hpp"
+#include "Shields.hpp"
 #include "DetMath.hpp"
+#include "Formation.hpp"
 #include "Simulation.hpp"
 #include "Squads.hpp"
 #include "Rng.hpp"
@@ -12,6 +14,34 @@
 void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
                  ProjectileHot& out, const Rng& rng) {
     for (size_t i = 0; i < soldiers.count; ++i) {
+        // The pilum volley. Thrown along the squad's FACING rather than at a
+        // resolved target: infantry never acquire a targetSoldier (their weapon
+        // range is zero), and a volley into the line in front is what a pilum
+        // volley is. Whoever is standing in the way is found by the same swept
+        // hit test every other projectile uses.
+        {
+            const uint16_t vsq = soldiers.squadId[i];
+            if (vsq < squads.count && squads.pilumVolley[vsq]
+                && soldiers.health[i] != 0) {
+                const FormationShape shape = (FormationShape)squads.shape[vsq];
+                const uint32_t rank = rankOfSlot(shape, soldiers.slotIndex[i],
+                                                 squads.memberCount[vsq]);
+                // Arms only after it has cleared the ranks in front of the
+                // thrower. Without this a man in rank three spears his own
+                // front rank in the back, which the arc model already exists to
+                // prevent for arrows.
+                const float spacing = kSlotSpacing * traitsOf(shape).spacing;
+                const float clearOwnRanks = (float)rank * spacing + kSlotSpacing;
+
+                out.spawn(soldiers.posX[i], soldiers.posY[i],
+                          squads.facingX[vsq] * kJavelinSpeed,
+                          squads.facingY[vsq] * kJavelinSpeed,
+                          soldiers.team[i], kArrowDamage, kJavelinLifetime,
+                          clearOwnRanks, (uint8_t)WeaponClass::Javelin);
+                continue;
+            }
+        }
+
         if (!soldiers.intentFire[i]) continue;
         // Resolution steps 1-2 (melee, then projectile hits) can zero this
         // soldier's health earlier in the SAME tick, but state is not set to
@@ -78,7 +108,8 @@ void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
         // computed above for the lead, so this costs nothing.
         out.spawn(px, py, rx * kArrowSpeed, ry * kArrowSpeed,
                   soldiers.team[i], kArrowDamage, kArrowLifetime,
-                  kArrowArcFraction * dist);
+                  kArrowArcFraction * dist,
+                  (uint8_t)loadoutOf(soldiers.troopClass[i]).weapon);
     }
 }
 
@@ -161,17 +192,39 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     p.intentHitTarget[i] = best;
 }
 
-void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, const Rng& rng) {
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, SquadHot& squads,
+                         const Rng& rng) {
     for (size_t i = 0; i < p.count; ++i) {
         const uint32_t t = p.intentHitTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
         if (soldiers.health[t] == 0) continue;  // no underflow, no overkill
 
-        // Crossing a soldier is a chance to wound, not a guaranteed one. The
-        // roll is consumed either way -- an arrow that glances off gets no
-        // second attempt next tick, which would make the chance meaningless.
-        const bool lands = rng.range((uint32_t)i, RngUse::ArrowHitRoll, 1, 100)
-                           <= kArrowHitChancePct;
+        // Crossing a soldier is a chance to wound, not a guaranteed one, and
+        // the chance is what he is WEARING rather than a global constant. The
+        // roll is consumed either way: an arrow that glances off gets no second
+        // attempt next tick, which would make the chance meaningless.
+        // Being shot at is what closes a formation up, whether or not the arrow
+        // hurt anyone, so this is counted before either roll. It costs nothing:
+        // this loop already walks every arrow that reached a man.
+        const uint16_t struckSquad = soldiers.squadId[t];
+        if ((size_t)struckSquad < squads.count) {
+            squads.missilePressure[struckSquad] += kMissilePressurePerHit;
+        }
+
+        // Stage one: his shield may stop it. The arrow's velocity IS its
+        // direction of travel, and impactArc normalizes, so no separate
+        // direction vector is needed.
+        const uint8_t blockPct =
+            shieldBlockPct(soldiers, squads, t, p.velX[i], p.velY[i], false);
+        const bool blocked =
+            rng.range((uint32_t)i, RngUse::ShieldBlockRoll, 1, 100) <= blockPct;
+
+        // Stage two: what he is wearing may turn it.
+        const Loadout& defender = loadoutOf(soldiers.troopClass[t]);
+        const uint8_t woundPct = kWoundChancePct[(int)p.weapon[i]][(int)defender.armor];
+
+        const bool lands = !blocked &&
+            rng.range((uint32_t)i, RngUse::MissileWoundRoll, 1, 100) <= woundPct;
         if (lands) {
             soldiers.health[t] = (soldiers.health[t] > p.damage[i])
                                ? (uint8_t)(soldiers.health[t] - p.damage[i])
@@ -201,6 +254,7 @@ void compactProjectiles(ProjectileHot& p) {
             p.velY[i] = p.velY[last];
             p.team[i] = p.team[last];
             p.damage[i] = p.damage[last];
+            p.weapon[i] = p.weapon[last];
             p.lifetime[i] = p.lifetime[last];
             p.traveled[i] = p.traveled[last];
             p.liveAfter[i] = p.liveAfter[last];
@@ -215,6 +269,7 @@ void compactProjectiles(ProjectileHot& p) {
         p.velY.pop_back();
         p.team.pop_back();
         p.damage.pop_back();
+        p.weapon.pop_back();
         p.lifetime.pop_back();
         p.traveled.pop_back();
         p.liveAfter.pop_back();

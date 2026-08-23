@@ -69,11 +69,55 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=303068211
-cellsVisited=11283339
+# Regenerated 2026-08-22 for the troop-class model. Discipline moved out of three
+# per-UnitType constants into a column of kTroopLoadout (Loadout.hpp), so Team A
+# legionaries now stand at 0.90 and Team B hoplites at 0.85 where both were 0.85
+# before. Discipline scales formation compression (squadCompression in
+# Soldiers.cpp), so every soldier is told to stand somewhere slightly different
+# and the whole battle follows. Deliberate behavioural change, not a bug.
+# Regenerated 2026-08-22 for the armor model. A melee blow that reaches now
+# rolls against what the target is wearing (kWoundChancePct) instead of wounding
+# automatically, and armor scales movement speed. Fewer men die per tick, so the
+# armies stay near full strength for longer and every position-dependent counter
+# rises with the surviving head count. Deliberate behavioural change.
+# Regenerated 2026-08-23: formation traits now drive movement speed, turn rate
+# and swing rate. This file moves even before the armies meet, and the cause is
+# specific: cavalry deploy in Wedge, whose turn scale is 1.20, so their facing
+# slews faster from tick one and every wedge slot rotates with it.
+# Regenerated 2026-08-23: squads now choose their own formation and pay a 1.4
+# second transition to change it. Team A legionaries march in Manipular and Team
+# B hoplites form a Phalanx as the lines close, so both armies stand in
+# different shapes at different depths from the first decision onward.
+candidatesExamined=309195076
+cellsVisited=11288085
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
 armyDecisions=14
 projectileHitTests=0
-stateDigest=e164a76b899f14d7
+# stateDigest updated again on 2026-08-22 for the formation traits table. This
+# one is case 3 in the list above rather than a behavioural change: SquadHot
+# gained a `shape` field and stateDigest hashes it, so the hash covers one more
+# byte per squad and necessarily moves even though the battle is identical.
+#
+# The evidence that it IS identical is that every counter above was held FIXED
+# across this change and did not move by one: candidatesExamined, cellsVisited,
+# gridInsertions, jobsDispatched and projectileHitTests are all position
+# dependent. Same argument the contact-detection note above makes, inverted:
+# there the digest was held fixed to prove observation, here the counters are.
+# If a later refactor claims to be shape-preserving while moving a counter, that
+# is a bug, not a regeneration.
+# stateDigest updated 2026-08-22 for shields. Case 3 again, not a behavioural
+# change: SquadHot gained prevShape and shapeBlend and both enter the hash. The
+# counters above were held FIXED across this change, which is the evidence no
+# shield blocked anything within 200 ticks, and no shield should: the armies
+# have not met yet at that point in the battle.
+# stateDigest updated 2026-08-23 for the pilum. Case 3 once more: pilumSpent and
+# pilumVolley enter the hash, and the counters above were held fixed across it,
+# which is the evidence no javelin is thrown within 200 ticks. None should be:
+# the throw needs an enemy inside kPilumRange and the lines are still closing.
+# stateDigest updated 2026-08-23 for the line relief. Case 3 again: five relief
+# fields enter the hash, and the counters above held fixed, which is the
+# evidence no maniple is relieved within 200 ticks. None can be: relief needs a
+# squad that has been in contact, and the lines have not met yet.
+stateDigest=72abe0a6abb8bf68

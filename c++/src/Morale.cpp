@@ -7,14 +7,6 @@ float clamp01(float v) {
 }
 } // namespace
 
-float disciplineForUnit(UnitType u) {
-    switch (u) {
-        case UnitType::Archer:  return kDisciplineArcher;
-        case UnitType::Cavalry: return kDisciplineCavalry;
-        default:                return kDisciplineInfantry;
-    }
-}
-
 void updateMorale(SquadHot& squads,
                   const std::vector<uint32_t>& casualties,
                   const std::vector<uint8_t>& officerDied,

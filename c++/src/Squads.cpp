@@ -370,10 +370,24 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     // squad itself stood 170px away. See fleeObjective in squadDecide.
 
     switch ((SquadRole)squads.role[s]) {
-        case SquadRole::Line:
+        case SquadRole::Line: {
             // Straight at the assigned enemy. Contact and the anchor latch are
             // what stop this from becoming a walk-through.
-            return Vec2{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+            Vec2 anchor{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+
+            // A maniple stepping up in a relief aims at the INTERVAL beside the
+            // line rather than at the line itself, so it is never walking at
+            // the same point as the squad retiring through it. That lateral
+            // offset is the whole of the passage: no new collision logic, just
+            // two squads whose objectives do not coincide. It ends when the
+            // relief completes and this becomes an ordinary Line advance.
+            if (squads.reliefStage[s] == kReliefAdvancing) {
+                const Vec2 right{ toT.y, -toT.x };
+                anchor.x += right.x * kReliefLateralOffset;
+                anchor.y += right.y * kReliefLateralOffset;
+            }
+            return anchor;
+        }
 
         case SquadRole::Screen: {
             const uint16_t ward = squads.wardSquad[s];
@@ -418,9 +432,88 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     }
 }
 
+bool formationAvailable(TroopClass troop, FormationShape shape) {
+    const Loadout& lo = loadoutOf(troop);
+    switch (shape) {
+        case FormationShape::Testudo:    return lo.shield == ShieldClass::Tower;
+        case FormationShape::Phalanx:    return lo.weapon  == WeaponClass::Spear
+                                             || lo.sidearm == WeaponClass::Spear;
+        case FormationShape::Shieldwall: return lo.shield >= ShieldClass::Round;
+        case FormationShape::Manipular:  return troop == TroopClass::Legionary;
+        default:                         return true;
+    }
+}
+
+FormationShape chooseFormation(const SquadHot& squads, size_t s) {
+    const TroopClass troop = (TroopClass)squads.troopClass[s];
+    const Loadout& lo = loadoutOf(troop);
+
+    // 1. Broken men do not keep ranks, and neither do badly disciplined ones
+    //    once the fighting reaches them.
+    if (squads.order[s] == (uint8_t)SquadOrder::Rout) return FormationShape::Mob;
+    if (squads.contact[s] && lo.discipline < kMobDisciplineFloor) {
+        return FormationShape::Mob;
+    }
+
+    // 2. Under fire and not yet in melee: close up, if the shields allow it.
+    //    Ordered above the fighting shapes but below the mob, and gated on NOT
+    //    being in contact, because a squad with an enemy in its face has a more
+    //    pressing problem than the arrows.
+    if (squads.missilePressure[s] >= kTestudoThreshold && !squads.contact[s]
+        && formationAvailable(troop, FormationShape::Testudo)) {
+        return FormationShape::Testudo;
+    }
+
+    // 3. Fighting, or about to be. Best shape the equipment supports.
+    if (squads.contact[s] || squads.nearestEnemyDist[s] < kImminentContactDist) {
+        if (formationAvailable(troop, FormationShape::Phalanx))    return FormationShape::Phalanx;
+        if (formationAvailable(troop, FormationShape::Shieldwall)) return FormationShape::Shieldwall;
+        return FormationShape::Line;
+    }
+
+    // 4. Marching.
+    if (formationAvailable(troop, FormationShape::Manipular)) return FormationShape::Manipular;
+    return shapeForUnit(lo.unit);
+}
+
+void setSquadShape(SquadHot& squads, size_t s, FormationShape shape) {
+    if ((FormationShape)squads.shape[s] == shape) return;
+    if (squads.formationHold[s] > 0.0f) return;   // still drilling the last one
+
+    squads.prevShape[s]     = squads.shape[s];
+    squads.shape[s]         = (uint8_t)shape;
+    squads.shapeBlend[s]    = kFormationChangeSeconds;
+    squads.formationHold[s] = kFormationHoldSeconds;
+}
+
+void decayMissilePressure(SquadHot& squads, size_t s, float dt) {
+    squads.missilePressure[s] -= kMissilePressureDecay * dt;
+    if (squads.missilePressure[s] < 0.0f) squads.missilePressure[s] = 0.0f;
+}
+
 void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
                  const TerrainField& terrain, float dt) {
     if (squads.memberCount[s] == 0) return;
+
+    // Timers and formation FIRST, before any of squadDecide's early returns.
+    // Running them at the end would skip them on the no-enemies-left path and
+    // on the withdraw bypass, and a squad that stops ticking its hold window
+    // can never change shape again.
+    //
+    // chooseFormation therefore reads last tick's order rather than this
+    // tick's. That one tick of lag is the same harmless kind friendlyNearTarget
+    // already documents: squads do not teleport in 16ms.
+    decayMissilePressure(squads, s, dt);
+    if (squads.formationHold[s] > 0.0f) squads.formationHold[s] -= dt;
+    if (squads.shapeBlend[s]    > 0.0f) squads.shapeBlend[s]    -= dt;
+    setSquadShape(squads, s, chooseFormation(squads, s));
+
+    // Relief timers, ticked on the same every-live-squad path for the same
+    // reason. contactDuration is what makes "this maniple has been fighting
+    // long enough" answerable at all.
+    if (squads.contact[s]) squads.contactDuration[s] += dt;
+    else                   squads.contactDuration[s]  = 0.0f;
+    if (squads.reliefCooldown[s] > 0.0f) squads.reliefCooldown[s] -= dt;
 
     // --- Threat survey. One walk over enemy squads feeds everything below.
     // Reading other squads' centroids is safe HERE and only here: phase 2's
@@ -458,6 +551,20 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     squads.nearestEnemyDist[s] = (nearestSq < 1e30f) ? std::sqrt(nearestSq) : 1e30f;
     squads.rearThreat[s] = rear;
 
+    // The pilum, thrown once as the lines close. pilumSpent never clears
+    // mid-battle: a legion that re-armed itself would volley again every time a
+    // fresh enemy squad wandered inside range, which is neither historical nor
+    // interesting. Placed here rather than with the formation block above
+    // because it needs the distance the threat survey just computed.
+    {
+        const Loadout& lo = loadoutOf(squads.troopClass[s]);
+        if (lo.weapon == WeaponClass::Javelin && !squads.pilumSpent[s]
+            && squads.nearestEnemyDist[s] < kPilumRange) {
+            squads.pilumVolley[s] = 1;
+            squads.pilumSpent[s]  = 1;
+        }
+    }
+
     // Every enemy squad is wiped out. Hold rather than advancing on a stale
     // target; keep the last facing.
     if (nearest == UINT16_MAX) {
@@ -485,7 +592,13 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
         const float meleeDist = (nearestMeleeSq < 1e30f)
                               ? std::sqrt(nearestMeleeSq) : 1e30f;
 
-        if (squads.contact[s]) {
+        if (squads.reliefStage[s] == kReliefRetiring) {
+            // A maniple being relieved retires even though it is in contact,
+            // and this has to outrank the contact halt below or it would stand
+            // and die exactly where the relief was meant to save it. Withdraw
+            // rather than Rout: it keeps its formation and comes back.
+            squads.order[s] = (uint8_t)SquadOrder::Withdraw;
+        } else if (squads.contact[s]) {
             // Contact halt (design 5.2). Overrides every role: a formation
             // that has met the enemy is fighting, whatever it was sent to do.
             squads.order[s] = (uint8_t)SquadOrder::Engaged;
@@ -525,8 +638,14 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
         const uint16_t t = squads.targetSquad[s];
         const float dx = squads.centroidX[t] - squads.centroidX[s];
         const float dy = squads.centroidY[t] - squads.centroidY[s];
+        // Scaled by the formation. A phalanx at 0.35 needs about four seconds
+        // to face a threat it started perpendicular to, so cavalry that gets
+        // around its flank stays there. The formation's historic weakness falls
+        // out of the slew mechanism that already existed rather than being a
+        // special case bolted on beside it.
+        const float turn = traitsOf((FormationShape)squads.shape[s]).turn;
         const Vec2 f = slewFacing(Vec2{ squads.facingX[s], squads.facingY[s] },
-                                  Vec2{ dx, dy }, kFacingSlewRate * dt);
+                                  Vec2{ dx, dy }, kFacingSlewRate * turn * dt);
         squads.facingX[s] = f.x;
         squads.facingY[s] = f.y;
     }

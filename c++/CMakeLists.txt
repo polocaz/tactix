@@ -96,6 +96,7 @@ add_library(tactix_sim STATIC
     src/Soldiers.cpp
     src/Projectiles.cpp
     src/Combat.cpp
+    src/Shields.cpp
     src/Contact.cpp
     src/Morale.cpp
     src/Army.cpp
@@ -149,6 +150,10 @@ add_executable(tactix_tests
     tests/test_contact.cpp
     tests/test_morale.cpp
     tests/test_army.cpp
+    tests/test_loadout.cpp
+    tests/test_armor.cpp
+    tests/test_shields.cpp
+    tests/test_relief.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE

@@ -213,3 +213,139 @@ TEST_CASE("compression keeps the mean slot offset at the anchor") {
     CHECK(sumX / 37.0f == doctest::Approx(500.0f).epsilon(1e-4));
     CHECK(sumY / 37.0f == doctest::Approx(300.0f).epsilon(1e-4));
 }
+
+TEST_CASE("rankOfSlot agrees with formationSlot for every shape and count") {
+    const FormationShape shapes[] = {
+        FormationShape::Line, FormationShape::Column,
+        FormationShape::Wedge, FormationShape::Loose,
+    };
+    for (FormationShape shape : shapes) {
+        for (uint32_t n = 1; n <= 200; ++n) {
+            for (uint16_t i = 0; i < (uint16_t)n; ++i) {
+                const Vec2 s = formationSlot(shape, i, n);
+                const uint32_t rank = rankOfSlot(shape, i, n);
+                // Rank r sits at depth -r * spacing. Recovering r from y is
+                // the whole mirror those two functions must maintain.
+                const float spacing = kSlotSpacing * traitsOf(shape).spacing;
+                CHECK(s.y == doctest::Approx(-(float)rank * spacing));
+            }
+        }
+    }
+}
+
+TEST_CASE("every formation shape has a traits row") {
+    for (uint32_t i = 0; i < kFormationShapeCount; ++i) {
+        const FormationTraits& t = traitsOf((FormationShape)i);
+        CHECK(t.spacing > 0.0f);
+        CHECK(t.speed > 0.0f);
+        CHECK(t.turn > 0.0f);
+        CHECK(t.reach >= 1.0f);
+        CHECK(t.cooldown > 0.0f);
+        CHECK(t.fightingRanks >= 1);
+    }
+}
+
+TEST_CASE("rankOfSlot agrees with formationSlot for the new grid shapes") {
+    const FormationShape shapes[] = {
+        FormationShape::Shieldwall, FormationShape::Phalanx,
+        FormationShape::Testudo, FormationShape::Manipular,
+    };
+    for (FormationShape shape : shapes) {
+        for (uint32_t n = 1; n <= 200; ++n) {
+            for (uint16_t i = 0; i < (uint16_t)n; ++i) {
+                const Vec2 s = formationSlot(shape, i, n);
+                const uint32_t rank = rankOfSlot(shape, i, n);
+                const float spacing = kSlotSpacing * traitsOf(shape).spacing;
+                CHECK(s.y == doctest::Approx(-(float)rank * spacing));
+            }
+        }
+    }
+}
+
+TEST_CASE("a phalanx stands deeper than a shieldwall of the same size") {
+    float phalanxDepth = 0.0f, wallDepth = 0.0f;
+    for (uint16_t i = 0; i < 48; ++i) {
+        phalanxDepth = std::min(phalanxDepth, formationSlot(FormationShape::Phalanx, i, 48).y);
+        wallDepth    = std::min(wallDepth,    formationSlot(FormationShape::Shieldwall, i, 48).y);
+    }
+    CHECK(phalanxDepth < wallDepth);
+}
+
+TEST_CASE("a testudo stands tighter than a line") {
+    const Vec2 a = formationSlot(FormationShape::Testudo, 1, 48);
+    const Vec2 b = formationSlot(FormationShape::Line, 1, 48);
+    CHECK(std::abs(a.x) < std::abs(b.x));
+}
+
+TEST_CASE("a manipular line has gaps a line does not") {
+    // Column kManipleWidth begins the second maniple, so the step from the slot
+    // before it to the slot at it is wider than a normal one.
+    const uint32_t width = detail::shapeWidth(FormationShape::Manipular, 60);
+    REQUIRE(width > kManipleWidth);
+    const float normal = formationSlot(FormationShape::Manipular, 1, 60).x
+                       - formationSlot(FormationShape::Manipular, 0, 60).x;
+    const float gap = formationSlot(FormationShape::Manipular, (uint16_t)kManipleWidth, 60).x
+                    - formationSlot(FormationShape::Manipular, (uint16_t)kManipleWidth - 1, 60).x;
+    CHECK(gap > normal * 1.5f);
+}
+
+TEST_CASE("mob slots are scattered but never closer than the separation radius") {
+    for (uint16_t i = 0; i < 40; ++i) {
+        for (uint16_t j = (uint16_t)(i + 1); j < 40; ++j) {
+            const Vec2 a = formationSlot(FormationShape::Mob, i, 40);
+            const Vec2 b = formationSlot(FormationShape::Mob, j, 40);
+            const float dx = a.x - b.x, dy = a.y - b.y;
+            CHECK(std::sqrt(dx * dx + dy * dy) > kSeparationRadius);
+        }
+    }
+}
+
+TEST_CASE("mob slots are deterministic") {
+    for (uint16_t i = 0; i < 40; ++i) {
+        const Vec2 a = formationSlot(FormationShape::Mob, i, 40);
+        const Vec2 b = formationSlot(FormationShape::Mob, i, 40);
+        CHECK(a.x == b.x);
+        CHECK(a.y == b.y);
+    }
+}
+
+TEST_CASE("every shape keeps the centroid a fixed point") {
+    for (uint32_t i = 0; i < kFormationShapeCount; ++i) {
+        const FormationShape shape = (FormationShape)i;
+        float sumX = 0.0f, sumY = 0.0f;
+        for (uint16_t k = 0; k < 40; ++k) {
+            const Vec2 s = formationSlot(shape, k, 40);
+            sumX += s.x;
+            sumY += s.y;
+        }
+        const Vec2 mean = formationMeanOffset(shape, 40);
+        CHECK(mean.x == doctest::Approx(sumX / 40.0f));
+        CHECK(mean.y == doctest::Approx(sumY / 40.0f));
+    }
+}
+
+TEST_CASE("a blending slot walks from the old shape to the new one") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.troopClass[0] = (uint8_t)TroopClass::Legionary;
+    q.memberCount[0] = 20;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    q.morale[0] = 1.0f;  q.discipline[0] = 1.0f;
+    setSquadShape(q, 0, FormationShape::Testudo);
+
+    // Blend complete: the man stands where a testudo puts him.
+    q.shapeBlend[0] = 0.0f;
+    const Vec2 done = slotWorldPosition(q, 0, 5, 20);
+
+    // Blend just started: he is still standing where the line put him.
+    q.shapeBlend[0] = kFormationChangeSeconds;
+    const Vec2 start = slotWorldPosition(q, 0, 5, 20);
+
+    q.shape[0] = (uint8_t)FormationShape::Line;
+    q.shapeBlend[0] = 0.0f;
+    const Vec2 lineSlot = slotWorldPosition(q, 0, 5, 20);
+
+    CHECK(start.x == doctest::Approx(lineSlot.x));
+    CHECK(start.y == doctest::Approx(lineSlot.y));
+    CHECK(done.x != doctest::Approx(start.x).epsilon(0.0001));
+}

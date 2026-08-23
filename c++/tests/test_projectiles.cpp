@@ -35,9 +35,9 @@ TEST_CASE("a fresh simulation has no projectiles in flight") {
 
 TEST_CASE("an arrow leaves at arrow speed and roughly toward the target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
-    s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
 
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -60,9 +60,9 @@ TEST_CASE("spread is bounded and deterministic") {
     // must stay inside the configured spread.
     auto fire = [](uint32_t tick) {
         SoldierHot s;
-        s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+        s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
         s.intentFire[0] = 1;
-        s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+        s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
         SquadHot q;
         q.spawn(Team::A, UnitType::Archer);
         q.targetSoldier[0] = 1;
@@ -107,10 +107,10 @@ TEST_CASE("a dead archer does not shoot") {
     // AFTER spawnArrows (step 3). Without the health guard in spawnArrows, a
     // soldier killed earlier this same tick still looses an arrow.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
     s.health[0] = 0;
-    s.spawn(300.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(300.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
 
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -174,7 +174,7 @@ TEST_CASE("an arrow expires when its lifetime runs out") {
 
 TEST_CASE("no target means no arrow") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Archer, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Archer, 0);
     s.intentFire[0] = 1;
     SquadHot q;
     q.spawn(Team::A, UnitType::Archer);
@@ -186,21 +186,36 @@ TEST_CASE("no target means no arrow") {
 }
 
 TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either way") {
-    // Contact is no longer a guaranteed wound (kArrowHitChancePct). What must
-    // hold for every arrow is that it is SPENT on contact -- a glance that
-    // stayed alive would re-roll next tick and make the chance meaningless.
+    // Contact is not a guaranteed wound. What must hold for every arrow is that
+    // it is SPENT on contact: a glance that stayed alive would re-roll next
+    // tick and make the chance meaningless.
+    //
+    // The rate is now the target's own kWoundChancePct row rather than one
+    // global constant, so the band below is built from what the defender is
+    // wearing. The defender is an ARCHER deliberately: he carries no shield, so
+    // this isolates the wound roll from the block roll that would otherwise sit
+    // in front of it. Shield cover has its own tests in test_shields.cpp.
     int landed = 0;
     const int shots = 400;
+    const int expectedPct =
+        kWoundChancePct[(int)WeaponClass::Bow]
+                       [(int)loadoutOf(TroopClass::Archer).armor];
+    REQUIRE(loadoutOf(TroopClass::Archer).shield == ShieldClass::None);
+
     for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
         SoldierHot s;
-        s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+        SquadHot q;
+        q.spawn(Team::B, UnitType::Archer);
+        q.memberCount[0] = 1;
+        s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Archer, 0);
         const uint8_t before = s.health[0];
 
         ProjectileHot p;
-        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
+        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f,
+                (uint8_t)WeaponClass::Bow);
         p.intentHitTarget[0] = 0;
 
-        applyProjectileHits(p, s, Rng{42u, tick});
+        applyProjectileHits(p, s, q, Rng{42u, tick});
 
         CHECK(p.lifetime[0] <= 0.0f);
         const bool hit = s.health[0] == before - kArrowDamage;
@@ -209,21 +224,24 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
     }
 
     // Wide band on purpose: this guards that the roll is wired up and roughly
-    // centred on the constant, not that 400 samples hit it exactly.
-    CHECK(landed > shots * (kArrowHitChancePct - 15) / 100);
-    CHECK(landed < shots * (kArrowHitChancePct + 15) / 100);
+    // centred on the table entry, not that 400 samples hit it exactly.
+    CHECK(landed > shots * (expectedPct - 15) / 100);
+    CHECK(landed < shots * (expectedPct + 15) / 100);
 }
 
 TEST_CASE("an arrow cannot finish off an already dead soldier") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 0);
+    SquadHot q;
+    q.spawn(Team::B, UnitType::Infantry);
+    q.memberCount[0] = 1;
+    s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
     s.health[0] = 0;
 
     ProjectileHot p;
     p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
     p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s, Rng{42u, 1u});
+    applyProjectileHits(p, s, q, Rng{42u, 1u});
     CHECK(s.health[0] == 0);  // no underflow to 255
 }
 
@@ -374,7 +392,7 @@ namespace {
 uint32_t flyPast(Team arrowTeam, Team soldierTeam, float dist, float fraction) {
     SoldierHot soldiers;
     soldiers.spawn(dist * fraction, 0.0f, 0.0f, 0.0f, soldierTeam,
-                   UnitType::Infantry, 0);
+                   TroopClass::Legionary, 0);
 
     SpatialHash hash(1280.0f, 720.0f, 50.0f);
     hash.insert(0u, soldiers.posX[0], soldiers.posY[0]);
@@ -447,7 +465,7 @@ float meanAimErrorPx(float speed, float steady) {
 
     SoldierHot soldiers;
     // Index 0 is the target, so squads.targetSoldier can name it directly.
-    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, UnitType::Infantry, 1);
+    soldiers.spawn(range, 0.0f, 0.0f, 0.0f, Team::B, TroopClass::Legionary, 1);
 
     SquadHot squads;
     squads.spawn(Team::A, UnitType::Archer);
@@ -458,7 +476,7 @@ float meanAimErrorPx(float speed, float steady) {
     squads.targetSoldier[0] = 0u;
 
     for (int k = 0; k < kArchers; ++k) {
-        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, UnitType::Archer, 0);
+        soldiers.spawn(0.0f, 0.0f, 0.0f, speed, Team::A, TroopClass::Archer, 0);
         const size_t idx = soldiers.count - 1;
         soldiers.intentFire[idx] = 1;
         soldiers.steadyTimer[idx] = steady;
@@ -504,4 +522,38 @@ TEST_CASE("steadyTimer accumulates while still and resets on movement") {
     }
     CHECK(sawSettled);
     CHECK(sawUnsettled);
+}
+
+TEST_CASE("a javelin flies faster and dies sooner than an arrow") {
+    CHECK(kJavelinSpeed > kArrowSpeed);
+    CHECK(kJavelinLifetime < kArrowLifetime);
+    // Fast enough, and alive long enough, to actually cross the throwing range.
+    CHECK(kJavelinSpeed * kJavelinLifetime > kPilumRange);
+    // Thrown while the squad is still closing rather than after it has locked
+    // up in melee.
+    CHECK(kPilumRange > kImminentContactDist);
+}
+
+TEST_CASE("a legionary squad throws its pilum once and only once") {
+    Simulation sim(1400, 900, 42u, 0u);
+    sim.init(600);
+    sim.setPaused(false);
+    uint32_t javelinTicks = 0;
+    for (uint32_t t = 0; t < 3000; ++t) {
+        sim.tick(kFixedTimestep);
+        bool sawJavelin = false;
+        for (size_t p = 0; p < sim.getProjectileCount(); ++p) {
+            if (sim.projectileWeapon(p) == (uint8_t)WeaponClass::Javelin) {
+                sawJavelin = true;
+                break;
+            }
+        }
+        if (sawJavelin) ++javelinTicks;
+    }
+    // Thrown at all, and not thrown continuously. A squad whose pilumSpent
+    // never latched would show javelins on hundreds of ticks; one whose
+    // pilumVolley was never cleared would show them on every tick after the
+    // first.
+    CHECK(javelinTicks > 0);
+    CHECK(javelinTicks < 300);
 }

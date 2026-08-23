@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include "Loadout.hpp"
 #include "Terrain.hpp"
 #include "Army.hpp"
 #include <cstdint>
@@ -10,6 +11,54 @@ struct SoldierHot;  // defined in Simulation.hpp
 struct SquadHot {
     std::vector<Team>     team;
     std::vector<UnitType> unitType;
+    // A squad is uniform, so this duplicates its members' value. Deliberate:
+    // squadDecide reads it every tick, and reaching into a member soldier for
+    // a value that cannot differ across the squad would be an indirection into
+    // a different array for nothing.
+    std::vector<uint8_t>  troopClass;
+    // The formation this squad is standing in RIGHT NOW. Previously derived
+    // from unitType through shapeForUnit on every read, which made a formation
+    // a permanent property of a unit type. Per-squad state is what lets a squad
+    // change shape mid-battle.
+    std::vector<uint8_t>  shape;
+    // Formation transition state. shapeBlend counts DOWN the seconds remaining
+    // in a change, and while it runs the squad has the WORSE of the two shapes
+    // in every respect that matters. Written from the formation-choice commit
+    // onward; declared here because shieldBlockPct already has to read them to
+    // charge that cost.
+    std::vector<uint8_t>  prevShape;
+    std::vector<float>    shapeBlend;
+    // Counts DOWN the minimum time before another change is allowed. Without
+    // it a squad sitting at any threshold flips shape every tick.
+    std::vector<float>    formationHold;
+
+    // How hard this squad is being shot at. Accumulated in serial resolution
+    // when a member is struck, decayed in phase 4. The testudo therefore forms
+    // in response to arrows that ACTUALLY ARRIVED rather than to arrows that
+    // might, which is both correct and legible on screen.
+    std::vector<float>    missilePressure;
+
+    // The pilum is a one-shot. pilumSpent is durable state; pilumVolley is a
+    // one-tick request that resolution consumes and clears. Two flags rather
+    // than one, because resolution otherwise cannot tell "just set" from "set
+    // twenty seconds ago".
+    std::vector<uint8_t>  pilumSpent;
+    std::vector<uint8_t>  pilumVolley;
+
+    // Line relief state. initialMemberCount is set at deployment and never
+    // changes, so "how much of this squad is left" is answerable without a
+    // second array of starting sizes.
+    //
+    // reliefStage distinguishes the two halves of a swap rather than merely
+    // marking one in progress: 0 idle, 1 this squad is the spent one falling
+    // back, 2 this squad is the fresh one stepping up. Knowing WHICH end a
+    // squad is at is what lets the order override and the lateral offset apply
+    // to the right one.
+    std::vector<uint32_t> initialMemberCount;
+    std::vector<float>    contactDuration;
+    std::vector<float>    reliefCooldown;
+    std::vector<uint8_t>  reliefStage;
+    std::vector<uint16_t> reliefPartner;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -91,6 +140,19 @@ struct SquadHot {
     void spawn(Team t, UnitType u) {
         team.push_back(t);
         unitType.push_back(u);
+        troopClass.push_back((uint8_t)TroopClass::Levy);
+        shape.push_back((uint8_t)FormationShape::Line);
+        prevShape.push_back((uint8_t)FormationShape::Line);
+        shapeBlend.push_back(0.0f);
+        formationHold.push_back(0.0f);
+        missilePressure.push_back(0.0f);
+        pilumSpent.push_back(0);
+        pilumVolley.push_back(0);
+        initialMemberCount.push_back(0);
+        contactDuration.push_back(0.0f);
+        reliefCooldown.push_back(0.0f);
+        reliefStage.push_back(0);
+        reliefPartner.push_back(UINT16_MAX);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -132,6 +194,19 @@ struct SquadHot {
     void clear() {
         team.clear();
         unitType.clear();
+        troopClass.clear();
+        shape.clear();
+        prevShape.clear();
+        shapeBlend.clear();
+        formationHold.clear();
+        missilePressure.clear();
+        pilumSpent.clear();
+        pilumVolley.clear();
+        initialMemberCount.clear();
+        contactDuration.clear();
+        reliefCooldown.clear();
+        reliefStage.clear();
+        reliefPartner.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();
@@ -184,6 +259,25 @@ void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
 void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
                           const std::vector<uint32_t>& members,
                           size_t squadIndex);
+
+// Whether these troops are equipped to stand in this shape. Eligibility is a
+// property of the LOADOUT and never of the situation, so a squad can never
+// adopt a formation its equipment does not support. Every caller goes through
+// this one predicate rather than re-deriving the rule.
+bool formationAvailable(TroopClass troop, FormationShape shape);
+
+// What squad `s` should be standing in, given what it is carrying and what is
+// happening to it. Pure: reads the squad, writes nothing.
+FormationShape chooseFormation(const SquadHot& squads, size_t squadIndex);
+
+// Starts a change to `shape`, unless the squad is already in it or is still
+// inside its hold window. Sets prevShape, shapeBlend and formationHold
+// together, which is why every change goes through here rather than assigning
+// `shape` directly.
+void setSquadShape(SquadHot& squads, size_t squadIndex, FormationShape shape);
+
+// Bleeds off a tick's worth of missile pressure, floored at zero.
+void decayMissilePressure(SquadHot& squads, size_t squadIndex, float dt);
 
 // Turns the commander's role into an order, a facing, and an objective for
 // squad `s`. Replaces selectTargetSquad: targets now come from the army tier

@@ -4,7 +4,12 @@
 enum class Team : uint8_t { A = 0, B = 1 };
 enum class UnitType : uint8_t { Infantry = 0, Archer = 1, Cavalry = 2 };
 enum class SoldierState : uint8_t { Forming = 0, Engaged = 1, Routing = 2, Dead = 3 };
-enum class FormationShape : uint8_t { Line = 0, Column = 1, Wedge = 2, Loose = 3 };
+// Appended, never renumbered: shape reaches the state digest through
+// SquadHot::shape. Behavior for each lives in kFormationTraits (Formation.hpp).
+enum class FormationShape : uint8_t {
+    Line = 0, Column = 1, Wedge = 2, Loose = 3,
+    Shieldwall = 4, Phalanx = 5, Testudo = 6, Manipular = 7, Mob = 8
+};
 
 // Appended, never renumbered: order feeds the state digest, so changing an
 // existing value silently invalidates every committed baseline.
@@ -50,20 +55,101 @@ constexpr float kFacingSlewRate = 2.5f;
 
 struct Vec2 { float x, y; };
 
+// Manipular geometry. The interval is not decoration: it is the corridor a
+// relieved maniple retires through (see the line relief in Army.cpp), and a
+// legion without it is a shieldwall with holes in it.
+constexpr uint32_t kManipleWidth    = 8;      // columns before an interval
+constexpr float    kManipleInterval = 12.0f;  // one kSlotSpacing
+
+// Legion line relief. A maniple that has been fighting long enough to be spent
+// retires through the interval behind it and a fresh one steps up. Every
+// mechanism this needs already existed: SquadRole::Reserve, SquadOrder::Withdraw
+// (which keeps formation, unlike Rout), and an army decide phase that is
+// already serial.
+constexpr float kReliefLossFraction    = 0.60f;  // survivors below this counts as spent
+constexpr float kReliefMoraleThreshold = 0.55f;
+constexpr float kReliefContactSeconds  = 20.0f;
+constexpr float kReliefSearchRadius    = 260.0f;
+constexpr float kReliefClearDistance   = 70.0f;  // separation at which the swap completes
+constexpr float kReliefCooldownSeconds = 15.0f;
+
+// Two ordering constraints against constants that already exist, stated here
+// rather than left to be discovered:
+//
+// kReliefMoraleThreshold (0.55) MUST stay above kRallyThreshold (0.45), or a
+// maniple routs before it is ever judged spent and the relief never fires.
+//
+// The lateral offset an advancing maniple aims at MUST be about half a maniple
+// wide, so the two squads are never walking at the same point. That is what
+// lets them swap places without any new collision logic.
+//
+// Written in terms of kManipleInterval rather than kSlotSpacing (which they are
+// equal to) because kSlotSpacing lives in Formation.hpp, which includes this
+// header rather than the other way round.
+constexpr float kReliefLateralOffset = (float)kManipleWidth * kManipleInterval * 0.5f;
+
+// The pilum. Thrown once as the lines close, then the swords come out. The
+// javelin row of kWoundChancePct is deliberately the best thing in the game
+// against mail and mediocre against bare flesh, which is what makes the volley
+// a decision rather than a free opener.
+//
+// kPilumRange sits above kImminentContactDist so the throw happens while the
+// squad is still closing, not after it has already locked up in melee.
+constexpr float kPilumRange      = 90.0f;   // px
+constexpr float kJavelinSpeed    = 260.0f;  // px/s, flatter and faster than an arrow
+constexpr float kJavelinLifetime = 0.6f;    // s, enough for kPilumRange with margin
+
+// Formation transitions. A squad caught mid-drill takes the worse cover and the
+// slower speed of both shapes, so changing formation under fire is a real
+// decision rather than a free upgrade.
+constexpr float kFormationChangeSeconds = 1.4f;
+
+// Minimum time in a shape before another change is allowed. This is the
+// hysteresis without which a squad sitting at any threshold flips every tick,
+// in the same spirit as kContactClearSeconds and the rally threshold gap.
+constexpr float kFormationHoldSeconds = 3.0f;
+
+// Discipline below which a squad in contact stops being a formation at all.
+constexpr float kMobDisciplineFloor = 0.45f;
+
+// How close an enemy must be before a squad adopts its fighting shape rather
+// than its marching one. Squads close at roughly 45px/s, so 60px is a little
+// over a second of warning, which is under kFormationChangeSeconds: a squad
+// that waits for contact is still drilling when the enemy arrives.
+constexpr float kImminentContactDist = 60.0f;
+
+// Missile pressure. Each strike on a member adds, and it bleeds off every tick.
+// Costs nothing to compute: resolution already walks every arrow that hit
+// someone. With these three, roughly two hits a second sustained closes a
+// tower-shield squad into a testudo.
+constexpr float kMissilePressurePerHit = 0.30f;
+constexpr float kMissilePressureDecay  = 0.60f;   // per second
+constexpr float kTestudoThreshold      = 1.00f;
+
+// How far a mob's slots scatter from their grid position. MUST stay under
+// kSeparationRadius (10): a scatter at or above it puts two slots close enough
+// that separation shoves their occupants apart, and the formation spends the
+// battle fighting its own avoidance force. Same failure mode kSeparationRadius
+// documents against kSlotSpacing.
+constexpr float kMobJitter = 4.0f;
+
 // Radius of a soldier's own neighbour query. Archer range deliberately
 // exceeds it, which is why target assignment lives on the squad.
 constexpr float kSeekRadius = 150.0f;
 
+// Health, discipline and equipment moved to kTroopLoadout (Loadout.hpp).
+// Speed and range stayed here, and the split is not arbitrary: these two are
+// genuinely properties of the ROLE. A mounted man is fast because he is
+// mounted, and a bow reaches 280px whoever is holding it.
 struct UnitStats {
     float   speed;      // px/s
     float   range;      // px, 0 means melee only
-    uint8_t maxHealth;
 };
 
 constexpr UnitStats kUnitStats[kUnitTypeCount] = {
-    /* Infantry */ { 45.0f,   0.0f, 3 },
-    /* Archer   */ { 42.0f, 280.0f, 2 },
-    /* Cavalry  */ { 95.0f,   0.0f, 3 },
+    /* Infantry */ { 45.0f,   0.0f },
+    /* Archer   */ { 42.0f, 280.0f },
+    /* Cavalry  */ { 95.0f,   0.0f },
 };
 
 // Shared by Simulation.cpp (deployment) and Soldiers.cpp (Task 8) so both
@@ -158,12 +244,10 @@ constexpr float kRallyThreshold    = 0.45f;
 constexpr float kRallyRadius       = 220.0f;
 constexpr float kRallyDuration     = 3.0f;    // seconds clear of enemies
 
-// Discipline by unit type. Cavalry are the least steady, archers are fragile
-// but not undisciplined, infantry are the anchor. Constant per type for now:
-// per-squad variation is a tuning knob nobody has asked for yet.
-constexpr float kDisciplineInfantry = 0.85f;
-constexpr float kDisciplineArcher   = 0.60f;
-constexpr float kDisciplineCavalry  = 0.70f;
+// Discipline used to live here as three per-UnitType constants. It is now a
+// column of kTroopLoadout (Loadout.hpp), because steadiness is a property of
+// who the men are rather than of what role they fill: a levy spearman and a
+// hoplite are both Infantry and are not remotely the same troops.
 
 // How close an enemy melee squad must be before an archer squad is judged to
 // need a bodyguard. Deliberately larger than kArcherPanicRadius (design 8.5):
@@ -202,11 +286,14 @@ constexpr float kStrengthPerMan[kUnitTypeCount] = {
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
 constexpr float kArcherCooldown      = 1.5f;  // seconds between shots
 
-// An arrow whose flight path crosses a soldier still has to get through
-// shield, mail and luck. Geometry decides whether a shot comes CLOSE; this
-// decides whether it lands. Tuning knob: lower it for a grindier, melee-led
-// battle, raise it to make archery decisive.
-constexpr int kArrowHitChancePct = 45;
+// kArrowHitChancePct, a flat 45 percent for every arrow against every man,
+// used to live here. It is REPLACED, not supplemented, by the staged model in
+// Loadout.hpp and Shields.hpp: geometry decides whether an arrow crosses a man,
+// his shield may block it, and kWoundChancePct decides whether it gets through
+// what he is wearing. Multiplying a flat 45 percent by those two would put a
+// bowman near 8 percent against a shielded, mailed man and make archery
+// ornamental. RngUse::ArrowHitRoll survives in the enum, unused, because
+// deleting an enumerator reshuffles every value after it.
 
 // Fraction of the flight to the target that an arrow spends above head
 // height. Below this it hits nothing at all, friend or foe.

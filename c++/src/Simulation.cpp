@@ -71,6 +71,22 @@ static UnitType unitTypeForSquad(uint32_t sq, uint32_t squadsPerTeam) {
     return UnitType::Infantry;
 }
 
+// Which troops a squad is made of. Composition (how many infantry, archer and
+// cavalry squads) is unchanged: this maps the type unitTypeForSquad already
+// chose onto a concrete troop, per team.
+//
+// Team A fields legionaries and Team B hoplites so the default battle is the
+// one this feature exists to show: a rotating manipular line against a spear
+// wall. Both sides keep the same archers and knights, so the asymmetry is
+// exactly one thing and its effect on the field is readable.
+static TroopClass troopClassForSquad(uint32_t sq, uint32_t squadsPerTeam, Team team) {
+    switch (unitTypeForSquad(sq, squadsPerTeam)) {
+        case UnitType::Archer:  return TroopClass::Archer;
+        case UnitType::Cavalry: return TroopClass::Knight;
+        default: return (team == Team::A) ? TroopClass::Legionary : TroopClass::Hoplite;
+    }
+}
+
 void Simulation::init(size_t soldierCount) {
     spdlog::info("Initializing {} agents", soldierCount);
     // init() runs before any tick, so tick 0 is reserved for setup draws.
@@ -195,14 +211,19 @@ void Simulation::init(size_t soldierCount) {
 
         // Pass 2: place squads and spawn their soldiers.
         for (uint32_t sq = 0; sq < squadsPerTeam; ++sq) {
-            UnitType unit = unitTypeForSquad(sq, compositionSquadsPerTeam);
+            const TroopClass troop = troopClassForSquad(sq, compositionSquadsPerTeam, team);
+            const UnitType unit = loadoutOf(troop).unit;
 
             const uint16_t squadId = (uint16_t)squads.count;
             squads.spawn(team, unit);
-            // Steadiness is a property of the unit type (Morale.cpp). Set at
+            squads.troopClass[squadId] = (uint8_t)troop;
+            // Seeded to exactly what shapeForUnit would have returned, so
+            // making formation per-squad state changes no behavior here.
+            squads.shape[squadId] = (uint8_t)shapeForUnit(unit);
+            // Steadiness is a property of the troops (Loadout.hpp). Set at
             // deployment rather than defaulted in SquadHot::spawn, because
             // spawn does not know what it is spawning until the caller says.
-            squads.discipline[squadId] = disciplineForUnit(unit);
+            squads.discipline[squadId] = loadoutOf(troop).discipline;
             squads.facingX[squadId] = facing;
             squads.facingY[squadId] = 0.0f;
             // Established here, not assumed: slotWorldPosition below (and
@@ -235,6 +256,9 @@ void Simulation::init(size_t soldierCount) {
             // set the field itself so deployment and steering agree by
             // construction, not by coincidence (finding 4).
             squads.memberCount[squadId] = members;
+            // Never changes again. This is what makes "how much of this squad
+            // is left" answerable to the relief tier without a second array.
+            squads.initialMemberCount[squadId] = members;
 
             for (uint32_t k = 0; k < members; ++k) {
                 // Spawn exactly on the slot steerToSlot will target, using the
@@ -261,7 +285,7 @@ void Simulation::init(size_t soldierCount) {
                 const Vec2 clear = clearOfObstacles(jittered);
 
                 soldiers.spawn(clampf(clear.x, 0.0f, w), clampf(clear.y, 0.0f, h),
-                               0.0f, 0.0f, team, unit, squadId);
+                               0.0f, 0.0f, team, troop, squadId);
                 soldiers.slotIndex[agent] = (uint16_t)k;
                 // A soldier that never moves keeps the velocity-derived
                 // direction SoldierHot::spawn defaults to, (1,0), forever --
@@ -570,6 +594,9 @@ void Simulation::phaseArmyDecide() {
         const bool firstTick = (tickNumber == 1u);
         if (firstTick || (tickNumber % kArmyDecideInterval) == a) {
             assignRoles(squads, armies, (Team)a);
+            // After the roles, because relief overrides two of them and would
+            // otherwise be undone the moment it was decided.
+            updateLineRelief(squads, armies, (Team)a);
             workCounters.add(workCounters.armyDecisions, 1);
         }
     }
@@ -619,9 +646,15 @@ void Simulation::phaseResolution(const Rng& rng) {
     casualties.assign(squads.count, 0u);
     officerDied.assign(squads.count, 0u);
 
-    applyMeleeIntents(soldiers);                            // step 1
-    applyProjectileHits(projectiles, soldiers, rng);        // step 2
+    applyMeleeIntents(soldiers, squads, rng);               // step 1
+    applyProjectileHits(projectiles, soldiers, squads, rng); // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
+    // pilumVolley is a one-tick request. spawnArrows takes squads by const
+    // reference, so the flag is cleared here, immediately after the one
+    // function that consumes it.
+    for (size_t s = 0; s < squads.count; ++s) {
+        squads.pilumVolley[s] = 0;
+    }
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
             soldiers.attackCooldown[i] = kArcherCooldown;
@@ -712,9 +745,25 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             // Withdrawing and routing squads run. Keyed on order rather than
             // on role, so it covers both an ordered retreat and a break.
             const uint8_t ord = squads.order[sq];
-            const float speedScale =
+            float speedScale =
                 (ord == (uint8_t)SquadOrder::Withdraw || ord == (uint8_t)SquadOrder::Rout)
                 ? kFleeSpeedMultiplier : 1.0f;
+
+            // A tight formation moves at the pace it can hold ranks at. Armor
+            // scales inside steerToward, so the three factors multiply and each
+            // stays owned by the layer that knows about it.
+            //
+            // Mid-drill the squad takes the SLOWER of its two shapes: a squad
+            // caught changing formation should be worse off than one that stood
+            // still, which is the whole cost of the transition.
+            float formationSpeed = traitsOf((FormationShape)squads.shape[sq]).speed;
+            if (squads.shapeBlend[sq] > 0.0f) {
+                formationSpeed = std::min(
+                    formationSpeed,
+                    traitsOf((FormationShape)squads.prevShape[sq]).speed);
+            }
+            speedScale *= formationSpeed;
+
             steerToward(soldiers, i,
                         clearOfObstacles(slotWorldPosition(squads, sq, soldiers.slotIndex[i],
                                                            squads.memberCount[sq])),
@@ -830,7 +879,7 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
 
         // Melee target selection (Task 3). Writes only soldiers.intentTarget[i]
         // and reuses localNeighbors, the buffer separation just filled above.
-        selectMeleeTarget(soldiers, spatialHash, i, localNeighbors);
+        selectMeleeTarget(soldiers, squads, spatialHash, i, localNeighbors);
 
         // Archers fire at whatever their squad handed them, subject to cooldown.
         // Writing only our own flag keeps this parallel-safe; resolution turns
@@ -1037,6 +1086,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(soldiers.velY[i]);
         d.mix(static_cast<uint32_t>(soldiers.team[i]));
         d.mix(static_cast<uint32_t>(soldiers.unitType[i]));
+        d.mix(static_cast<uint32_t>(soldiers.troopClass[i]));
         d.mix(static_cast<uint32_t>(soldiers.state[i]));
         d.mix(static_cast<uint32_t>(soldiers.squadId[i]));
         d.mix(static_cast<uint32_t>(soldiers.slotIndex[i]));
@@ -1070,6 +1120,19 @@ uint64_t Simulation::stateDigest() const {
     d.mix(static_cast<uint32_t>(squads.count));
     for (size_t s = 0; s < squads.count; ++s) {
         d.mix(static_cast<uint32_t>(squads.memberCount[s]));
+        d.mix(static_cast<uint32_t>(squads.troopClass[s]));
+        d.mix(static_cast<uint32_t>(squads.shape[s]));
+        d.mix(static_cast<uint32_t>(squads.prevShape[s]));
+        d.mix(squads.shapeBlend[s]);
+        d.mix(squads.formationHold[s]);
+        d.mix(squads.missilePressure[s]);
+        d.mix(static_cast<uint32_t>(squads.pilumSpent[s]));
+        d.mix(static_cast<uint32_t>(squads.pilumVolley[s]));
+        d.mix(static_cast<uint32_t>(squads.initialMemberCount[s]));
+        d.mix(squads.contactDuration[s]);
+        d.mix(squads.reliefCooldown[s]);
+        d.mix(static_cast<uint32_t>(squads.reliefStage[s]));
+        d.mix(static_cast<uint32_t>(squads.reliefPartner[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);
@@ -1114,6 +1177,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(projectiles.velX[i]);
         d.mix(projectiles.velY[i]);
         d.mix(static_cast<uint32_t>(projectiles.team[i]));
+        d.mix(static_cast<uint32_t>(projectiles.weapon[i]));
         d.mix(projectiles.lifetime[i]);
         // Arc state. traveled advances every tick in a parallel phase, and
         // liveAfter decides whether this arrow can hit anything at all.

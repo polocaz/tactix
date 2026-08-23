@@ -16,20 +16,37 @@ SpatialHash buildHash(const SoldierHot& s, float w = 1200.0f, float h = 800.0f) 
     }
     return hash;
 }
+
+// The squad tier the soldiers in these tests belong to. Both selection and
+// resolution read it now: selection for the formation's fighting depth and
+// reach, resolution for the attacker's swing rate and the target's shield arc.
+// Squad 0 faces +x and squad 1 faces -x, so the two are looking at each other.
+SquadHot duelSquads(uint32_t n = 2) {
+    SquadHot q;
+    for (uint32_t k = 0; k < n; ++k) {
+        q.spawn((k == 0) ? Team::A : Team::B, UnitType::Infantry);
+        q.shape[k] = (uint8_t)FormationShape::Line;
+        q.memberCount[k] = 1;
+        q.facingX[k] = (k == 0) ? 1.0f : -1.0f;
+        q.facingY[k] = 0.0f;
+    }
+    return q;
+}
 } // namespace
 
 TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 0: seeker
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 1: friendly, in reach
-    s.spawn(108.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);  // 2: enemy, in reach
-    s.spawn(300.0f, 300.0f, 0, 0, Team::B, UnitType::Infantry, 1);  // 3: enemy, out of reach
-    s.spawn(400.0f, 400.0f, 0, 0, Team::A, UnitType::Infantry, 0);  // 4: friendly, out of reach
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 0: seeker
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 1: friendly, in reach
+    s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 2: enemy, in reach
+    s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 3: enemy, out of reach
+    s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 4: friendly, out of reach
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
     for (size_t i = 0; i < s.count; ++i) {
-        selectMeleeTarget(s, hash, i, scratch);
+        selectMeleeTarget(s, q, hash, i, scratch);
         const uint32_t t = s.intentTarget[i];
         if (t == UINT32_MAX) continue;
         CHECK(s.team[t] != s.team[i]);
@@ -38,16 +55,17 @@ TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
 
 TEST_CASE("selectMeleeTarget never picks a target beyond melee reach") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(108.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
-    s.spawn(300.0f, 300.0f, 0, 0, Team::B, UnitType::Infantry, 1);
-    s.spawn(400.0f, 400.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
     for (size_t i = 0; i < s.count; ++i) {
-        selectMeleeTarget(s, hash, i, scratch);
+        selectMeleeTarget(s, q, hash, i, scratch);
         const uint32_t t = s.intentTarget[i];
         if (t == UINT32_MAX) continue;
         const float dx = s.posX[t] - s.posX[i];
@@ -58,51 +76,55 @@ TEST_CASE("selectMeleeTarget never picks a target beyond melee reach") {
 
 TEST_CASE("a soldier with an enemy just inside melee reach acquires it") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f + kMeleeReach - 0.1f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f + kMeleeReach - 0.1f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == 1);
 }
 
 TEST_CASE("a soldier with the nearest enemy just outside melee reach gets no target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f + kMeleeReach + 0.5f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f + kMeleeReach + 0.5f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
 
 TEST_CASE("a soldier surrounded by friendlies only gets no target") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(95.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(100.0f, 105.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(95.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(100.0f, 105.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
 
 TEST_CASE("a soldier on cooldown gets no target even with an enemy in reach") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.attackCooldown[0] = kMeleeCooldown;
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
@@ -113,13 +135,14 @@ TEST_CASE("of two equidistant enemies the lower soldier index wins the tie") {
     // queryNeighbors walks insertion-ordered vectors, so the winner must be
     // index 1 (inserted before index 2) on every thread count and platform.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);        // 0: seeker
-    s.spawn(100.0f, 105.0f, 0, 0, Team::B, UnitType::Infantry, 1);        // 1: enemy, dist 5
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);        // 2: enemy, dist 5
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);        // 0: seeker
+    s.spawn(100.0f, 105.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 1: enemy, dist 5
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 2: enemy, dist 5
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == 1);
 }
@@ -152,7 +175,7 @@ TEST_CASE("melee resolution wired through a full tick draws blood") {
 
     bool anyDamaged = false;
     for (size_t i = 0; i < sim.getAgentCount(); ++i) {
-        if (sim.soldierHealth(i) < kUnitStats[(int)sim.soldierUnitType(i)].maxHealth) {
+        if (sim.soldierHealth(i) < loadoutOf(sim.soldierTroopClass(i)).maxHealth) {
             anyDamaged = true;
             break;
         }
@@ -164,57 +187,77 @@ namespace {
 // Builds two soldiers on opposing teams, adjacent, both able to swing.
 SoldierHot makeDuel() {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(105.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     return s;
 }
 } // namespace
 
 TEST_CASE("a melee intent costs the target health") {
+    // A blow that reaches now rolls against the target's armor, so this asserts
+    // that blows land EVENTUALLY rather than every time. What is unconditional
+    // is the cooldown: every swing is spent whether or not it wounds.
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     const uint8_t before = s.health[1];
-    s.intentTarget[0] = 1;
 
-    applyMeleeIntents(s);
-
-    CHECK(s.health[1] == before - kMeleeDamage);
-    CHECK(s.attackCooldown[0] > 0.0f);
+    bool wounded = false;
+    for (uint32_t tick = 0; tick < 200 && !wounded; ++tick) {
+        const Rng rng{ 42u, tick };
+        s.intentTarget[0] = 1;
+        s.attackCooldown[0] = 0.0f;
+        applyMeleeIntents(s, q, rng);
+        CHECK(s.attackCooldown[0] > 0.0f);
+        wounded = s.health[1] < before;
+    }
+    CHECK(wounded);
 }
 
 TEST_CASE("overkill is dropped rather than carried over") {
-    // Two attackers, one target with 1 health left. The first kills it; the
-    // second must find health == 0 and waste its swing. Without the guard the
-    // second attack would underflow the uint8_t to 255.
+    // Two attackers, one target with 1 health left. Whichever blow lands first
+    // kills it; any later one must find health == 0 and waste itself. Without
+    // the guard the second attack would underflow the uint8_t to 255, so the
+    // real assertion is that health is never seen above its starting value.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(101.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(102.0f, 100.0f, 0, 0, Team::B, UnitType::Infantry, 1);
+    SquadHot q = duelSquads();
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(101.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(102.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.health[2] = 1;
-    s.intentTarget[0] = 2;
-    s.intentTarget[1] = 2;
 
-    applyMeleeIntents(s);
-
-    CHECK(s.health[2] == 0);
+    for (uint32_t tick = 0; tick < 200; ++tick) {
+        const Rng rng{ 42u, tick };
+        s.intentTarget[0] = 2;
+        s.intentTarget[1] = 2;
+        s.attackCooldown[0] = 0.0f;
+        s.attackCooldown[1] = 0.0f;
+        applyMeleeIntents(s, q, rng);
+        CHECK(s.health[2] <= 1);   // never underflowed
+    }
+    CHECK(s.health[2] == 0);       // and it did die
 }
 
 TEST_CASE("a dead attacker does not swing") {
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     s.health[0] = 0;
     s.state[0] = SoldierState::Dead;
     const uint8_t before = s.health[1];
     s.intentTarget[0] = 1;
 
-    applyMeleeIntents(s);
+    const Rng rng{ 42u, 1u };
+    applyMeleeIntents(s, q, rng);
 
     CHECK(s.health[1] == before);
 }
 
 TEST_CASE("an out of range index is ignored rather than read") {
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     s.intentTarget[0] = 999;
-    applyMeleeIntents(s);  // must not read past the end
-    CHECK(s.health[1] == kUnitStats[(int)UnitType::Infantry].maxHealth);
+    const Rng rng{ 42u, 1u };
+    applyMeleeIntents(s, q, rng);  // must not read past the end
+    CHECK(s.health[1] == loadoutOf(TroopClass::Legionary).maxHealth);
 }
 
 TEST_CASE("a soldier reduced to zero health is marked dead and counted") {
@@ -234,8 +277,8 @@ TEST_CASE("officer death is captured before compaction destroys the evidence") {
     // soldier is gone and the next man has inherited the slot, so the flag has
     // to be set while the corpse still holds it.
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.slotIndex[0] = 0;   // officer
     s.slotIndex[1] = 1;
     s.health[0] = 0;
@@ -249,8 +292,8 @@ TEST_CASE("officer death is captured before compaction destroys the evidence") {
 
 TEST_CASE("a non officer death does not raise the officer flag") {
     SoldierHot s;
-    s.spawn(100.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
-    s.spawn(112.0f, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    s.spawn(112.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.slotIndex[0] = 0;
     s.slotIndex[1] = 1;
     s.health[1] = 0;
@@ -296,7 +339,7 @@ void checkArraysConsistent(const SoldierHot& s) {
 // what actually defends the swap block, by making a single left-behind
 // field detectable after the fact.
 void spawnFingerprinted(SoldierHot& s, int k) {
-    s.spawn(100.0f + (float)k, 200.0f + (float)k, 0.0f, 0.0f, Team::A, UnitType::Infantry, 0);
+    s.spawn(100.0f + (float)k, 200.0f + (float)k, 0.0f, 0.0f, Team::A, TroopClass::Legionary, 0);
     const size_t i = s.count - 1;
     s.velX[i]           = 300.0f + (float)k;
     s.velY[i]           = 400.0f + (float)k;
@@ -346,7 +389,7 @@ void checkFingerprintIntact(const SoldierHot& s, size_t i,
 TEST_CASE("compaction removes the dead and keeps every array the same length") {
     SoldierHot s;
     for (int k = 0; k < 5; ++k) {
-        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     }
     std::vector<float> prevX(5, 0.0f), prevY(5, 0.0f);
     s.state[1] = SoldierState::Dead;
@@ -366,7 +409,7 @@ TEST_CASE("compaction removes the dead and keeps every array the same length") {
 TEST_CASE("compacting an army with no dead changes nothing") {
     SoldierHot s;
     for (int k = 0; k < 4; ++k) {
-        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, UnitType::Infantry, 0);
+        s.spawn(100.0f + k, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     }
     std::vector<float> prevX(4, 0.0f), prevY(4, 0.0f);
 
@@ -490,8 +533,8 @@ TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
     // cheap guard against forgetting one.
     SoldierHot s;
     std::vector<float> prevX, prevY;
-    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
-    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, UnitType::Archer, 0);
+    s.spawn(0.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Archer, 0);
+    s.spawn(5.0f, 0.0f, 0.0f, 0.0f, Team::A, TroopClass::Archer, 0);
     prevX.assign(2, 0.0f);
     prevY.assign(2, 0.0f);
 
@@ -501,4 +544,61 @@ TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
     compactDead(s, prevX, prevY);
     REQUIRE(s.count == 1);
     CHECK(s.steadyTimer[0] == doctest::Approx(1.25f));
+}
+
+TEST_CASE("a phalanx reaches an enemy from the second rank") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Phalanx;
+    q.memberCount[0] = 20;
+
+    // A spearman standing one rank back, with an enemy past normal melee reach
+    // but inside a spear's 1.6x.
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Hoplite, 0);
+    s.slotIndex[0] = 6;
+    s.spawn(100.0f + kMeleeReach * 1.3f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    REQUIRE(rankOfSlot(FormationShape::Phalanx, 6, 20) > 0);
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == 1);
+}
+
+TEST_CASE("a rear rank cannot reach past the front except within its own arc") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Phalanx;
+    q.memberCount[0] = 20;
+
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Hoplite, 0);
+    s.slotIndex[0] = 6;
+    // Same distance as the case above, but BEHIND the squad's facing. Spears
+    // reach past the man in front of you, never around him.
+    s.spawn(100.0f - kMeleeReach * 1.3f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == UINT32_MAX);
+}
+
+TEST_CASE("a rear rank can still defend itself at base reach") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Shieldwall;   // fightingRanks == 1
+    q.memberCount[0] = 20;
+
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Huscarl, 0);
+    s.slotIndex[0] = 12;   // deep in the formation
+    // An enemy who has got INSIDE the formation, from behind. A squad that
+    // cannot fight back when flanked would be a far worse bug than a rear rank
+    // that occasionally swings.
+    s.spawn(95.0f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    REQUIRE(rankOfSlot(FormationShape::Shieldwall, 12, 20) > 0);
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == 1);
 }

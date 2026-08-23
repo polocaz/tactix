@@ -19,7 +19,7 @@ SquadHot oneSquad(uint32_t members, float discipline, UnitType u = UnitType::Inf
 } // namespace
 
 TEST_CASE("an untouched squad recovers toward full morale and stops at 1") {
-    SquadHot q = oneSquad(20, kDisciplineInfantry);
+    SquadHot q = oneSquad(20, loadoutOf(TroopClass::Hoplite).discipline);
     q.morale[0] = 0.5f;
     const std::vector<uint32_t> none(1, 0u);
     const std::vector<uint8_t> noOfficer(1, (uint8_t)0);
@@ -161,10 +161,16 @@ TEST_CASE("rout clears contact so a broken formation stops holding a line") {
     CHECK(q.contact[0] == 0);
 }
 
-TEST_CASE("disciplineForUnit gives every type a distinct steadiness") {
-    CHECK(disciplineForUnit(UnitType::Infantry) == doctest::Approx(kDisciplineInfantry));
-    CHECK(disciplineForUnit(UnitType::Archer)   == doctest::Approx(kDisciplineArcher));
-    CHECK(disciplineForUnit(UnitType::Cavalry)  == doctest::Approx(kDisciplineCavalry));
+TEST_CASE("the troop table gives every preset a distinct steadiness") {
+    // Discipline used to be one constant per UnitType. It is now per troop,
+    // which is what lets a levy and a hoplite be the same UnitType and behave
+    // nothing alike.
+    CHECK(loadoutOf(TroopClass::Levy).discipline
+          < loadoutOf(TroopClass::Hoplite).discipline);
+    CHECK(loadoutOf(TroopClass::Hoplite).discipline
+          < loadoutOf(TroopClass::Legionary).discipline);
+    CHECK(loadoutOf(TroopClass::Skirmisher).discipline
+          < loadoutOf(TroopClass::Archer).discipline);
 }
 
 TEST_CASE("discipline is seeded per unit type at deployment") {

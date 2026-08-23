@@ -10,6 +10,7 @@
 #include "Rng.hpp"
 #include "WorkCounters.hpp"
 #include "Units.hpp"
+#include "Loadout.hpp"
 #include "Squads.hpp"
 #include "Projectiles.hpp"
 #include "Terrain.hpp"
@@ -26,6 +27,12 @@ struct SoldierHot {
 
     std::vector<Team>         team;
     std::vector<UnitType>     unitType;
+    // What this man is carrying, as a TroopClass byte. Weapon, armor and
+    // shield are reached through kTroopLoadout rather than stored per soldier,
+    // because they are read at RESOLUTION time (once per blow, low hundreds a
+    // tick) and not once per soldier per tick. Two L1 table reads beat two
+    // more bytes across 10,000 agents.
+    std::vector<uint8_t>      troopClass;
     std::vector<SoldierState> state;
     std::vector<uint16_t>     squadId;
     std::vector<uint16_t>     slotIndex;
@@ -50,6 +57,7 @@ struct SoldierHot {
 
         team.reserve(n);
         unitType.reserve(n);
+        troopClass.reserve(n);
         state.reserve(n);
         squadId.reserve(n);
         slotIndex.reserve(n);
@@ -60,7 +68,7 @@ struct SoldierHot {
         steadyTimer.reserve(n);
     }
 
-    void spawn(float px, float py, float vx, float vy, Team t, UnitType ut, uint16_t squad) {
+    void spawn(float px, float py, float vx, float vy, Team t, TroopClass tc, uint16_t squad) {
         posX.push_back(px);
         posY.push_back(py);
         velX.push_back(vx);
@@ -74,12 +82,17 @@ struct SoldierHot {
             dirY.push_back(0.0f);
         }
 
+        // Unit type and starting health are DERIVED from the troop class, never
+        // passed in: a caller cannot construct a soldier whose role and
+        // equipment disagree.
+        const Loadout& lo = loadoutOf(tc);
         team.push_back(t);
-        unitType.push_back(ut);
+        unitType.push_back(lo.unit);
+        troopClass.push_back((uint8_t)tc);
         state.push_back(SoldierState::Forming);
         squadId.push_back(squad);
         slotIndex.push_back(0);
-        health.push_back(kUnitStats[(int)ut].maxHealth);
+        health.push_back(lo.maxHealth);
         attackCooldown.push_back(0.0f);
         intentTarget.push_back(std::numeric_limits<uint32_t>::max());
         intentFire.push_back(0);
@@ -106,6 +119,7 @@ struct SoldierHot {
         dirY.clear();
         team.clear();
         unitType.clear();
+        troopClass.clear();
         state.clear();
         squadId.clear();
         slotIndex.clear();
@@ -147,6 +161,7 @@ public:
     float  soldierY(size_t i) const { return soldiers.posY[i]; }
     Team   soldierTeam(size_t i) const { return soldiers.team[i]; }
     UnitType soldierUnitType(size_t i) const { return soldiers.unitType[i]; }
+    uint8_t  soldierTroopClass(size_t i) const { return soldiers.troopClass[i]; }
     uint32_t soldierIntentTarget(size_t i) const { return soldiers.intentTarget[i]; }
     uint8_t  soldierHealth(size_t i) const { return soldiers.health[i]; }
     bool   everySoldierHasASquadSlot() const;
@@ -162,6 +177,7 @@ public:
     float    squadDiscipline(size_t s) const { return squads.discipline[s]; }
     float    squadNearestEnemyDist(size_t s) const { return squads.nearestEnemyDist[s]; }
     UnitType squadUnitType(size_t s) const { return squads.unitType[s]; }
+    uint8_t  squadTroopClass(size_t s) const { return squads.troopClass[s]; }
     uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
     uint8_t  squadRole(size_t s) const { return squads.role[s]; }
     float    armyCentroidX(Team t) const { return armies.centroidX[(size_t)t]; }
@@ -185,6 +201,11 @@ public:
     // caller reading this between ticks always sees UINT32_MAX, never a
     // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
+    uint8_t  projectileWeapon(size_t i) const { return projectiles.weapon[i]; }
+    uint8_t  squadReliefStage(size_t s) const { return squads.reliefStage[s]; }
+    uint16_t squadReliefPartner(size_t s) const { return squads.reliefPartner[s]; }
+    uint8_t  squadShape(size_t s) const { return squads.shape[s]; }
+    float    squadMissilePressure(size_t s) const { return squads.missilePressure[s]; }
 
     // Nearest point to p that a soldier can actually stand on: clear of
     // every building and tree by kObstacleStandoff. See TerrainField for the

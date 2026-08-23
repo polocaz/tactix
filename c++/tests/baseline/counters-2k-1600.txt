@@ -93,11 +93,46 @@
 # commit and say explicitly in the commit message that the move is a layout
 # change, not a behavioural one, so this stays distinguishable from case 2
 # above in history.
-candidatesExamined=1641521168
-cellsVisited=86340174
-gridInsertions=3150288
-jobsDispatched=49052
+# Regenerated 2026-08-22 for the troop-class model, same cause as the companion
+# 200-tick file: discipline is now per troop rather than per UnitType, and
+# discipline scales formation compression. This file reaches combat, so it also
+# moves projectileHitTests (65187 to 24596) and jobsDispatched: the armies close
+# and break differently once their formations sit at different depths.
+# Regenerated 2026-08-22 for the armor model, same cause as the companion
+# 200-tick file. This one reaches combat, so the effect is larger: armored men
+# survive longer, more of them are alive to be queried, and projectileHitTests
+# rises from 24596 to 31900 because there are still targets worth shooting at.
+# Regenerated 2026-08-22: arrows now roll against the armor row of
+# kWoundChancePct belonging to whoever they struck, instead of a flat
+# kArrowHitChancePct, which is deleted. A bow lands 30 percent against the mail
+# both infantry troops wear, down from 45, so archery kills fewer men and more
+# of them survive to be queried. The 200-tick companion file is untouched,
+# because no arrow reaches anyone that early in the battle.
+# Regenerated 2026-08-22 for shields. A blow now rolls against the arc of the
+# target it arrived on before it rolls against his armor, so a shielded man
+# facing his attacker survives volleys that used to kill him. More men alive
+# means more of them queried, and projectileHitTests rises with them.
+# Regenerated 2026-08-23 for formation traits driving speed, turning and swing
+# rate. Same cause as the companion file, with combat on top of it.
+# Regenerated 2026-08-23 for squads choosing their own formation. Same cause as
+# the companion file, plus the fighting shapes taking effect once the lines
+# meet: a phalanx fights three ranks deep at 1.6x reach, which is a wider melee
+# query for its front ranks and shows up in candidatesExamined.
+# Regenerated 2026-08-23 for the pilum volley. Team A legionaries throw once as
+# the lines close, and a javelin defeats mail far better than a bow does, so the
+# opening exchange is bloodier and the battle that follows diverges from there.
+# Regenerated 2026-08-23 for the legion line relief. Spent Team A maniples now
+# retire and fresh ones step into their place, so the front line is manned by
+# different squads standing in different spots from the first relief onward.
+candidatesExamined=1788565117
+cellsVisited=88428156
+gridInsertions=3193140
+jobsDispatched=48674
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=65187
-stateDigest=d53a6775ef31f6ca
+projectileHitTests=35708
+# stateDigest updated again on 2026-08-22 for the formation traits table: the
+# new SquadHot::shape field enters the hash. Counters held fixed across it, which
+# is the evidence the traits refactor changed no geometry. See the companion
+# 200-tick file for the full argument.
+stateDigest=3c466c8110052f5a

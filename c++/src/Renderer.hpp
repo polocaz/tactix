@@ -14,6 +14,16 @@ struct ViewSettings {
     bool  vignette       = true;
     bool  healthPips     = true;   // only drawn once zoomed in far enough
     float zoom           = 1.0f;   // camera zoom, drives level of detail
+
+    // The world-space rectangle the camera can actually see, filled by main.cpp
+    // from the live Camera2D. The renderer culls against it rather than owning
+    // a camera of its own, which keeps this struct plain data.
+    //
+    // Defaults deliberately cover any plausible world, so a caller that forgets
+    // to set them draws everything (the old behaviour) rather than an empty
+    // field. Failing visible is better than failing blank.
+    float viewMinX = -1e9f, viewMinY = -1e9f;
+    float viewMaxX =  1e9f, viewMaxY =  1e9f;
 };
 
 // One-time setup: builds the procedural ground texture for this world size.

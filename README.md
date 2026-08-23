@@ -9,6 +9,10 @@ replaced an unverifiable `~1.6 ms` claim with a deterministic simulation, a head
 harness, and a CI gate — the numbers below are what that harness actually measured, and the
 "Reproducing these numbers" section is the command that produced them.
 
+![Ten thousand agents at the fitted zoom: two armies engaged in the centre, a volley of 625 arrows
+in flight above them, archer reserves still formed up on both flanks, and the blood left where the
+lines have already met.](docs/images/field.png)
+
 ## Current numbers
 
 Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Release build), on:
@@ -21,29 +25,46 @@ Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Relea
 | --- | --- |
 | Agents | 10,000 |
 | Simulation rate | 60 ticks/sec, fixed timestep |
-| Tick cost, p50 | 9.0937 ms |
-| Tick cost, p95 | 11.0630 ms |
-| Tick cost, p99 | 12.3749 ms |
-| Tick cost, max | 16.0646 ms |
+| Tick cost, p50 | 8.6383 ms |
+| Tick cost, p95 | 10.8953 ms |
+| Tick cost, p99 | 11.7172 ms |
+| Tick cost, max | 14.9782 ms |
 | Worker threads | 15 (this machine); thread count does not change simulation state (see below) |
 | Agent state | structure of arrays (see `SoldierHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
 | Neighbor query | uniform grid hash, 3x3 cell lookup |
-| State digest (seed 42) | `1c7f65a50c1c1f5c` |
+| State digest (seed 42) | `5b01c0c4e1e73d6b` |
 
-These are up from a previously published p50 of 6.6272 ms, and the increase has one named cause:
-soldiers now collide with each other. `phaseContact`
-([`c++/src/Contact.cpp`](c++/src/Contact.cpp)) runs one neighbor query per soldier per tick to push
-overlapping bodies apart, which roughly doubles the tick's neighbor-query load.
+These are **down** from a previously published p50 of 9.0937 ms, across a body of work that added
+armor, shields, five formations and a legion line relief. That direction was not the prediction, so
+it is worth saying exactly where it comes from rather than banking it.
 
-Measured directly rather than asserted: replacing that phase's `queryNeighbors` call with an empty
-candidate set, on the same build and seed, gives a p50 of 6.0019 ms. So the non-penetration pass
-accounts for about 3.1 ms of the 9.09 ms figure, and everything else added in the same body of work
-(front-rank contact detection, formation anchoring, morale and rout, the army coordination tier, and
-the archer arc, settle-time and flight behaviour) together costs under half a millisecond.
+Two runs, same build, same seed. As shipped: **8.6383 ms**. With every `kWoundChancePct` entry and
+all shield cover forced back to the old lethality (melee always wounds, arrows land 45 percent of
+the time) while every new code path stays live: **8.4975 ms**.
 
-The `max` figure sits just inside the 16.67 ms a 60 Hz frame allows, so the worst tick in a
-2000-tick run has very little headroom left at 10,000 agents. p99 is comfortable; it is the tail
-that is tight.
+Those two numbers separate the two effects:
+
+- **The new code costs about 0.14 ms.** That is the gap between the two runs, and it is what armor
+  and shields buy with longer-lived soldiers: more men alive means more men queried.
+- **The drop from 9.09 ms is pacing, not speed.** Run 2 keeps every new branch, table lookup and
+  extra roll and still comes in 0.6 ms under the old figure, so the new code is not what made the
+  tick cheaper. Formations are: a shieldwall marches at 0.60 of its unit's speed and a phalanx at
+  0.50, so after a fixed 2000 ticks the battle is simply less far advanced, with fewer men locked
+  into the melee that dominates the tick.
+
+This is the same attribution method the `kArrowHitChancePct` note below uses, pointed the other way.
+Cost per live agent did not improve; the run reaches a cheaper part of the battle. A longer run
+would close the gap, and the honest reading is that this work is roughly performance-neutral rather
+than a 5 percent win.
+
+The `max` figure sits inside the 16.67 ms a 60 Hz frame allows with about 1.7 ms of headroom at
+10,000 agents. p99 is comfortable; it is the tail that is tight.
+
+The previously published 9.0937 ms had one named cause of its own: soldiers collide with each other.
+`phaseContact` ([`c++/src/Contact.cpp`](c++/src/Contact.cpp)) runs one neighbor query per soldier per
+tick to push overlapping bodies apart, which roughly doubles the tick's neighbor-query load. Measured
+directly on that build, replacing its `queryNeighbors` call with an empty candidate set gave a p50 of
+6.0019 ms, so the non-penetration pass accounted for about 3.1 ms of the 9.09 ms figure.
 
 That is the same attribution method the earlier `kArrowHitChancePct` note used, and it is what makes
 the claim checkable instead of plausible.
@@ -161,6 +182,72 @@ Each row is a measured change, not a plan.
 | Date | Change | Agents | Tick p50 | State digest | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-19 | Phase A baseline, Release, 15 threads, AMD Ryzen 7 7700X | 10,000 | 3.3468 ms | `c68dedbbad082126` | Includes work-counter instrumentation overhead (see above); no profiler has run yet. |
+
+## The viewer
+
+The interactive `tactix` binary is how the simulation gets looked at, and it is held to a different
+standard than the rest of this page: nothing here is a performance claim, it is a legibility one.
+The question the view has to answer is what ten thousand agents are *doing*, at whatever scale you
+are watching them from.
+
+![The same battle at 2.0x zoom: infantry arrowheads pointing where they move, archers as squares,
+arrows arcing between the lines, a broken squad drained of its team colour, and blood on the ground
+under the fighting.](docs/images/melee.png)
+
+The rule the whole view follows is that each visual channel carries exactly one fact. Overloading
+one channel twice is what made the earlier view unreadable at a distance, and it is why nothing in
+the UI chrome is blue or red any more.
+
+| Channel | Carries |
+| --- | --- |
+| Hue | Team, and only team |
+| Shape | Unit type. Infantry are a short broad arrowhead, cavalry a long narrow dart, archers a square. The three differ in proportion rather than size, because at four pixels apart size alone is not a difference. |
+| Brightness | Health, so a worn-down line is visible before it breaks rather than only when it vanishes |
+| Desaturation | The squad has broken. It keeps its silhouette and loses the colours it is no longer fighting for. |
+
+Depth comes from a single light direction shared by everything that casts a shadow. Buildings are
+drawn as the collision footprint with a roof offset toward the light, so the overhang is what reads
+as height. Arrows ride the trajectory they are already flying rather than a curve invented for the
+view: `liveAfter` is `kArrowArcFraction` of the shot's length, so the same number that decides when
+an arrow can hit decides how high it sits above its own ground shadow.
+
+The ground is procedural in two layers, and the second one is the point. A single texture stretched
+over the world is fine at the fitted zoom and turns to soup by 2x, so a seamless grain layer is
+tiled at a fixed *world* scale on top of it. It gains detail as you zoom in instead of losing it,
+and fades out below 0.5x where one texel is under a screen pixel and the layer is nothing but
+aliasing.
+
+Everything expensive is gated on how many screen pixels a world pixel is worth rather than on a
+quality setting, so outlines, body shadows, health pips and grain appear when they would actually
+resolve. At the far end a squad overlay takes over, drawing each squad as a disc sized by head
+count with a morale ring around it. The disc scales by area rather than radius, because a squad
+twice the size should look twice the force. It fades out again once individual men are legible.
+
+Deaths leave a mark, which needs the one simulation-side hook in the renderer's favour: a
+presentation-only death log, filled in the window between `recordCasualties` (which marks a soldier
+dead) and `compactDead` (which removes the body). That is the only point in the tick where a corpse
+still has a position. It is opt-in and set only by `main`, because `tactix_bench` shares the
+`Simulation` class and must not be charged for a feature that only the window uses. The state
+digest does not see it.
+
+### Controls
+
+| Input | Does |
+| --- | --- |
+| Mouse wheel | Zoom, holding the point under the cursor still for the whole eased transition |
+| Right or left drag | Pan |
+| `W` `A` `S` `D` or arrows | Pan, at a constant apparent rate regardless of zoom |
+| `F` or middle click | Fit the whole world |
+| `Space` | Pause and resume |
+| `[` `]` | Halve or double the time scale; `Backspace` resets it to 1x |
+| `G` | Grid |
+| `Tab` | Squad overlay |
+| `F12` | Screenshot to `tactix.png` |
+
+**No frame-rate number appears in this section, for the same reason none appears above.** The draw
+cost has been observed while building this, but no committed command reproduces it, so it is not
+published. `tactix_bench` remains headless and never opens a window, and every measured figure on
+this page comes from it.
 
 ## Layout
 
