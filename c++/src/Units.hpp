@@ -221,11 +221,14 @@ constexpr float kStrengthPerMan[kUnitTypeCount] = {
 constexpr int   kArrowBaseSpreadMrad = 40;    // about 2.3 degrees at rest
 constexpr float kArcherCooldown      = 1.5f;  // seconds between shots
 
-// An arrow whose flight path crosses a soldier still has to get through
-// shield, mail and luck. Geometry decides whether a shot comes CLOSE; this
-// decides whether it lands. Tuning knob: lower it for a grindier, melee-led
-// battle, raise it to make archery decisive.
-constexpr int kArrowHitChancePct = 45;
+// kArrowHitChancePct, a flat 45 percent for every arrow against every man,
+// used to live here. It is REPLACED, not supplemented, by the staged model in
+// Loadout.hpp and Shields.hpp: geometry decides whether an arrow crosses a man,
+// his shield may block it, and kWoundChancePct decides whether it gets through
+// what he is wearing. Multiplying a flat 45 percent by those two would put a
+// bowman near 8 percent against a shielded, mailed man and make archery
+// ornamental. RngUse::ArrowHitRoll survives in the enum, unused, because
+// deleting an enumerator reshuffles every value after it.
 
 // Fraction of the flight to the target that an arrow spends above head
 // height. Below this it hits nothing at all, friend or foe.

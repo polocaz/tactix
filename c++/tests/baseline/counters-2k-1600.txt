@@ -102,15 +102,21 @@
 # 200-tick file. This one reaches combat, so the effect is larger: armored men
 # survive longer, more of them are alive to be queried, and projectileHitTests
 # rises from 24596 to 31900 because there are still targets worth shooting at.
-candidatesExamined=1749435428
-cellsVisited=87464190
-gridInsertions=3182970
+# Regenerated 2026-08-22: arrows now roll against the armor row of
+# kWoundChancePct belonging to whoever they struck, instead of a flat
+# kArrowHitChancePct, which is deleted. A bow lands 30 percent against the mail
+# both infantry troops wear, down from 45, so archery kills fewer men and more
+# of them survive to be queried. The 200-tick companion file is untouched,
+# because no arrow reaches anyone that early in the battle.
+candidatesExamined=1760841560
+cellsVisited=87625215
+gridInsertions=3186754
 jobsDispatched=48640
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=31900
+projectileHitTests=29875
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=db14cedcd325a169
+stateDigest=e1af731b0b8e110f

@@ -186,21 +186,33 @@ TEST_CASE("no target means no arrow") {
 }
 
 TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either way") {
-    // Contact is no longer a guaranteed wound (kArrowHitChancePct). What must
-    // hold for every arrow is that it is SPENT on contact -- a glance that
-    // stayed alive would re-roll next tick and make the chance meaningless.
+    // Contact is not a guaranteed wound. What must hold for every arrow is that
+    // it is SPENT on contact: a glance that stayed alive would re-roll next
+    // tick and make the chance meaningless.
+    //
+    // The rate is now the target's own kWoundChancePct row rather than one
+    // global constant, so the band below is built from what the defender is
+    // wearing. A legionary wears mail, so a bow lands 30 percent of the time.
     int landed = 0;
     const int shots = 400;
+    const int expectedPct =
+        kWoundChancePct[(int)WeaponClass::Bow]
+                       [(int)loadoutOf(TroopClass::Legionary).armor];
+
     for (uint32_t tick = 1; tick <= (uint32_t)shots; ++tick) {
         SoldierHot s;
+        SquadHot q;
+        q.spawn(Team::B, UnitType::Infantry);
+        q.memberCount[0] = 1;
         s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
         const uint8_t before = s.health[0];
 
         ProjectileHot p;
-        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
+        p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f,
+                (uint8_t)WeaponClass::Bow);
         p.intentHitTarget[0] = 0;
 
-        applyProjectileHits(p, s, Rng{42u, tick});
+        applyProjectileHits(p, s, q, Rng{42u, tick});
 
         CHECK(p.lifetime[0] <= 0.0f);
         const bool hit = s.health[0] == before - kArrowDamage;
@@ -209,13 +221,16 @@ TEST_CASE("an arrow that reaches a soldier rolls to wound and is spent either wa
     }
 
     // Wide band on purpose: this guards that the roll is wired up and roughly
-    // centred on the constant, not that 400 samples hit it exactly.
-    CHECK(landed > shots * (kArrowHitChancePct - 15) / 100);
-    CHECK(landed < shots * (kArrowHitChancePct + 15) / 100);
+    // centred on the table entry, not that 400 samples hit it exactly.
+    CHECK(landed > shots * (expectedPct - 15) / 100);
+    CHECK(landed < shots * (expectedPct + 15) / 100);
 }
 
 TEST_CASE("an arrow cannot finish off an already dead soldier") {
     SoldierHot s;
+    SquadHot q;
+    q.spawn(Team::B, UnitType::Infantry);
+    q.memberCount[0] = 1;
     s.spawn(100.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 0);
     s.health[0] = 0;
 
@@ -223,7 +238,7 @@ TEST_CASE("an arrow cannot finish off an already dead soldier") {
     p.spawn(100.0f, 100.0f, 0.0f, 0.0f, Team::A, kArrowDamage, 1.0f, 0.0f);
     p.intentHitTarget[0] = 0;
 
-    applyProjectileHits(p, s, Rng{42u, 1u});
+    applyProjectileHits(p, s, q, Rng{42u, 1u});
     CHECK(s.health[0] == 0);  // no underflow to 255
 }
 

@@ -78,7 +78,8 @@ void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
         // computed above for the lead, so this costs nothing.
         out.spawn(px, py, rx * kArrowSpeed, ry * kArrowSpeed,
                   soldiers.team[i], kArrowDamage, kArrowLifetime,
-                  kArrowArcFraction * dist);
+                  kArrowArcFraction * dist,
+                  (uint8_t)loadoutOf(soldiers.troopClass[i]).weapon);
     }
 }
 
@@ -161,17 +162,23 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     p.intentHitTarget[i] = best;
 }
 
-void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, const Rng& rng) {
+void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, SquadHot& squads,
+                         const Rng& rng) {
+    (void)squads;   // written from Task 9 onward, for missile pressure
     for (size_t i = 0; i < p.count; ++i) {
         const uint32_t t = p.intentHitTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
         if (soldiers.health[t] == 0) continue;  // no underflow, no overkill
 
-        // Crossing a soldier is a chance to wound, not a guaranteed one. The
-        // roll is consumed either way -- an arrow that glances off gets no
-        // second attempt next tick, which would make the chance meaningless.
-        const bool lands = rng.range((uint32_t)i, RngUse::ArrowHitRoll, 1, 100)
-                           <= kArrowHitChancePct;
+        // Crossing a soldier is a chance to wound, not a guaranteed one, and
+        // the chance is what he is WEARING rather than a global constant. The
+        // roll is consumed either way: an arrow that glances off gets no second
+        // attempt next tick, which would make the chance meaningless.
+        const Loadout& defender = loadoutOf(soldiers.troopClass[t]);
+        const uint8_t woundPct = kWoundChancePct[(int)p.weapon[i]][(int)defender.armor];
+
+        const bool lands =
+            rng.range((uint32_t)i, RngUse::MissileWoundRoll, 1, 100) <= woundPct;
         if (lands) {
             soldiers.health[t] = (soldiers.health[t] > p.damage[i])
                                ? (uint8_t)(soldiers.health[t] - p.damage[i])
@@ -201,6 +208,7 @@ void compactProjectiles(ProjectileHot& p) {
             p.velY[i] = p.velY[last];
             p.team[i] = p.team[last];
             p.damage[i] = p.damage[last];
+            p.weapon[i] = p.weapon[last];
             p.lifetime[i] = p.lifetime[last];
             p.traveled[i] = p.traveled[last];
             p.liveAfter[i] = p.liveAfter[last];
@@ -215,6 +223,7 @@ void compactProjectiles(ProjectileHot& p) {
         p.velY.pop_back();
         p.team.pop_back();
         p.damage.pop_back();
+        p.weapon.pop_back();
         p.lifetime.pop_back();
         p.traveled.pop_back();
         p.liveAfter.pop_back();

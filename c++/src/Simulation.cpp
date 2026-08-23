@@ -641,7 +641,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     officerDied.assign(squads.count, 0u);
 
     applyMeleeIntents(soldiers, squads, rng);               // step 1
-    applyProjectileHits(projectiles, soldiers, rng);        // step 2
+    applyProjectileHits(projectiles, soldiers, squads, rng); // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
@@ -1138,6 +1138,7 @@ uint64_t Simulation::stateDigest() const {
         d.mix(projectiles.velX[i]);
         d.mix(projectiles.velY[i]);
         d.mix(static_cast<uint32_t>(projectiles.team[i]));
+        d.mix(static_cast<uint32_t>(projectiles.weapon[i]));
         d.mix(projectiles.lifetime[i]);
         // Arc state. traveled advances every tick in a parallel phase, and
         // liveAfter decides whether this arrow can hit anything at all.
