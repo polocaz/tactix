@@ -48,8 +48,7 @@ TEST_CASE("a squad with no enemy nearby is not in contact") {
     f.addSquad(Team::B, 600.0f, 100.0f, 8, kSlotSpacing);
     f.rehash();
 
-    std::vector<uint32_t> scratch;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f);
     CHECK(f.squads.contact[0] == 0);
 }
 
@@ -60,8 +59,7 @@ TEST_CASE("a squad whose front rank meets the enemy enters contact") {
     f.addSquad(Team::B, 100.0f, 100.0f + kContactRadius * 0.5f, 8, kSlotSpacing);
     f.rehash();
 
-    std::vector<uint32_t> scratch;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f);
     CHECK(f.squads.contact[0] == 1);
 }
 
@@ -78,8 +76,7 @@ TEST_CASE("one lone skirmisher in reach does not put a whole squad in contact") 
     f.addSquad(Team::B, 100.0f, 100.0f + kContactRadius * 0.5f, 1, kSlotSpacing);
     f.rehash();
 
-    std::vector<uint32_t> scratch;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f);
     CHECK(f.squads.contact[0] == 0);
 }
 
@@ -89,9 +86,8 @@ TEST_CASE("contact does not clear until the grace period expires") {
     f.addSquad(Team::B, 100.0f, 100.0f + kContactRadius * 0.5f, 8, kSlotSpacing);
     f.rehash();
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     REQUIRE(f.squads.contact[0] == 1);
 
     // Kill the enemy squad outright, then tick. Contact must persist through
@@ -102,12 +98,12 @@ TEST_CASE("contact does not clear until the grace period expires") {
 
     const int graceTicks = (int)(kContactClearSeconds / dt);
     for (int t = 0; t < graceTicks - 1; ++t) {
-        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     }
     CHECK(f.squads.contact[0] == 1);   // still latched
 
     for (int t = 0; t < 3; ++t) {
-        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     }
     CHECK(f.squads.contact[0] == 0);   // grace expired
 }
@@ -117,8 +113,7 @@ TEST_CASE("an empty squad is never in contact and does not divide by zero") {
     f.addSquad(Team::A, 100.0f, 100.0f, 0, kSlotSpacing);
     f.rehash();
 
-    std::vector<uint32_t> scratch;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, 1.0f / 60.0f);
     CHECK(f.squads.contact[0] == 0);
 }
 
@@ -130,9 +125,8 @@ TEST_CASE("a free squad's anchor tracks its centroid exactly") {
     f.squads.centroidX[0] = 313.0f;
     f.squads.centroidY[0] = 207.0f;
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
 
     REQUIRE(f.squads.contact[0] == 0);
     CHECK(f.squads.anchorX[0] == doctest::Approx(313.0f));
@@ -152,13 +146,12 @@ TEST_CASE("a marching squad's anchor does not trail its centroid") {
     f.squads.centroidX[0] = 100.0f;
     f.squads.centroidY[0] = 100.0f;
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
     const float perTick = kUnitStats[(int)UnitType::Infantry].speed * dt;
 
     for (int t = 0; t < 300; ++t) {
         f.squads.centroidX[0] += perTick;
-        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
         REQUIRE(f.squads.contact[0] == 0);
         CHECK(f.squads.anchorX[0] == doctest::Approx(f.squads.centroidX[0]));
     }
@@ -172,9 +165,8 @@ TEST_CASE("the anchor latches on the rising edge of contact and then holds") {
     f.squads.centroidX[0] = 150.0f;
     f.squads.centroidY[0] = 100.0f;
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     REQUIRE(f.squads.contact[0] == 1);
     CHECK(f.squads.anchorX[0] == doctest::Approx(150.0f));
 
@@ -183,7 +175,7 @@ TEST_CASE("the anchor latches on the rising edge of contact and then holds") {
     f.squads.centroidX[0] = 400.0f;
     f.squads.centroidY[0] = 400.0f;
     for (int t = 0; t < 10; ++t) {
-        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     }
     CHECK(f.squads.contact[0] == 1);
     CHECK(f.squads.anchorX[0] == doctest::Approx(150.0f));
@@ -198,9 +190,8 @@ TEST_CASE("the anchor eases back to the centroid after contact clears") {
     f.squads.centroidX[0] = 100.0f;
     f.squads.centroidY[0] = 100.0f;
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
-    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+    detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     REQUIRE(f.squads.contact[0] == 1);
 
     for (uint32_t k = 0; k < f.squads.memberCount[1]; ++k) {
@@ -211,7 +202,7 @@ TEST_CASE("the anchor eases back to the centroid after contact clears") {
     // Run out the contact grace period, then the release period.
     const int ticks = (int)((kContactClearSeconds + kAnchorReleaseSeconds * 4.0f) / dt);
     for (int t = 0; t < ticks; ++t) {
-        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt, scratch);
+        detectContact(f.soldiers, f.squads, f.members, f.hash, 0, dt);
     }
 
     CHECK(f.squads.contact[0] == 0);
@@ -248,9 +239,8 @@ void resolveAll(Fixture& f) {
     std::vector<float> nextX(f.soldiers.posX);
     std::vector<float> nextY(f.soldiers.posY);
     f.rehash();
-    std::vector<uint32_t> scratch;
     for (size_t i = 0; i < f.soldiers.count; ++i) {
-        resolveOverlap(f.soldiers, nextX, nextY, f.hash, i, scratch);
+        resolveOverlap(f.soldiers, nextX, nextY, f.hash, i);
     }
 }
 } // namespace

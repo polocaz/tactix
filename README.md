@@ -25,42 +25,129 @@ Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Relea
 | --- | --- |
 | Agents | 10,000 |
 | Simulation rate | 60 ticks/sec, fixed timestep |
-| Tick cost, p50 | 8.6383 ms |
-| Tick cost, p95 | 10.8953 ms |
-| Tick cost, p99 | 11.7172 ms |
-| Tick cost, max | 14.9782 ms |
+| Tick cost, p50 | 3.5824 ms |
+| Tick cost, p95 | 6.1573 ms |
+| Tick cost, p99 | 7.5088 ms |
+| Tick cost, max | 12.5709 ms |
 | Worker threads | 15 (this machine); thread count does not change simulation state (see below) |
 | Agent state | structure of arrays (see `SoldierHot` in [`c++/src/Simulation.hpp`](c++/src/Simulation.hpp)) |
 | Neighbor query | uniform grid hash, 3x3 cell lookup |
 | State digest (seed 42) | `5b01c0c4e1e73d6b` |
 
-These are **down** from a previously published p50 of 9.0937 ms, across a body of work that added
-armor, shields, five formations and a legion line relief. That direction was not the prediction, so
-it is worth saying exactly where it comes from rather than banking it.
+These are **down** from a previously published p50 of 8.6383 ms, and unlike the drop before them,
+this one is speed rather than pacing. Same seed, same tick count, same battle: `stateDigest` reads
+`5b01c0c4e1e73d6b` before and after, so not one soldier ends up standing anywhere different. The
+whole 2.4x came out of the neighbour path, in three changes, each measured by reverting only itself
+from the shipped build.
 
-Two runs, same build, same seed. As shipped: **8.6383 ms**. With every `kWoundChancePct` entry and
-all shield cover forced back to the old lethality (melee always wounds, arrows land 45 percent of
-the time) while every new code path stays live: **8.4975 ms**.
+| Configuration | Tick p50 | Costs |
+| --- | --- | --- |
+| As shipped | 3.7090 ms | |
+| Work counters incremented per cell again, everything else kept | 7.6929 ms | **3.98 ms** |
+| Separation and melee walk the grid separately again, everything else kept | 4.7816 ms | **1.07 ms** |
+| The committed code before this change | 8.6383 ms | |
 
-Those two numbers separate the two effects:
+Those four rows are one back-to-back session on one machine and belong to each other, not to the
+table above it: the shipped row reads 3.7090 ms where the headline says 3.5824 ms, because the
+headline triple was taken later on a quieter machine. Compare the rows to each other, and take the
+gaps rather than the absolute values as the result.
 
-- **The new code costs about 0.14 ms.** That is the gap between the two runs, and it is what armor
-  and shields buy with longer-lived soldiers: more men alive means more men queried.
-- **The drop from 9.09 ms is pacing, not speed.** Run 2 keeps every new branch, table lookup and
-  extra roll and still comes in 0.6 ms under the old figure, so the new code is not what made the
-  tick cheaper. Formations are: a shieldwall marches at 0.60 of its unit's speed and a phalanx at
-  0.50, so after a fixed 2000 ticks the battle is simply less far advanced, with fewer men locked
-  into the melee that dominates the tick.
+**The instrumentation was the bottleneck, not the simulation.** `SpatialHash::queryNeighbors` used
+to increment two shared `std::atomic` counters once per cell visited, which at this configuration is
+about 554,000 contended read-modify-writes per tick across 15 worker threads, on two counters that
+share a cache line. They now accumulate in locals and flush once per query, about 43,000 atomics
+instead. The totals are identical, which is the point: `candidatesExamined` and `cellsVisited` are
+still exactly the same numbers, counted in a way that does not serialise the threads producing them.
+That answers the question the previous version of this section left open for Phase B's profiler. The
+answer is 3.98 ms, which is more than the entire tick now costs.
 
-This is the same attribution method the `kArrowHitChancePct` note below uses, pointed the other way.
-Cost per live agent did not improve; the run reaches a cheaper part of the battle. A longer run
-would close the gap, and the honest reading is that this work is roughly performance-neutral rather
-than a 5 percent win.
+**The second walk was doing no work.** The steering phase asked the grid for the 3x3 block around a
+soldier twice per tick, once for separation and again inside `selectMeleeTarget`
+([`c++/src/Combat.cpp`](c++/src/Combat.cpp)), from the same position on the same tick.
+`queryNeighbors` ignores its radius argument and always returns that fixed block, so the second walk
+returned the first walk's list every time. They now share one walk, which is where `cellsVisited`
+falls from 553,993,549 to 387,282,774 and `candidatesExamined` from 37.77 to 26.43 billion. Every
+other counter, and the digest, is unchanged across it: see the note in
+[`c++/tests/baseline/counters-2k-1600.txt`](c++/tests/baseline/counters-2k-1600.txt).
 
-The `max` figure sits inside the 16.67 ms a 60 Hz frame allows with about 1.7 ms of headroom at
-10,000 agents. p99 is comfortable; it is the tail that is tight.
+**The three do not add up, and the third one is why.** Candidates are now visited in place instead
+of being copied into a scratch vector and read straight back out, about nineteen million ids a tick
+that no longer make that round trip. On its own that is a *loss*: with the per-cell counters and the
+duplicate walk both restored, visiting in place measured 10.4475 ms against the committed code's
+8.6383 ms. The mechanism is that a contended atomic increment interleaved with the consumer's own
+per-candidate arithmetic serialises harder than the same increment sitting in a tight loop of its
+own, which is what it was when the copy separated the two. Batching the counters is what turns that
+change from a cost into a saving, so the ordering is load-bearing rather than incidental.
 
-The previously published 9.0937 ms had one named cause of its own: soldiers collide with each other.
+The `max` figure sits inside the 16.67 ms a 60 Hz frame allows with about 4.1 ms of headroom at
+10,000 agents. It is still the tail that is tight, and the tail is also the noisiest thing here:
+across every run of this command taken while writing this section, p50 stayed inside 3.57 to 4.08 ms
+while `max` ranged from 11.7493 ms all the way to 15.7554 ms. Distrust the tail on a machine doing
+anything else. The section below identifies where most of it comes from, which turns out not to be
+the phases that dominate the median.
+
+## Where the tick goes
+
+The attribution table above was produced by editing the source, rebuilding, and diffing p50. That
+measures the right thing but is not a command anyone else can run, so the breakdown is now built in:
+
+```bash
+./build/Release/tactix_bench --agents 10000 --ticks 2000 --seed 42 --profile
+```
+
+`--profile` is opt-in, so the headline figures above are never quietly a profiled run's figures.
+Taking a profile does not change the simulation: `stateDigest` and every work counter are identical
+with it on and off, which
+[`c++/tests/test_determinism.cpp`](c++/tests/test_determinism.cpp) asserts rather than leaving to
+inspection. Its own overhead is eleven `steady_clock` reads per tick and does not resolve above
+run-to-run noise here; three profiled runs gave p50s of 3.79/3.81/3.91 ms against 4.08/4.01/3.95 ms
+unprofiled, which supports "too small to see on this machine" and not "zero".
+
+Median of three runs (tick mean 4.1000 ms; the three agreed on every share to within 0.2 points).
+The tick *mean* is well above the 3.5824 ms p50, and the last row of commentary below is why: a
+serial phase spikes on one tick in fifteen and drags the mean right while leaving the median alone.
+
+| Phase | Mean ms | Share | p50 ms | p95 ms | max ms |
+| --- | --- | --- | --- | --- | --- |
+| `soldierSteer` | 1.4698 | **35.9%** | 1.3300 | 2.2801 | 3.0032 |
+| `contact` | 1.0816 | **26.4%** | 0.9680 | 1.7874 | 2.5051 |
+| `squadDecide` | 0.8272 | **20.2%** | 0.7787 | 1.2652 | 1.7699 |
+| `squadAggregate` | 0.2355 | 5.7% | 0.2240 | 0.3440 | 0.4795 |
+| `armyDecide` | 0.1730 | 4.2% | 0.0014 | 2.5347 | 5.0031 |
+| `movement` | 0.1117 | 2.7% | 0.1105 | 0.1386 | 0.2789 |
+| `spatialHash` | 0.0881 | 2.2% | 0.0868 | 0.0996 | 0.1890 |
+| `resolution` | 0.0799 | 1.9% | 0.0780 | 0.0911 | 0.2145 |
+| `projectiles` | 0.0162 | 0.4% | 0.0002 | 0.0432 | 0.1912 |
+| `clampToWorld` | 0.0113 | 0.3% | 0.0110 | 0.0133 | 0.0944 |
+| `snapshotPrev` | 0.0057 | 0.1% | 0.0044 | 0.0192 | 0.0380 |
+| *(unattributed)* | 0.0001 | 0.0% | | | |
+
+**Share is computed from means, and that is not a stylistic choice.** Percentiles do not add: the
+tick's p50 is not the sum of the phases' p50s, because the phase that spikes on one tick is not the
+one that spikes on the next, and a phase's own median tick is generally not the tick whose total
+lands on the median. Means add exactly, so a column built from them sums to the tick and a column
+built from percentiles would sum to nothing in particular. The `unattributed` row is the gap between
+the tick as timed from outside and the phases as timed from inside, and it is published because that
+row is also where a phase nobody remembered to mark would show up.
+
+**The top three costs are 82.4 percent of the tick, and two of them are the same thing.**
+`soldierSteer` and `contact` are both neighbour walks: one for separation and melee, one for
+non-penetration. Between them they are 62.3 percent of the tick, which is what makes the grid the
+right thing to keep working on and Phase C the right next move.
+
+**`squadDecide` at 20.2 percent was not predicted by anything.** It does not touch the grid. It is
+800,000 squad decisions over the run, about 2.1 microseconds each, and no phase of the roadmap
+mentions it. It is now the largest cost in the tick that nobody has looked at.
+
+**The tail is a serial phase, not a parallel one.** `armyDecide` has a p50 of 0.0014 ms and a p95 of
+2.5347 ms, because it runs on 2 ticks in 30 (`kArmyDecideInterval`, see
+[`c++/src/Units.hpp`](c++/src/Units.hpp)) and is single-threaded when it does: 0.0667 x 2.6 ms +
+0.933 x 0.0014 ms reproduces its 0.173 ms mean, so essentially all of it lands on one tick in
+fifteen. That is 2.6 ms of one-threaded work dropped into a 4 ms tick, and it is the single largest
+identified contributor to the p95 and max figures the section above calls tight. Fifteen worker
+threads are idle for the whole of it.
+
+The 9.0937 ms published before that had one named cause of its own: soldiers collide with each other.
 `phaseContact` ([`c++/src/Contact.cpp`](c++/src/Contact.cpp)) runs one neighbor query per soldier per
 tick to push overlapping bodies apart, which roughly doubles the tick's neighbor-query load. Measured
 directly on that build, replacing its `queryNeighbors` call with an empty candidate set gave a p50 of
@@ -76,13 +163,14 @@ most of its ticks simulating a nearly full field instead of the handful of survi
 early massacre. Setting that constant back to 100 on that build gave a p50 of 2.8613 ms, below the
 figure before it. Cost per live agent went down; the number of live agents went up.
 
-**This tick cost includes work-counter instrumentation overhead.** `tactix_bench` increments seven
-`std::atomic` counters (`WorkCounters`, see [`c++/src/WorkCounters.hpp`](c++/src/WorkCounters.hpp))
-several hundred thousand times per tick from worker threads, and the counters share a cache line.
-That contention is real and is baked into every number above; it was deliberately left in place because
-the proper fix — giving each worker its own cache-line-sized counter block — reshapes a call
-signature that Phase F rewrites wholesale anyway. Phase B's profiler will quantify exactly how much
-of the tick this accounts for.
+**This tick cost still includes work-counter instrumentation overhead, but far less of it.**
+`tactix_bench` increments seven `std::atomic` counters (`WorkCounters`, see
+[`c++/src/WorkCounters.hpp`](c++/src/WorkCounters.hpp)) from worker threads, and the counters still
+share a cache line. What changed is the rate: the two counters that dominated the traffic are now
+flushed once per query rather than once per cell visited, so the contended traffic drops by about
+13x, and recovering that contention is the 3.98 ms the table above attributes to it. The
+per-worker cache-line-padded counter block is still the proper fix and is still unbuilt; it is worth
+less now than it was, and it is still the next thing to try if this line item matters again.
 
 There is no render-rate or frame-timing claim here: `tactix_bench` is headless and never opens a
 window. The interactive `tactix` binary still renders through raylib/ImGui (see
@@ -111,8 +199,9 @@ enforced by [`c++/tests/test_determinism.cpp`](c++/tests/test_determinism.cpp) �
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Run the command above three times: the
 `stateDigest` should not change; `p50Ms` should vary only by normal scheduling noise. That was
 verified on the machine above before this row was published: three consecutive runs all reported
-`stateDigest = c68dedbbad082126`, with `p50Ms` of 3.2226, 3.3559, and 3.3468 (the table above uses
-the third run).
+`stateDigest = 5b01c0c4e1e73d6b`, with `p50Ms` of 3.5696, 3.5815, and 3.5824 (the table above uses
+the third run). The same digest also comes back at `--threads 1` and `--threads 4`, which is the
+thread-invariance property stated above exercised by hand rather than only by the test suite.
 
 **Debug/Release identity is a separate, weaker claim: verified locally, not gated in CI.**
 `.github/workflows/ci.yml` only ever builds `-DCMAKE_BUILD_TYPE=Release`, and no test in
@@ -167,8 +256,8 @@ have started.
 | Phase | Goal |
 | --- | --- |
 | A | Foundation: deterministic sim, headless benchmark, CI gate. **Complete — this README's numbers are its output.** |
-| B | Integrate a profiler; publish the actual tick breakdown; name the top three costs with evidence. |
-| C | Flat CSR spatial grid (counts → prefix sum → dense payload); query returns an index range instead of copying. |
+| B | Integrate a profiler; publish the actual tick breakdown; name the top three costs with evidence. **Complete.** `tactix_bench --profile` reports a per-phase breakdown that partitions the tick; see "Where the tick goes" above. The top three are `soldierSteer` (35.9%), `contact` (26.4%) and `squadDecide` (20.2%). It is not a sampling profiler and does not claim to be: it is eleven timestamps around the phases `Simulation::tick` already had, which is enough to rank them and not enough to look inside one. |
+| C | Flat CSR spatial grid (counts → prefix sum → dense payload); query returns an index range instead of copying. The copying half is done: queries visit candidates in place through `SpatialHash::forEachNeighbor`. The flat CSR storage is not. |
 | D | Reorder agent arrays by cell (or Morton order) each grid rebuild, so neighbor access is contiguous. |
 | E | Replace the `std::function` + single-mutex job queue with an atomic-index `parallel_for`. |
 | F | Hot/cold split of agent state; decompose `updateBehaviorsChunk`; remove the remaining serial scan and hot-path logging. |
@@ -182,6 +271,7 @@ Each row is a measured change, not a plan.
 | Date | Change | Agents | Tick p50 | State digest | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-19 | Phase A baseline, Release, 15 threads, AMD Ryzen 7 7700X | 10,000 | 3.3468 ms | `c68dedbbad082126` | Includes work-counter instrumentation overhead (see above); no profiler has run yet. |
+| 2026-08-23 | One neighbour walk per soldier, candidates visited in place, work counters flushed per query instead of per cell | 10,000 | 3.5824 ms | `5b01c0c4e1e73d6b` | Down from 8.6383 ms. Digest held FIXED, so this is speed and not a behavioural change. Attribution table above; counter contention was 3.98 ms of it. |
 
 ## The viewer
 

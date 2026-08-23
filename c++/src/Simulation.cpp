@@ -480,12 +480,25 @@ void Simulation::tick(float dt) {
     ++tickNumber;
     const Rng rng{worldSeed, tickNumber};
 
+    // Reads the clock only when profileTicks is set, and nothing below reads
+    // it back, so the phase sequence is identical either way. Each mark()
+    // closes the phase above it, which puts a parallel phase's barrier inside
+    // that phase's cost rather than the next one's -- the wait IS part of what
+    // the phase costs, since the tick cannot proceed until it returns.
+    //
+    // Opened HERE, above the first real work rather than below it, so the
+    // phases partition the whole tick. A clock started after this snapshot
+    // would leave its cost charged to nothing and the breakdown would quietly
+    // fail to add up to the tick it claims to break down.
+    PhaseClock clock(profileTicks, tickProfile);
+
     for (size_t i = 0; i < soldiers.count; i++) {
         prevPosX[i] = soldiers.posX[i];
         prevPosY[i] = soldiers.posY[i];
     }
 
     jobSystem.resetJobCounter();
+    clock.mark(TickProfile::SnapshotPrev);
 
     // tick() is the single owner of every barrier between phases: each
     // parallel phase below submits jobs and returns without waiting, and
@@ -500,46 +513,56 @@ void Simulation::tick(float dt) {
     // bit-reproducible. Atomics from workers would not be.
     rebuildSpatialHash();
     rebuildInfluence();
+    clock.mark(TickProfile::SpatialHash);
 
     // Phase 2: parallel over squads. Writes only its own squad.
     phaseSquadAggregate(dt);
     jobSystem.waitAll();
+    clock.mark(TickProfile::SquadAggregate);
 
     // Phase 3: serial, two entities. Reads every squad's finalized centroid
     // and writes each squad's role and target. Placement is forced: after
     // phase 2's barrier so every centroid is final, and before phase 4 so no
     // squad chooses an objective from a role it has never been given.
     phaseArmyDecide();
+    clock.mark(TickProfile::ArmyDecide);
 
     // Phase 4: parallel over squads. Safe to read every squad's aggregate
     // only because the barrier above made those values read-only.
     phaseSquadDecide(dt, rng);
     jobSystem.waitAll();
+    clock.mark(TickProfile::SquadDecide);
 
     // Phase 4: parallel over soldiers. Writes only its own soldier.
     phaseSoldierSteer(dt, rng);
     jobSystem.waitAll();
+    clock.mark(TickProfile::SoldierSteer);
 
     // Phase 5: parallel over projectiles.
     phaseProjectiles(dt);
     jobSystem.waitAll();
+    clock.mark(TickProfile::Projectiles);
 
     // Phase 6: serial. The ONLY place cross-agent mutation happens.
     phaseResolution(rng);
+    clock.mark(TickProfile::Resolution);
 
     // Phase 7: parallel over soldiers. Writes nextPos, not pos.
     nextPosX.resize(soldiers.count);
     nextPosY.resize(soldiers.count);
     phaseMovement(dt);
     jobSystem.waitAll();
+    clock.mark(TickProfile::Movement);
 
     // Phase 8: parallel over soldiers. Reads the nextPos snapshot read-only
     // and writes each soldier's own final position. The barrier above is what
     // makes that snapshot read-only, so it is load-bearing, not decoration.
     phaseContact();
     jobSystem.waitAll();
+    clock.mark(TickProfile::Contact);
 
     clampToWorld();
+    clock.mark(TickProfile::ClampToWorld);
 }
 
 void Simulation::rebuildSpatialHash() {
@@ -567,13 +590,9 @@ void Simulation::phaseSquadAggregate(float dt) {
     for (size_t start = 0; start < squads.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, squads.count);
         jobSystem.submit([this, start, end, dt]() {
-            // Neighbour buffer reused across every squad in this chunk, so
-            // contact detection does not allocate per squad per tick.
-            std::vector<uint32_t> scratch;
-            scratch.reserve(64);
             for (size_t s = start; s < end; ++s) {
                 updateSquadAggregate(soldiers, squads, squadMembers, s);
-                detectContact(soldiers, squads, squadMembers, spatialHash, s, dt, scratch);
+                detectContact(soldiers, squads, squadMembers, spatialHash, s, dt);
                 selectTargetSoldier(soldiers, squads, squadMembers, s);
             }
         });
@@ -628,10 +647,8 @@ void Simulation::phaseProjectiles(float dt) {
     for (size_t start = 0; start < projectiles.count; start += chunkSize) {
         const size_t end = std::min(start + chunkSize, projectiles.count);
         jobSystem.submit([this, start, end, dt]() {
-            std::vector<uint32_t> scratch;
-            scratch.reserve(64);
             for (size_t i = start; i < end; ++i) {
-                integrateProjectile(projectiles, soldiers, spatialHash, i, dt, scratch);
+                integrateProjectile(projectiles, soldiers, spatialHash, i, dt);
                 workCounters.add(workCounters.projectileHitTests, 1);
             }
         });
@@ -729,10 +746,6 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
     const float separationStrength = 300.0f;  // Increased from 200
     const float separationRadiusSq = separationRadius * separationRadius;
 
-    // Thread-local neighbor buffer
-    std::vector<uint32_t> localNeighbors;
-    localNeighbors.reserve(200);
-
     for (size_t i = start; i < end; i++) {
         // Sets base velocity toward this soldier's formation slot. Must run
         // first: separation and obstacle avoidance below ADD to velocity,
@@ -773,28 +786,45 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
         float px = soldiers.posX[i];
         float py = soldiers.posY[i];
 
-        // Query nearby neighbors (Design Doc §5.4)
-        spatialHash.queryNeighbors(px, py, separationRadius, localNeighbors);
-
         float steerX = 0.0f;
         float steerY = 0.0f;
 
-        // Calculate separation force from neighbors
-        for (uint32_t neighborIdx : localNeighbors) {
-            if (neighborIdx == i) continue;  // Skip self
+        // ONE walk of the 3x3 neighbourhood, feeding both separation and melee
+        // target selection (Design Doc §5.4).
+        //
+        // These used to be two walks from the same position: separation asked
+        // the grid for a list, and selectMeleeTarget asked again a few lines
+        // later. queryNeighbors ignores its radius argument and returns the
+        // fixed 3x3 block, so the second walk returned the first walk's list
+        // every time. Merging them removes roughly a third of the tick's
+        // neighbour queries and cannot change the outcome: the two accumulate
+        // into separate locals, neither writes anything the other reads, and
+        // the candidate ORDER -- which the melee tie-break depends on -- is the
+        // same order both walks already saw.
+        //
+        // The candidates are visited in place rather than copied into a scratch
+        // vector first. At the published configuration that is around nineteen
+        // million ids a tick that no longer get stored and immediately reloaded.
+        MeleeTargetSearch melee(soldiers, squads, i);
 
-            float dx = px - soldiers.posX[neighborIdx];
-            float dy = py - soldiers.posY[neighborIdx];
-            float distSq = dx * dx + dy * dy;
+        spatialHash.forEachNeighbor(px, py, [&](uint32_t neighborIdx) {
+            if (neighborIdx != i) {   // Skip self
+                float dx = px - soldiers.posX[neighborIdx];
+                float dy = py - soldiers.posY[neighborIdx];
+                float distSq = dx * dx + dy * dy;
 
-            if (distSq < separationRadiusSq && distSq > 0.01f) {
-                float dist = std::sqrt(distSq);
-                // Stronger force when closer
-                float force = (separationRadius - dist) / separationRadius;
-                steerX += (dx / dist) * force;
-                steerY += (dy / dist) * force;
+                if (distSq < separationRadiusSq && distSq > 0.01f) {
+                    float dist = std::sqrt(distSq);
+                    // Stronger force when closer
+                    float force = (separationRadius - dist) / separationRadius;
+                    steerX += (dx / dist) * force;
+                    steerY += (dy / dist) * force;
+                }
             }
-        }
+
+            melee.consider(soldiers, neighborIdx);
+            return true;
+        });
 
         // Obstacle avoidance - buildings (rectangles)
         for (size_t b = 0; b < terrain.buildings.size(); b++) {
@@ -877,9 +907,12 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             soldiers.velY[i] = (soldiers.velY[i] / speed) * maxSpeed;
         }
 
-        // Melee target selection (Task 3). Writes only soldiers.intentTarget[i]
-        // and reuses localNeighbors, the buffer separation just filled above.
-        selectMeleeTarget(soldiers, squads, spatialHash, i, localNeighbors);
+        // Melee target selection (Task 3). Writes only soldiers.intentTarget[i].
+        // The candidates were examined during the separation walk above; this
+        // is the commit of a decision already made. Deliberately still written
+        // HERE rather than up there, so the phase's observable write order is
+        // exactly what it was.
+        melee.commit(soldiers);
 
         // Archers fire at whatever their squad handed them, subject to cooldown.
         // Writing only our own flag keeps this parallel-safe; resolution turns
@@ -1224,9 +1257,7 @@ void Simulation::phaseContact() {
 }
 
 void Simulation::phaseContactChunk(size_t start, size_t end) {
-    std::vector<uint32_t> localNeighbors;
-    localNeighbors.reserve(64);
     for (size_t i = start; i < end; ++i) {
-        resolveOverlap(soldiers, nextPosX, nextPosY, spatialHash, i, localNeighbors);
+        resolveOverlap(soldiers, nextPosX, nextPosY, spatialHash, i);
     }
 }

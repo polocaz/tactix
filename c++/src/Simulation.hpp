@@ -9,6 +9,7 @@
 #include "JobSystem.hpp"
 #include "Rng.hpp"
 #include "WorkCounters.hpp"
+#include "TickProfile.hpp"
 #include "Units.hpp"
 #include "Loadout.hpp"
 #include "Squads.hpp"
@@ -259,8 +260,21 @@ public:
     const WorkCounters& counters() const { return workCounters; }
     void resetCounters() { workCounters.reset(); }
 
+    // Per-phase wall-clock breakdown of the last tick. Off by default and
+    // opt-in for the same reason recordDeaths is: a run that is not asking for
+    // a profile should not be charged for taking one, so the headline tick cost
+    // and the breakdown of it are two different commands.
+    //
+    // Unlike the counters, this is wall-clock and therefore machine-dependent
+    // and non-reproducible. Nothing gates on it and no test asserts a value
+    // from it; the one property that IS asserted is that switching it on does
+    // not move stateDigest (test_determinism.cpp).
+    bool profileTicks = false;
+    const TickProfile& lastTickProfile() const { return tickProfile; }
+
 private:
     WorkCounters workCounters;
+    TickProfile  tickProfile;
 
     int worldWidth;
     int worldHeight;

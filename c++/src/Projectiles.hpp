@@ -96,8 +96,7 @@ bool segmentHitsCircle(float x0, float y0, float x1, float y1,
 // intentHitTarget for resolution to consume. Parallel-safe: touches only
 // projectile index i and reads soldiers, never writes them.
 void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
-                         const SpatialHash& hash, size_t i, float dt,
-                         std::vector<uint32_t>& scratch);
+                         const SpatialHash& hash, size_t i, float dt);
 
 // Resolution step 2 (spec 5.5). An arrow whose flight crossed a soldier rolls
 // against what he is wearing (kWoundChancePct, indexed by the arrow's own

@@ -124,8 +124,23 @@
 # Regenerated 2026-08-23 for the legion line relief. Spent Team A maniples now
 # retire and fresh ones step into their place, so the front line is manned by
 # different squads standing in different spots from the first relief onward.
-candidatesExamined=1788565117
-cellsVisited=88428156
+# Regenerated 2026-08-23 for the single neighbour walk. This one is an
+# OPTIMISATION rather than a behavioural change, and the file is what says so:
+# only candidatesExamined and cellsVisited move. gridInsertions,
+# jobsDispatched, squadDecisions, armyDecisions, projectileHitTests and
+# stateDigest are all held FIXED across it, which is the evidence that the same
+# battle played out over the same grid and only the number of times that grid
+# was walked changed. This is case 2 in the list above read the other way round.
+#
+# The cause is specific. The steering phase used to ask the grid for the 3x3
+# block around a soldier TWICE per tick: once for separation, and again a few
+# lines later inside selectMeleeTarget, from the same position on the same
+# tick. queryNeighbors ignores its radius argument and always returns that
+# fixed block, so the second walk returned the first walk's list every time.
+# The two now share one walk, and that is where roughly 30 percent of both
+# counters went.
+candidatesExamined=1254625005
+cellsVisited=61920453
 gridInsertions=3193140
 jobsDispatched=48674
 squadDecisions=128000

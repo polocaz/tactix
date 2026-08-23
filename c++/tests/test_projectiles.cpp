@@ -166,9 +166,8 @@ TEST_CASE("an arrow expires when its lifetime runs out") {
     p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, 1, 0.01f, 0.0f);
     SoldierHot s;
     SpatialHash hash(1280.0f, 720.0f, 50.0f);
-    std::vector<uint32_t> scratch;
 
-    integrateProjectile(p, s, hash, 0, 1.0f / 60.0f, scratch);
+    integrateProjectile(p, s, hash, 0, 1.0f / 60.0f);
     CHECK(p.lifetime[0] <= 0.0f);
 }
 
@@ -401,10 +400,9 @@ uint32_t flyPast(Team arrowTeam, Team soldierTeam, float dist, float fraction) {
     p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, arrowTeam, kArrowDamage,
             kArrowLifetime, kArrowArcFraction * dist);
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
     for (int t = 0; t < 600 && p.posX[0] <= dist * fraction + 20.0f; ++t) {
-        integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+        integrateProjectile(p, soldiers, hash, 0, dt);
         if (p.intentHitTarget[0] != UINT32_MAX) break;
     }
     return p.intentHitTarget[0];
@@ -435,9 +433,8 @@ TEST_CASE("traveled accumulates with flight distance") {
     p.spawn(0.0f, 0.0f, kArrowSpeed, 0.0f, Team::A, kArrowDamage,
             kArrowLifetime, 1e9f);   // never arms, so it just flies
 
-    std::vector<uint32_t> scratch;
     const float dt = 1.0f / 60.0f;
-    for (int t = 0; t < 30; ++t) integrateProjectile(p, soldiers, hash, 0, dt, scratch);
+    for (int t = 0; t < 30; ++t) integrateProjectile(p, soldiers, hash, 0, dt);
 
     CHECK(p.traveled[0] == doctest::Approx(kArrowSpeed * dt * 30.0f).epsilon(1e-3));
 }

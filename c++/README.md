@@ -205,7 +205,8 @@ tactix/
 │   ├── Rng.hpp            # Stateless per-agent hash RNG (deterministic, thread-safe)
 │   ├── DetMath.hpp        # Platform-independent transcendentals (deterministic tick math)
 │   ├── StateDigest.hpp    # FNV-1a hash over an index-ordered walk of simulation state (order-dependent), for determinism tests
-│   └── WorkCounters.hpp   # Deterministic work counters, gated in CI
+│   ├── WorkCounters.hpp   # Deterministic work counters, gated in CI
+│   └── TickProfile.hpp    # Per-phase wall-clock breakdown of a tick (opt-in, measurement only)
 ├── bench/                 # tactix_bench: headless benchmark harness (main.cpp + BenchStats.hpp)
 ├── tests/                 # doctest suite (multiple files): determinism, thread invariance, counter baseline
 ├── docs/

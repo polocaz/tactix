@@ -1,5 +1,6 @@
 #include "Simulation.hpp"
 #include "WorkCounters.hpp"
+#include "TickProfile.hpp"
 #include "BenchStats.hpp"
 
 #include <spdlog/spdlog.h>
@@ -63,6 +64,10 @@ int main(int argc, char** argv) {
     const int width   = intArg(argc, argv, "--width", 1280);
     const int height  = intArg(argc, argv, "--height", 720);
     const bool json   = hasFlag(argc, argv, "--json");
+    // Opt-in, so the headline tick cost is never quietly a profiled tick cost.
+    // The two are separate commands and the profiled run reports its own
+    // overhead rather than asking anyone to assume it is small.
+    const bool profile = hasFlag(argc, argv, "--profile");
 
     if (agents <= 0 || ticks <= 0) {
         std::fprintf(stderr, "error: --agents and --ticks must be positive\n");
@@ -95,26 +100,58 @@ int main(int argc, char** argv) {
     sim.setPaused(false);
     sim.resetCounters();
 
+    sim.profileTicks = profile;
+
     std::vector<double> tickMs;
     tickMs.reserve(static_cast<size_t>(ticks));
 
-    // NOTE: the four WorkCounters atomics share a cache line and are
-    // incremented ~216,000 times/tick from worker threads (a known,
-    // deliberately parked contention point — see WorkCounters.hpp / task 8
-    // review). The timings collected below therefore include that counter
-    // instrumentation overhead, not just the simulation's own cost. Fixing
-    // it requires reshaping a signature a later task rewrites wholesale, so
-    // it is left as-is here; any README publishing these numbers must carry
-    // this caveat forward.
+    // One sample vector per phase, filled only when profiling. Collected into
+    // plain vectors and reduced at the end rather than accumulated on the fly,
+    // so the per-phase percentiles come from the same nearest-rank code path
+    // the tick percentiles do.
+    std::vector<std::vector<double>> phaseMs(TickProfile::kCount);
+    if (profile) {
+        for (auto& v : phaseMs) v.reserve(static_cast<size_t>(ticks));
+    }
+
+    // NOTE: the WorkCounters atomics still share a cache line, so the timings
+    // below still include counter instrumentation overhead and not just the
+    // simulation's own cost. The rate is far lower than it was: the two
+    // counters that dominated the traffic are now accumulated in locals inside
+    // SpatialHash::forEachCell and flushed once per query rather than once per
+    // cell visited, about 43,000 contended increments a tick instead of about
+    // 554,000. That change alone moved p50 from 7.69 ms to 3.71 ms at
+    // --agents 10000, so the caveat is smaller but not gone, and any README
+    // publishing these numbers must still carry it forward.
     for (int i = 0; i < ticks; ++i) {
         const auto start = std::chrono::steady_clock::now();
         sim.tick(1.0f / 60.0f);
         const auto end = std::chrono::steady_clock::now();
         tickMs.push_back(
             std::chrono::duration<double, std::milli>(end - start).count());
+
+        if (profile) {
+            const TickProfile& tp = sim.lastTickProfile();
+            for (int ph = 0; ph < TickProfile::kCount; ++ph) {
+                phaseMs[static_cast<size_t>(ph)].push_back(tp.ms[ph]);
+            }
+        }
     }
 
     const Percentiles p = computePercentiles(tickMs);
+    const double tickMean = computeMean(tickMs);
+
+    // The phases sum to slightly less than the tick: the outermost clock reads
+    // in main() bracket the whole call, while the innermost ones start just
+    // inside it. Reported rather than hidden, because the gap is also where
+    // any phase someone forgets to mark would show up.
+    double phaseMeanTotal = 0.0;
+    if (profile) {
+        for (int ph = 0; ph < TickProfile::kCount; ++ph) {
+            phaseMeanTotal += computeMean(phaseMs[static_cast<size_t>(ph)]);
+        }
+    }
+    const double unattributedMs = profile ? (tickMean - phaseMeanTotal) : 0.0;
     const WorkCounters& c = sim.counters();
     const uint64_t digest = sim.stateDigest();
 
@@ -138,8 +175,7 @@ int main(int argc, char** argv) {
             "  \"squadDecisions\": %llu,\n"
             "  \"armyDecisions\": %llu,\n"
             "  \"projectileHitTests\": %llu,\n"
-            "  \"stateDigest\": \"%016llx\"\n"
-            "}\n",
+            "  \"stateDigest\": \"%016llx\"%s\n",
             agents, ticks, seed, threads, width, height,
             p.p50, p.p95, p.p99, p.max,
             (unsigned long long)c.candidatesExamined.load(),
@@ -149,13 +185,58 @@ int main(int argc, char** argv) {
             (unsigned long long)c.squadDecisions.load(),
             (unsigned long long)c.armyDecisions.load(),
             (unsigned long long)c.projectileHitTests.load(),
-            (unsigned long long)digest);
+            (unsigned long long)digest,
+            profile ? "," : "");
+
+        if (profile) {
+            std::printf("  \"tickMeanMs\": %.4f,\n"
+                        "  \"unattributedMs\": %.4f,\n"
+                        "  \"phases\": {\n",
+                        tickMean, unattributedMs);
+            for (int ph = 0; ph < TickProfile::kCount; ++ph) {
+                const auto& samples = phaseMs[static_cast<size_t>(ph)];
+                const Percentiles pp = computePercentiles(samples);
+                const double mean = computeMean(samples);
+                std::printf("    \"%s\": { \"meanMs\": %.4f, \"sharePct\": %.2f, "
+                            "\"p50Ms\": %.4f, \"p95Ms\": %.4f, \"maxMs\": %.4f }%s\n",
+                            TickProfile::name(static_cast<TickProfile::Phase>(ph)),
+                            mean,
+                            tickMean > 0.0 ? (mean / tickMean) * 100.0 : 0.0,
+                            pp.p50, pp.p95, pp.max,
+                            ph + 1 < TickProfile::kCount ? "," : "");
+            }
+            std::printf("  }\n");
+        }
+        std::printf("}\n");
     } else {
         std::printf("agents=%d ticks=%d seed=%d threads=%d width=%d height=%d\n",
                     agents, ticks, seed, threads, width, height);
         std::printf("tick ms   p50=%.4f  p95=%.4f  p99=%.4f  max=%.4f\n",
                     p.p50, p.p95, p.p99, p.max);
         std::printf("digest    %016llx\n", (unsigned long long)digest);
+
+        if (profile) {
+            // shareOfTick comes from the means, never the percentiles. See
+            // computeMean in BenchStats.hpp for why that is not a style
+            // preference: a column of percentile shares would not sum to 100
+            // and would not mean anything if it did.
+            std::printf("\ntick mean %.4f ms, phases in tick order:\n", tickMean);
+            std::printf("  %-16s %9s %7s %9s %9s %9s\n",
+                        "phase", "mean ms", "share", "p50 ms", "p95 ms", "max ms");
+            for (int ph = 0; ph < TickProfile::kCount; ++ph) {
+                const auto& samples = phaseMs[static_cast<size_t>(ph)];
+                const Percentiles pp = computePercentiles(samples);
+                const double mean = computeMean(samples);
+                std::printf("  %-16s %9.4f %6.2f%% %9.4f %9.4f %9.4f\n",
+                            TickProfile::name(static_cast<TickProfile::Phase>(ph)),
+                            mean,
+                            tickMean > 0.0 ? (mean / tickMean) * 100.0 : 0.0,
+                            pp.p50, pp.p95, pp.max);
+            }
+            std::printf("  %-16s %9.4f %6.2f%%\n", "(unattributed)",
+                        unattributedMs,
+                        tickMean > 0.0 ? (unattributedMs / tickMean) * 100.0 : 0.0);
+        }
     }
     return 0;
 }

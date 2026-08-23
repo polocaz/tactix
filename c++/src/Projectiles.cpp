@@ -135,8 +135,7 @@ bool segmentHitsCircle(float x0, float y0, float x1, float y1,
 }
 
 void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
-                         const SpatialHash& hash, size_t i, float dt,
-                         std::vector<uint32_t>& scratch) {
+                         const SpatialHash& hash, size_t i, float dt) {
     p.intentHitTarget[i] = UINT32_MAX;
     p.lifetime[i] -= dt;
     if (p.lifetime[i] <= 0.0f) return;
@@ -161,34 +160,31 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
     // on being possible.
     if (p.traveled[i] < p.liveAfter[i]) return;
 
-    // Query around the segment's midpoint with a radius covering half its
-    // length plus the soldier radius, so nothing along the path is missed.
-    // NOTE: SpatialHash::queryNeighbors ignores its radius argument and
-    // always returns the fixed 3x3 cell block (150px across at 50px cells)
-    // around the position -- see the NOTE on its definition. That block is
-    // far wider than an arrow's ~3.3px per-tick segment, so the candidate
-    // set here is a superset of what `half + kSoldierRadius` would select,
-    // never a subset; the per-candidate segmentHitsCircle check below still
-    // filters correctly regardless.
+    // Query around the segment's midpoint, so nothing along the path is missed.
+    // NOTE: the grid always returns the fixed 3x3 cell block (150px across at
+    // 50px cells) around the position, whatever radius the caller has in mind
+    // -- see the NOTE on queryNeighbors. That block is far wider than an
+    // arrow's ~3.3px per-tick segment, so the candidate set here is a superset
+    // of what half the segment length plus kSoldierRadius would select, never a
+    // subset; the per-candidate segmentHitsCircle check below still filters
+    // correctly regardless.
     const float midX = (x0 + x1) * 0.5f;
     const float midY = (y0 + y1) * 0.5f;
-    const float half = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) * 0.5f;
-    hash.queryNeighbors(midX, midY, half + kSoldierRadius, scratch);
-
     uint32_t best = UINT32_MAX;
-    for (uint32_t n : scratch) {
+    hash.forEachNeighbor(midX, midY, [&](uint32_t n) {
         // NO team check. A live arrow hits whoever it crosses (design 8.1).
         // The shooter cannot hit itself, not by a special case but because it
         // is behind the arm distance by construction.
-        if (soldiers.state[n] == SoldierState::Dead) continue;
+        if (soldiers.state[n] == SoldierState::Dead) return true;
         if (!segmentHitsCircle(x0, y0, x1, y1,
                                soldiers.posX[n], soldiers.posY[n], kSoldierRadius)) {
-            continue;
+            return true;
         }
         // Lowest index wins any tie, so the outcome does not depend on the
         // order the spatial hash happened to return candidates in.
         if (n < best) best = n;
-    }
+        return true;
+    });
     p.intentHitTarget[i] = best;
 }
 

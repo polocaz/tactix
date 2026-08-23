@@ -7,8 +7,7 @@
 
 void detectContact(const SoldierHot& soldiers, SquadHot& squads,
                    const std::vector<uint32_t>& members,
-                   const SpatialHash& hash, size_t s, float dt,
-                   std::vector<uint32_t>& scratch) {
+                   const SpatialHash& hash, size_t s, float dt) {
     // Captured BEFORE the flag is recomputed below, so the rising and falling
     // edges are both detectable from one pass.
     const uint8_t wasInContact = squads.contact[s];
@@ -42,19 +41,22 @@ void detectContact(const SoldierHot& soldiers, SquadHot& squads,
 
         const float px = soldiers.posX[i];
         const float py = soldiers.posY[i];
-        hash.queryNeighbors(px, py, kContactRadius, scratch);
-
-        for (uint32_t e : scratch) {
-            if ((size_t)e == (size_t)i) continue;
-            if (soldiers.team[e] == ownTeam) continue;
-            if (soldiers.state[e] == SoldierState::Dead) continue;
+        // Stops at the first enemy in reach: this member counts once, however
+        // many enemies it faces. The walk is charged for the whole 3x3 block
+        // either way, exactly as the buffer-filling form was, so stopping early
+        // saves the distance tests without moving the work counters.
+        hash.forEachNeighbor(px, py, [&](uint32_t e) {
+            if ((size_t)e == (size_t)i) return true;
+            if (soldiers.team[e] == ownTeam) return true;
+            if (soldiers.state[e] == SoldierState::Dead) return true;
             const float dx = soldiers.posX[e] - px;
             const float dy = soldiers.posY[e] - py;
             if (dx * dx + dy * dy <= radiusSq) {
                 engagedCount++;
-                break;   // this member counts once, however many enemies it faces
+                return false;
             }
-        }
+            return true;
+        });
     }
 
     // A squad whose entire front rank is dead has no front to fight with. The
@@ -129,8 +131,7 @@ void detectContact(const SoldierHot& soldiers, SquadHot& squads,
 void resolveOverlap(SoldierHot& soldiers,
                     const std::vector<float>& nextX,
                     const std::vector<float>& nextY,
-                    const SpatialHash& hash, size_t i,
-                    std::vector<uint32_t>& scratch) {
+                    const SpatialHash& hash, size_t i) {
     const float px = nextX[i];
     const float py = nextY[i];
 
@@ -152,20 +153,18 @@ void resolveOverlap(SoldierHot& soldiers,
     // movement step stale here. At maxSpeed (150 px/s) and 60 Hz that is 2.5px
     // against 50px cells, so a 3x3 query still finds everyone within 8px. A
     // documented tolerance, and it saves a full rebuild.
-    hash.queryNeighbors(px, py, minDist, scratch);
-
     float dx = 0.0f;
     float dy = 0.0f;
     uint32_t contacts = 0;
 
-    for (uint32_t n : scratch) {
-        if ((size_t)n == i) continue;
-        if (soldiers.state[n] == SoldierState::Dead) continue;
+    hash.forEachNeighbor(px, py, [&](uint32_t n) {
+        if ((size_t)n == i) return true;
+        if (soldiers.state[n] == SoldierState::Dead) return true;
 
         const float ox = px - nextX[n];
         const float oy = py - nextY[n];
         const float dSq = ox * ox + oy * oy;
-        if (dSq >= minDistSq) continue;
+        if (dSq >= minDistSq) return true;
 
         if (dSq < 1e-6f) {
             // Exactly coincident, so there is no separating axis to use. Break
@@ -175,7 +174,7 @@ void resolveOverlap(SoldierHot& soldiers,
             // thread and platform.
             dx += (n > (uint32_t)i ? 1.0f : -1.0f) * kSoldierRadius;
             contacts++;
-            continue;
+            return true;
         }
 
         const float d = std::sqrt(dSq);
@@ -183,7 +182,8 @@ void resolveOverlap(SoldierHot& soldiers,
         dx += (ox / d) * push;
         dy += (oy / d) * push;
         contacts++;
-    }
+        return true;
+    });
 
     // Corrections are SUMMED, then the total is clamped. Three variants were
     // measured over a 600-tick 2000-agent battle, counting pairs left more than
