@@ -101,3 +101,22 @@ TEST_CASE("a plated soldier covers less ground than an unarmored one") {
     // Levy is padded infantry and Huscarl is mailed infantry, same base speed.
     CHECK(distanceIn(TroopClass::Huscarl, 300) < distanceIn(TroopClass::Levy, 300));
 }
+
+TEST_CASE("a testudo swings more slowly than a line") {
+    // Men under their shields fight badly, and that is the price of the cover.
+    // Without it a testudo would be a free win in melee as well as against
+    // arrows.
+    auto cooldownAfterBlow = [](FormationShape shape) {
+        SoldierHot s;
+        SquadHot q = duelSquads();
+        q.shape[0] = (uint8_t)shape;
+        s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+        s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+        s.intentTarget[0] = 1;
+        const Rng rng{ 42u, 1u };
+        applyMeleeIntents(s, q, rng);
+        return s.attackCooldown[0];
+    };
+    CHECK(cooldownAfterBlow(FormationShape::Testudo)
+          > cooldownAfterBlow(FormationShape::Line));
+}

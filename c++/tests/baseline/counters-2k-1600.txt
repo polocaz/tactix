@@ -112,15 +112,17 @@
 # target it arrived on before it rolls against his armor, so a shielded man
 # facing his attacker survives volleys that used to kill him. More men alive
 # means more of them queried, and projectileHitTests rises with them.
-candidatesExamined=1766580060
-cellsVisited=87643299
-gridInsertions=3188449
-jobsDispatched=48640
+# Regenerated 2026-08-23 for formation traits driving speed, turning and swing
+# rate. Same cause as the companion file, with combat on top of it.
+candidatesExamined=1747064581
+cellsVisited=87766263
+gridInsertions=3190652
+jobsDispatched=48724
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=30101
+projectileHitTests=36267
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=8de5426342165d9d
+stateDigest=f56fdbd780f310e3

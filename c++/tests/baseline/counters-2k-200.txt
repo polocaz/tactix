@@ -80,8 +80,12 @@
 # automatically, and armor scales movement speed. Fewer men die per tick, so the
 # armies stay near full strength for longer and every position-dependent counter
 # rises with the surviving head count. Deliberate behavioural change.
-candidatesExamined=308281768
-cellsVisited=11288322
+# Regenerated 2026-08-23: formation traits now drive movement speed, turn rate
+# and swing rate. This file moves even before the armies meet, and the cause is
+# specific: cavalry deploy in Wedge, whose turn scale is 1.20, so their facing
+# slews faster from tick one and every wedge slot rotates with it.
+candidatesExamined=307968936
+cellsVisited=11289312
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
@@ -104,4 +108,4 @@ projectileHitTests=0
 # counters above were held FIXED across this change, which is the evidence no
 # shield blocked anything within 200 ticks, and no shield should: the armies
 # have not met yet at that point in the battle.
-stateDigest=a0cc9a8b4913e370
+stateDigest=78905b8319eb59bd

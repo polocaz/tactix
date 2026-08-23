@@ -733,9 +733,25 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
             // Withdrawing and routing squads run. Keyed on order rather than
             // on role, so it covers both an ordered retreat and a break.
             const uint8_t ord = squads.order[sq];
-            const float speedScale =
+            float speedScale =
                 (ord == (uint8_t)SquadOrder::Withdraw || ord == (uint8_t)SquadOrder::Rout)
                 ? kFleeSpeedMultiplier : 1.0f;
+
+            // A tight formation moves at the pace it can hold ranks at. Armor
+            // scales inside steerToward, so the three factors multiply and each
+            // stays owned by the layer that knows about it.
+            //
+            // Mid-drill the squad takes the SLOWER of its two shapes: a squad
+            // caught changing formation should be worse off than one that stood
+            // still, which is the whole cost of the transition.
+            float formationSpeed = traitsOf((FormationShape)squads.shape[sq]).speed;
+            if (squads.shapeBlend[sq] > 0.0f) {
+                formationSpeed = std::min(
+                    formationSpeed,
+                    traitsOf((FormationShape)squads.prevShape[sq]).speed);
+            }
+            speedScale *= formationSpeed;
+
             steerToward(soldiers, i,
                         clearOfObstacles(slotWorldPosition(squads, sq, soldiers.slotIndex[i],
                                                            squads.memberCount[sq])),

@@ -525,8 +525,14 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
         const uint16_t t = squads.targetSquad[s];
         const float dx = squads.centroidX[t] - squads.centroidX[s];
         const float dy = squads.centroidY[t] - squads.centroidY[s];
+        // Scaled by the formation. A phalanx at 0.35 needs about four seconds
+        // to face a threat it started perpendicular to, so cavalry that gets
+        // around its flank stays there. The formation's historic weakness falls
+        // out of the slew mechanism that already existed rather than being a
+        // special case bolted on beside it.
+        const float turn = traitsOf((FormationShape)squads.shape[s]).turn;
         const Vec2 f = slewFacing(Vec2{ squads.facingX[s], squads.facingY[s] },
-                                  Vec2{ dx, dy }, kFacingSlewRate * dt);
+                                  Vec2{ dx, dy }, kFacingSlewRate * turn * dt);
         squads.facingX[s] = f.x;
         squads.facingY[s] = f.y;
     }

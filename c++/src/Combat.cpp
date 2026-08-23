@@ -82,7 +82,12 @@ void applyMeleeIntents(SoldierHot& soldiers, const SquadHot& squads, const Rng& 
         // the cooldown clear, the attacker would re-roll every tick until he
         // got through, and armor would be a brief delay instead of a defense.
         // A parried swing costs you the swing.
-        soldiers.attackCooldown[i] = kMeleeCooldown;
+        //
+        // Scaled by the attacker's formation: testudo at 2.2 is the price of
+        // its cover, because men fighting from under their shields fight badly.
+        const FormationShape shape =
+            (FormationShape)squads.shape[soldiers.squadId[i]];
+        soldiers.attackCooldown[i] = kMeleeCooldown * traitsOf(shape).cooldown;
         soldiers.state[i] = SoldierState::Engaged;
     }
 

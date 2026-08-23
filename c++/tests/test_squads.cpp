@@ -447,3 +447,31 @@ TEST_CASE("slewFacing never produces NaN from a degenerate input") {
     CHECK(std::sqrt(fromZero.x * fromZero.x + fromZero.y * fromZero.y)
           == doctest::Approx(1.0f).epsilon(1e-5));
 }
+
+TEST_CASE("a phalanx turns more slowly than a line") {
+    // The phalanx's flank weakness is not a special case: it falls out of the
+    // formation's turn scale against the facing slew rate that already existed.
+    auto ticksToFace = [](FormationShape shape) {
+        SquadHot q;
+        ArmyHot armies;
+        armies.spawn();
+        armies.spawn();
+        q.spawn(Team::A, UnitType::Infantry);
+        q.spawn(Team::B, UnitType::Infantry);
+        q.shape[0] = (uint8_t)shape;
+        q.memberCount[0] = 10;
+        q.memberCount[1] = 10;
+        q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+        q.centroidX[0] = 0.0f; q.centroidY[0] = 0.0f;
+        q.centroidX[1] = 0.0f; q.centroidY[1] = 100.0f;   // 90 degrees off our facing
+        q.targetSquad[0] = 1;
+        TerrainField terrain;
+        uint32_t ticks = 0;
+        while (q.facingY[0] < 0.99f && ticks < 4000) {
+            squadDecide(q, armies, 0, terrain, kFixedTimestep);
+            ++ticks;
+        }
+        return ticks;
+    };
+    CHECK(ticksToFace(FormationShape::Phalanx) > ticksToFace(FormationShape::Line) * 2);
+}
