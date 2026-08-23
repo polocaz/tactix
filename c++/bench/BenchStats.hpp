@@ -33,3 +33,21 @@ inline Percentiles computePercentiles(std::vector<double> samples) {
     p.max = samples.back();
     return p;
 }
+
+// Arithmetic mean, which is the ONLY statistic here that a per-phase breakdown
+// can legitimately be built out of.
+//
+// Percentiles do not add: the p50 of the tick is not the sum of the phases'
+// p50s, because the slowest phase on the median tick is not the same phase on
+// every tick, and a phase's own median tick is generally not the tick whose
+// total lands on the median. Summing them produces a number that looks like a
+// tick cost, is not one, and is wrong by however much the phases' spikes fail
+// to line up. Means do add, exactly: the mean of the sums is the sum of the
+// means, for any samples at all. So the share-of-tick column is computed from
+// means, and the percentiles are reported alongside for tail shape only.
+inline double computeMean(const std::vector<double>& samples) {
+    if (samples.empty()) return 0.0;
+    double total = 0.0;
+    for (double s : samples) total += s;
+    return total / static_cast<double>(samples.size());
+}

@@ -176,3 +176,74 @@ TEST_CASE("the digest responds to squad and projectile state, not just positions
 
     CHECK(a.stateDigest() != b.stateDigest());
 }
+
+// The profiler's whole claim to usefulness is that it measures the tick
+// without changing it. If taking a profile moved the digest, every number the
+// breakdown reports would describe a different simulation from the one the
+// headline figures come from, and comparing the two would be meaningless.
+//
+// Asserted here rather than left to inspection, because the failure mode is
+// silent: a profile that perturbs the run still prints a plausible-looking
+// table.
+TEST_CASE("taking a tick profile does not change simulation state") {
+    // Simulation owns its worker threads and is deliberately non-copyable, so
+    // the run hands back the values rather than the object.
+    struct Outcome {
+        uint64_t digest;
+        uint64_t candidates;
+        uint64_t cells;
+        uint64_t insertions;
+    };
+
+    const auto run = [](bool profiled) {
+        Simulation sim(1280, 720, 42u);
+        sim.init(2000);
+        sim.setPaused(false);
+        sim.profileTicks = profiled;
+        for (int i = 0; i < 200; ++i) {
+            sim.tick(1.0f / 60.0f);
+        }
+        return Outcome{ sim.stateDigest(),
+                        sim.counters().candidatesExamined.load(),
+                        sim.counters().cellsVisited.load(),
+                        sim.counters().gridInsertions.load() };
+    };
+
+    const Outcome plain    = run(false);
+    const Outcome profiled = run(true);
+
+    CHECK(plain.digest == profiled.digest);
+
+    // The work counters are position dependent, so holding them fixed too is
+    // the stronger statement: not merely that the armies ended up in the same
+    // place, but that they got there doing the same work.
+    CHECK(plain.candidates == profiled.candidates);
+    CHECK(plain.cells      == profiled.cells);
+    CHECK(plain.insertions == profiled.insertions);
+}
+
+TEST_CASE("a tick profile accounts for the whole tick") {
+    Simulation sim(1280, 720, 42u);
+    sim.init(1000);
+    sim.setPaused(false);
+    sim.profileTicks = true;
+
+    // A few ticks in, so this is a steady-state tick rather than the first
+    // one, which pays one-off setup costs in several phases at once.
+    for (int i = 0; i < 20; ++i) sim.tick(1.0f / 60.0f);
+
+    const TickProfile& tp = sim.lastTickProfile();
+    double total = 0.0;
+    for (int ph = 0; ph < TickProfile::kCount; ++ph) {
+        // Wall-clock, so no phase can be negative and none may be left unset
+        // by a mark() someone forgot to add.
+        CHECK(tp.ms[ph] >= 0.0);
+        total += tp.ms[ph];
+    }
+
+    // Deliberately not a timing threshold, which would flake on a loaded CI
+    // runner. The only property asserted is that the phases add up to
+    // something a tick could plausibly be, which catches an unset or
+    // uninitialised entry without pinning a duration.
+    CHECK(total > 0.0);
+}

@@ -30,34 +30,18 @@ void SpatialHash::insert(uint32_t entityId, float x, float y) {
 // (x, y) regardless of the requested radius, whether that block is larger or smaller than
 // `radius` actually calls for. This is a known, pre-existing bug, deliberately not fixed here
 // because doing so would change simulation behaviour/output. See the branch's final review notes.
+//
+// The hot phases call forEachNeighbor instead, which walks the same cells in the
+// same order without materialising the result. This form remains for callers
+// that genuinely want the list, and for the tests that pin the walk's contents.
 void SpatialHash::queryNeighbors(float x, float y, float radius, std::vector<uint32_t>& outEntities) const {
+    (void)radius;
     outEntities.clear();
 
-    // Get center cell coordinates
-    int32_t centerX = static_cast<int32_t>(x / cellSize);
-    int32_t centerY = static_cast<int32_t>(y / cellSize);
-
-    // Check 9 cells (3x3 grid) around center (Design Doc §5.4)
-    for (int32_t dy = -1; dy <= 1; ++dy) {
-        for (int32_t dx = -1; dx <= 1; ++dx) {
-            int32_t cellX = centerX + dx;
-            int32_t cellY = centerY + dy;
-            
-            if (!isValidCell(cellX, cellY)) continue;
-
-            uint32_t cellId = cellY * gridWidth + cellX;
-            const auto& cell = cells[cellId];
-
-            if (counters) {
-                counters->add(counters->cellsVisited, 1);
-                counters->add(counters->candidatesExamined, cell.size());
-            }
-
-            // Add all entities from this cell
-            // (Could add distance filtering here, but caller typically does that)
-            outEntities.insert(outEntities.end(), cell.begin(), cell.end());
-        }
-    }
+    forEachCell(x, y, [&outEntities](const uint32_t* first, const uint32_t* last) {
+        outEntities.insert(outEntities.end(), first, last);
+        return true;
+    });
 }
 
 uint32_t SpatialHash::getMaxOccupancy() const {

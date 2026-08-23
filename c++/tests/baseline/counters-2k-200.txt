@@ -88,8 +88,23 @@
 # second transition to change it. Team A legionaries march in Manipular and Team
 # B hoplites form a Phalanx as the lines close, so both armies stand in
 # different shapes at different depths from the first decision onward.
-candidatesExamined=309195076
-cellsVisited=11288085
+# Regenerated 2026-08-23 for the single neighbour walk. This one is an
+# OPTIMISATION rather than a behavioural change, and the file is what says so:
+# only candidatesExamined and cellsVisited move. gridInsertions,
+# jobsDispatched, squadDecisions, armyDecisions, projectileHitTests and
+# stateDigest are all held FIXED across it, which is the evidence that the same
+# battle played out over the same grid and only the number of times that grid
+# was walked changed. This is case 2 in the list above read the other way round.
+#
+# The cause is specific. The steering phase used to ask the grid for the 3x3
+# block around a soldier TWICE per tick: once for separation, and again a few
+# lines later inside selectMeleeTarget, from the same position on the same
+# tick. queryNeighbors ignores its radius argument and always returns that
+# fixed block, so the second walk returned the first walk's list every time.
+# The two now share one walk, and that is where roughly 30 percent of both
+# counters went.
+candidatesExamined=215362518
+cellsVisited=7858119
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000

@@ -18,12 +18,11 @@ class SpatialHash;
 // facing, and it is why contact is measured against soldiers rather than
 // against squads.
 //
-// `scratch` is a caller-owned neighbour buffer, reused across squads so this
-// does not heap-allocate per squad per tick.
+// Walks the grid in place rather than collecting candidates into a buffer, so
+// this costs no scratch storage and no copy per front-rank soldier.
 void detectContact(const SoldierHot& soldiers, SquadHot& squads,
                    const std::vector<uint32_t>& members,
-                   const SpatialHash& hash, size_t squadIndex, float dt,
-                   std::vector<uint32_t>& scratch);
+                   const SpatialHash& hash, size_t squadIndex, float dt);
 
 // Displaces soldier `i` out of any overlap with its neighbours (design 5.3).
 //
@@ -41,5 +40,4 @@ void detectContact(const SoldierHot& soldiers, SquadHot& squads,
 void resolveOverlap(SoldierHot& soldiers,
                     const std::vector<float>& nextX,
                     const std::vector<float>& nextY,
-                    const SpatialHash& hash, size_t soldierIndex,
-                    std::vector<uint32_t>& scratch);
+                    const SpatialHash& hash, size_t soldierIndex);
