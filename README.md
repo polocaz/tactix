@@ -9,6 +9,10 @@ replaced an unverifiable `~1.6 ms` claim with a deterministic simulation, a head
 harness, and a CI gate — the numbers below are what that harness actually measured, and the
 "Reproducing these numbers" section is the command that produced them.
 
+![Ten thousand agents at the fitted zoom: two armies engaged in the centre, a volley of 625 arrows
+in flight above them, archer reserves still formed up on both flanks, and the blood left where the
+lines have already met.](docs/images/field.png)
+
 ## Current numbers
 
 Measured with `tactix_bench --agents 10000 --ticks 2000 --seed 42 --json` (Release build), on:
@@ -161,6 +165,72 @@ Each row is a measured change, not a plan.
 | Date | Change | Agents | Tick p50 | State digest | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-19 | Phase A baseline, Release, 15 threads, AMD Ryzen 7 7700X | 10,000 | 3.3468 ms | `c68dedbbad082126` | Includes work-counter instrumentation overhead (see above); no profiler has run yet. |
+
+## The viewer
+
+The interactive `tactix` binary is how the simulation gets looked at, and it is held to a different
+standard than the rest of this page: nothing here is a performance claim, it is a legibility one.
+The question the view has to answer is what ten thousand agents are *doing*, at whatever scale you
+are watching them from.
+
+![The same battle at 2.0x zoom: infantry arrowheads pointing where they move, archers as squares,
+arrows arcing between the lines, a broken squad drained of its team colour, and blood on the ground
+under the fighting.](docs/images/melee.png)
+
+The rule the whole view follows is that each visual channel carries exactly one fact. Overloading
+one channel twice is what made the earlier view unreadable at a distance, and it is why nothing in
+the UI chrome is blue or red any more.
+
+| Channel | Carries |
+| --- | --- |
+| Hue | Team, and only team |
+| Shape | Unit type. Infantry are a short broad arrowhead, cavalry a long narrow dart, archers a square. The three differ in proportion rather than size, because at four pixels apart size alone is not a difference. |
+| Brightness | Health, so a worn-down line is visible before it breaks rather than only when it vanishes |
+| Desaturation | The squad has broken. It keeps its silhouette and loses the colours it is no longer fighting for. |
+
+Depth comes from a single light direction shared by everything that casts a shadow. Buildings are
+drawn as the collision footprint with a roof offset toward the light, so the overhang is what reads
+as height. Arrows ride the trajectory they are already flying rather than a curve invented for the
+view: `liveAfter` is `kArrowArcFraction` of the shot's length, so the same number that decides when
+an arrow can hit decides how high it sits above its own ground shadow.
+
+The ground is procedural in two layers, and the second one is the point. A single texture stretched
+over the world is fine at the fitted zoom and turns to soup by 2x, so a seamless grain layer is
+tiled at a fixed *world* scale on top of it. It gains detail as you zoom in instead of losing it,
+and fades out below 0.5x where one texel is under a screen pixel and the layer is nothing but
+aliasing.
+
+Everything expensive is gated on how many screen pixels a world pixel is worth rather than on a
+quality setting, so outlines, body shadows, health pips and grain appear when they would actually
+resolve. At the far end a squad overlay takes over, drawing each squad as a disc sized by head
+count with a morale ring around it. The disc scales by area rather than radius, because a squad
+twice the size should look twice the force. It fades out again once individual men are legible.
+
+Deaths leave a mark, which needs the one simulation-side hook in the renderer's favour: a
+presentation-only death log, filled in the window between `recordCasualties` (which marks a soldier
+dead) and `compactDead` (which removes the body). That is the only point in the tick where a corpse
+still has a position. It is opt-in and set only by `main`, because `tactix_bench` shares the
+`Simulation` class and must not be charged for a feature that only the window uses. The state
+digest does not see it.
+
+### Controls
+
+| Input | Does |
+| --- | --- |
+| Mouse wheel | Zoom, holding the point under the cursor still for the whole eased transition |
+| Right or left drag | Pan |
+| `W` `A` `S` `D` or arrows | Pan, at a constant apparent rate regardless of zoom |
+| `F` or middle click | Fit the whole world |
+| `Space` | Pause and resume |
+| `[` `]` | Halve or double the time scale; `Backspace` resets it to 1x |
+| `G` | Grid |
+| `Tab` | Squad overlay |
+| `F12` | Screenshot to `tactix.png` |
+
+**No frame-rate number appears in this section, for the same reason none appears above.** The draw
+cost has been observed while building this, but no committed command reproduces it, so it is not
+published. `tactix_bench` remains headless and never opens a window, and every measured figure on
+this page comes from it.
 
 ## Layout
 
