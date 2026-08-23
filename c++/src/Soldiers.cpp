@@ -22,7 +22,7 @@ float squadCompression(const SquadHot& squads, size_t s) {
 Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
                        uint16_t slotIndex, uint32_t memberCount) {
     const FormationShape shape = (FormationShape)squads.shape[s];
-    const Vec2 raw = formationSlot(shape, slotIndex, memberCount);
+    Vec2 raw = formationSlot(shape, slotIndex, memberCount);
     // updateSquadAggregate sets centroid to the mean of member positions, but
     // formationSlot's local origin is the formation's front-center, not its
     // mean (rank 0 sits at forward = 0, every later rank is negative). The
@@ -30,7 +30,27 @@ Vec2 slotWorldPosition(const SquadHot& squads, size_t s,
     // own mean offset so the mean of a squad's slot positions is exactly the
     // centroid, making the centroid a genuine fixed point instead of one the
     // squad chases backward every tick.
-    const Vec2 mean = formationMeanOffset(shape, memberCount);
+    Vec2 mean = formationMeanOffset(shape, memberCount);
+
+    // Mid-drill, a man walks from where he stood to where he is being sent
+    // rather than teleporting between formations. The second formationSlot call
+    // is paid ONLY while a squad is actually changing shape, which
+    // kFormationHoldSeconds bounds to at most 1.4 of every 4.4 seconds.
+    //
+    // BOTH the slot and the mean are blended. Blending only the slot would move
+    // the mean of the slot offsets off zero for the duration, and the squad
+    // would chase its own receding anchor backward, which is exactly the
+    // failure formationMeanOffset exists to prevent.
+    if (squads.shapeBlend[s] > 0.0f) {
+        const FormationShape from = (FormationShape)squads.prevShape[s];
+        const float t = 1.0f - squads.shapeBlend[s] / kFormationChangeSeconds;
+        const Vec2 rawFrom  = formationSlot(from, slotIndex, memberCount);
+        const Vec2 meanFrom = formationMeanOffset(from, memberCount);
+        raw  = Vec2{ rawFrom.x  + (raw.x  - rawFrom.x)  * t,
+                     rawFrom.y  + (raw.y  - rawFrom.y)  * t };
+        mean = Vec2{ meanFrom.x + (mean.x - meanFrom.x) * t,
+                     meanFrom.y + (mean.y - meanFrom.y) * t };
+    }
     // Compression scales the MEAN-CENTERED depth, not the raw depth. Scaling
     // the raw value would move the mean of the slot offsets off zero, and
     // formationMeanOffset exists precisely to keep it there: without that, the

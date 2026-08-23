@@ -28,6 +28,15 @@ struct SquadHot {
     // charge that cost.
     std::vector<uint8_t>  prevShape;
     std::vector<float>    shapeBlend;
+    // Counts DOWN the minimum time before another change is allowed. Without
+    // it a squad sitting at any threshold flips shape every tick.
+    std::vector<float>    formationHold;
+
+    // How hard this squad is being shot at. Accumulated in serial resolution
+    // when a member is struck, decayed in phase 4. The testudo therefore forms
+    // in response to arrows that ACTUALLY ARRIVED rather than to arrows that
+    // might, which is both correct and legible on screen.
+    std::vector<float>    missilePressure;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -113,6 +122,8 @@ struct SquadHot {
         shape.push_back((uint8_t)FormationShape::Line);
         prevShape.push_back((uint8_t)FormationShape::Line);
         shapeBlend.push_back(0.0f);
+        formationHold.push_back(0.0f);
+        missilePressure.push_back(0.0f);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -158,6 +169,8 @@ struct SquadHot {
         shape.clear();
         prevShape.clear();
         shapeBlend.clear();
+        formationHold.clear();
+        missilePressure.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();
@@ -210,6 +223,25 @@ void rebuildSquadMembers(SoldierHot& soldiers, SquadHot& squads,
 void updateSquadAggregate(const SoldierHot& soldiers, SquadHot& squads,
                           const std::vector<uint32_t>& members,
                           size_t squadIndex);
+
+// Whether these troops are equipped to stand in this shape. Eligibility is a
+// property of the LOADOUT and never of the situation, so a squad can never
+// adopt a formation its equipment does not support. Every caller goes through
+// this one predicate rather than re-deriving the rule.
+bool formationAvailable(TroopClass troop, FormationShape shape);
+
+// What squad `s` should be standing in, given what it is carrying and what is
+// happening to it. Pure: reads the squad, writes nothing.
+FormationShape chooseFormation(const SquadHot& squads, size_t squadIndex);
+
+// Starts a change to `shape`, unless the squad is already in it or is still
+// inside its hold window. Sets prevShape, shapeBlend and formationHold
+// together, which is why every change goes through here rather than assigning
+// `shape` directly.
+void setSquadShape(SquadHot& squads, size_t squadIndex, FormationShape shape);
+
+// Bleeds off a tick's worth of missile pressure, floored at zero.
+void decayMissilePressure(SquadHot& squads, size_t squadIndex, float dt);
 
 // Turns the commander's role into an order, a facing, and an objective for
 // squad `s`. Replaces selectTargetSquad: targets now come from the army tier

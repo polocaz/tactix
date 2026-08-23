@@ -418,9 +418,81 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     }
 }
 
+bool formationAvailable(TroopClass troop, FormationShape shape) {
+    const Loadout& lo = loadoutOf(troop);
+    switch (shape) {
+        case FormationShape::Testudo:    return lo.shield == ShieldClass::Tower;
+        case FormationShape::Phalanx:    return lo.weapon  == WeaponClass::Spear
+                                             || lo.sidearm == WeaponClass::Spear;
+        case FormationShape::Shieldwall: return lo.shield >= ShieldClass::Round;
+        case FormationShape::Manipular:  return troop == TroopClass::Legionary;
+        default:                         return true;
+    }
+}
+
+FormationShape chooseFormation(const SquadHot& squads, size_t s) {
+    const TroopClass troop = (TroopClass)squads.troopClass[s];
+    const Loadout& lo = loadoutOf(troop);
+
+    // 1. Broken men do not keep ranks, and neither do badly disciplined ones
+    //    once the fighting reaches them.
+    if (squads.order[s] == (uint8_t)SquadOrder::Rout) return FormationShape::Mob;
+    if (squads.contact[s] && lo.discipline < kMobDisciplineFloor) {
+        return FormationShape::Mob;
+    }
+
+    // 2. Under fire and not yet in melee: close up, if the shields allow it.
+    //    Ordered above the fighting shapes but below the mob, and gated on NOT
+    //    being in contact, because a squad with an enemy in its face has a more
+    //    pressing problem than the arrows.
+    if (squads.missilePressure[s] >= kTestudoThreshold && !squads.contact[s]
+        && formationAvailable(troop, FormationShape::Testudo)) {
+        return FormationShape::Testudo;
+    }
+
+    // 3. Fighting, or about to be. Best shape the equipment supports.
+    if (squads.contact[s] || squads.nearestEnemyDist[s] < kImminentContactDist) {
+        if (formationAvailable(troop, FormationShape::Phalanx))    return FormationShape::Phalanx;
+        if (formationAvailable(troop, FormationShape::Shieldwall)) return FormationShape::Shieldwall;
+        return FormationShape::Line;
+    }
+
+    // 4. Marching.
+    if (formationAvailable(troop, FormationShape::Manipular)) return FormationShape::Manipular;
+    return shapeForUnit(lo.unit);
+}
+
+void setSquadShape(SquadHot& squads, size_t s, FormationShape shape) {
+    if ((FormationShape)squads.shape[s] == shape) return;
+    if (squads.formationHold[s] > 0.0f) return;   // still drilling the last one
+
+    squads.prevShape[s]     = squads.shape[s];
+    squads.shape[s]         = (uint8_t)shape;
+    squads.shapeBlend[s]    = kFormationChangeSeconds;
+    squads.formationHold[s] = kFormationHoldSeconds;
+}
+
+void decayMissilePressure(SquadHot& squads, size_t s, float dt) {
+    squads.missilePressure[s] -= kMissilePressureDecay * dt;
+    if (squads.missilePressure[s] < 0.0f) squads.missilePressure[s] = 0.0f;
+}
+
 void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
                  const TerrainField& terrain, float dt) {
     if (squads.memberCount[s] == 0) return;
+
+    // Timers and formation FIRST, before any of squadDecide's early returns.
+    // Running them at the end would skip them on the no-enemies-left path and
+    // on the withdraw bypass, and a squad that stops ticking its hold window
+    // can never change shape again.
+    //
+    // chooseFormation therefore reads last tick's order rather than this
+    // tick's. That one tick of lag is the same harmless kind friendlyNearTarget
+    // already documents: squads do not teleport in 16ms.
+    decayMissilePressure(squads, s, dt);
+    if (squads.formationHold[s] > 0.0f) squads.formationHold[s] -= dt;
+    if (squads.shapeBlend[s]    > 0.0f) squads.shapeBlend[s]    -= dt;
+    setSquadShape(squads, s, chooseFormation(squads, s));
 
     // --- Threat survey. One walk over enemy squads feeds everything below.
     // Reading other squads' centroids is safe HERE and only here: phase 2's

@@ -114,15 +114,19 @@
 # means more of them queried, and projectileHitTests rises with them.
 # Regenerated 2026-08-23 for formation traits driving speed, turning and swing
 # rate. Same cause as the companion file, with combat on top of it.
-candidatesExamined=1747064581
-cellsVisited=87766263
-gridInsertions=3190652
-jobsDispatched=48724
+# Regenerated 2026-08-23 for squads choosing their own formation. Same cause as
+# the companion file, plus the fighting shapes taking effect once the lines
+# meet: a phalanx fights three ranks deep at 1.6x reach, which is a wider melee
+# query for its front ranks and shows up in candidatesExamined.
+candidatesExamined=1783857072
+cellsVisited=88411668
+gridInsertions=3194288
+jobsDispatched=48664
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=36267
+projectileHitTests=36954
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=f56fdbd780f310e3
+stateDigest=cd8aaee77276ce14

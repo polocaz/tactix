@@ -1112,6 +1112,8 @@ uint64_t Simulation::stateDigest() const {
         d.mix(static_cast<uint32_t>(squads.shape[s]));
         d.mix(static_cast<uint32_t>(squads.prevShape[s]));
         d.mix(squads.shapeBlend[s]);
+        d.mix(squads.formationHold[s]);
+        d.mix(squads.missilePressure[s]);
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);

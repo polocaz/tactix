@@ -61,6 +61,33 @@ struct Vec2 { float x, y; };
 constexpr uint32_t kManipleWidth    = 8;      // columns before an interval
 constexpr float    kManipleInterval = 12.0f;  // one kSlotSpacing
 
+// Formation transitions. A squad caught mid-drill takes the worse cover and the
+// slower speed of both shapes, so changing formation under fire is a real
+// decision rather than a free upgrade.
+constexpr float kFormationChangeSeconds = 1.4f;
+
+// Minimum time in a shape before another change is allowed. This is the
+// hysteresis without which a squad sitting at any threshold flips every tick,
+// in the same spirit as kContactClearSeconds and the rally threshold gap.
+constexpr float kFormationHoldSeconds = 3.0f;
+
+// Discipline below which a squad in contact stops being a formation at all.
+constexpr float kMobDisciplineFloor = 0.45f;
+
+// How close an enemy must be before a squad adopts its fighting shape rather
+// than its marching one. Squads close at roughly 45px/s, so 60px is a little
+// over a second of warning, which is under kFormationChangeSeconds: a squad
+// that waits for contact is still drilling when the enemy arrives.
+constexpr float kImminentContactDist = 60.0f;
+
+// Missile pressure. Each strike on a member adds, and it bleeds off every tick.
+// Costs nothing to compute: resolution already walks every arrow that hit
+// someone. With these three, roughly two hits a second sustained closes a
+// tower-shield squad into a testudo.
+constexpr float kMissilePressurePerHit = 0.30f;
+constexpr float kMissilePressureDecay  = 0.60f;   // per second
+constexpr float kTestudoThreshold      = 1.00f;
+
 // How far a mob's slots scatter from their grid position. MUST stay under
 // kSeparationRadius (10): a scatter at or above it puts two slots close enough
 // that separation shoves their occupants apart, and the formation spends the

@@ -323,3 +323,29 @@ TEST_CASE("every shape keeps the centroid a fixed point") {
         CHECK(mean.y == doctest::Approx(sumY / 40.0f));
     }
 }
+
+TEST_CASE("a blending slot walks from the old shape to the new one") {
+    SquadHot q;
+    q.spawn(Team::A, UnitType::Infantry);
+    q.troopClass[0] = (uint8_t)TroopClass::Legionary;
+    q.memberCount[0] = 20;
+    q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
+    q.morale[0] = 1.0f;  q.discipline[0] = 1.0f;
+    setSquadShape(q, 0, FormationShape::Testudo);
+
+    // Blend complete: the man stands where a testudo puts him.
+    q.shapeBlend[0] = 0.0f;
+    const Vec2 done = slotWorldPosition(q, 0, 5, 20);
+
+    // Blend just started: he is still standing where the line put him.
+    q.shapeBlend[0] = kFormationChangeSeconds;
+    const Vec2 start = slotWorldPosition(q, 0, 5, 20);
+
+    q.shape[0] = (uint8_t)FormationShape::Line;
+    q.shapeBlend[0] = 0.0f;
+    const Vec2 lineSlot = slotWorldPosition(q, 0, 5, 20);
+
+    CHECK(start.x == doctest::Approx(lineSlot.x));
+    CHECK(start.y == doctest::Approx(lineSlot.y));
+    CHECK(done.x != doctest::Approx(start.x).epsilon(0.0001));
+}

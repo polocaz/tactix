@@ -84,8 +84,12 @@
 # and swing rate. This file moves even before the armies meet, and the cause is
 # specific: cavalry deploy in Wedge, whose turn scale is 1.20, so their facing
 # slews faster from tick one and every wedge slot rotates with it.
-candidatesExamined=307968936
-cellsVisited=11289312
+# Regenerated 2026-08-23: squads now choose their own formation and pay a 1.4
+# second transition to change it. Team A legionaries march in Manipular and Team
+# B hoplites form a Phalanx as the lines close, so both armies stand in
+# different shapes at different depths from the first decision onward.
+candidatesExamined=309195076
+cellsVisited=11288085
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
@@ -108,4 +112,4 @@ projectileHitTests=0
 # counters above were held FIXED across this change, which is the evidence no
 # shield blocked anything within 200 ticks, and no shield should: the armies
 # have not met yet at that point in the battle.
-stateDigest=78905b8319eb59bd
+stateDigest=3156a4787077dd58

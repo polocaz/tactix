@@ -459,6 +459,12 @@ TEST_CASE("a phalanx turns more slowly than a line") {
         q.spawn(Team::A, UnitType::Infantry);
         q.spawn(Team::B, UnitType::Infantry);
         q.shape[0] = (uint8_t)shape;
+        // Pinned: squadDecide re-chooses a squad's formation every tick, and
+        // would put this one straight back into its marching shape. A hold
+        // window is the mechanism that already exists for "this squad is not
+        // changing shape right now", so the test uses it rather than fighting
+        // it. Long enough that it cannot expire mid-run.
+        q.formationHold[0] = 1e9f;
         q.memberCount[0] = 10;
         q.memberCount[1] = 10;
         q.facingX[0] = 1.0f; q.facingY[0] = 0.0f;
@@ -474,4 +480,114 @@ TEST_CASE("a phalanx turns more slowly than a line") {
         return ticks;
     };
     CHECK(ticksToFace(FormationShape::Phalanx) > ticksToFace(FormationShape::Line) * 2);
+}
+
+TEST_CASE("only tower shields may form a testudo") {
+    CHECK(formationAvailable(TroopClass::Legionary, FormationShape::Testudo));
+    CHECK_FALSE(formationAvailable(TroopClass::Hoplite, FormationShape::Testudo));
+    CHECK_FALSE(formationAvailable(TroopClass::Archer, FormationShape::Testudo));
+}
+
+TEST_CASE("only spears may form a phalanx") {
+    CHECK(formationAvailable(TroopClass::Hoplite, FormationShape::Phalanx));
+    CHECK(formationAvailable(TroopClass::Levy, FormationShape::Phalanx));
+    CHECK_FALSE(formationAvailable(TroopClass::Huscarl, FormationShape::Phalanx));
+    CHECK_FALSE(formationAvailable(TroopClass::Archer, FormationShape::Phalanx));
+}
+
+namespace {
+// One squad of the given troops, out of contact and unthreatened.
+SquadHot oneTroopSquad(TroopClass tc) {
+    SquadHot q;
+    q.spawn(Team::A, loadoutOf(tc).unit);
+    q.troopClass[0] = (uint8_t)tc;
+    q.memberCount[0] = 20;
+    q.nearestEnemyDist[0] = 1e30f;
+    return q;
+}
+} // namespace
+
+TEST_CASE("a squad under fire and out of contact closes up into a testudo") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    q.missilePressure[0] = kTestudoThreshold + 0.1f;
+    q.contact[0] = 0;
+    CHECK(chooseFormation(q, 0) == FormationShape::Testudo);
+}
+
+TEST_CASE("a squad already in contact fights rather than turtling") {
+    // However hard it is being shot at. A testudo is for arrows, and a squad
+    // with an enemy in its face has a more pressing problem.
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    q.missilePressure[0] = kTestudoThreshold + 5.0f;
+    q.contact[0] = 1;
+    CHECK(chooseFormation(q, 0) == FormationShape::Shieldwall);
+}
+
+TEST_CASE("a spear squad in contact forms a phalanx") {
+    SquadHot q = oneTroopSquad(TroopClass::Hoplite);
+    q.contact[0] = 1;
+    CHECK(chooseFormation(q, 0) == FormationShape::Phalanx);
+}
+
+TEST_CASE("a squad with an enemy close but not yet touching already forms up") {
+    SquadHot q = oneTroopSquad(TroopClass::Hoplite);
+    q.contact[0] = 0;
+    q.nearestEnemyDist[0] = kImminentContactDist * 0.5f;
+    CHECK(chooseFormation(q, 0) == FormationShape::Phalanx);
+}
+
+TEST_CASE("a routing squad becomes a mob") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    q.order[0] = (uint8_t)SquadOrder::Rout;
+    CHECK(chooseFormation(q, 0) == FormationShape::Mob);
+}
+
+TEST_CASE("a legionary squad marches in a manipular line") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    CHECK(chooseFormation(q, 0) == FormationShape::Manipular);
+}
+
+TEST_CASE("a squad never adopts a formation its equipment cannot support") {
+    // The exhaustive version of the two eligibility tests above: whatever the
+    // situation, chooseFormation must never return a shape formationAvailable
+    // rejects for those troops.
+    for (uint32_t t = 0; t < kTroopCount; ++t) {
+        for (int contact = 0; contact <= 1; ++contact) {
+            for (int pressure = 0; pressure <= 1; ++pressure) {
+                SquadHot q = oneTroopSquad((TroopClass)t);
+                q.contact[0] = (uint8_t)contact;
+                q.missilePressure[0] = pressure ? kTestudoThreshold + 1.0f : 0.0f;
+                const FormationShape got = chooseFormation(q, 0);
+                CHECK(formationAvailable((TroopClass)t, got));
+            }
+        }
+    }
+}
+
+TEST_CASE("a squad cannot change shape twice inside the hold window") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    setSquadShape(q, 0, FormationShape::Testudo);
+    CHECK(q.shape[0] == (uint8_t)FormationShape::Testudo);
+    CHECK(q.formationHold[0] == doctest::Approx(kFormationHoldSeconds));
+    CHECK(q.shapeBlend[0] == doctest::Approx(kFormationChangeSeconds));
+
+    setSquadShape(q, 0, FormationShape::Shieldwall);
+    CHECK(q.shape[0] == (uint8_t)FormationShape::Testudo);   // refused
+}
+
+TEST_CASE("re-choosing the shape a squad already holds is not a change") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    q.shape[0] = (uint8_t)FormationShape::Line;
+    setSquadShape(q, 0, FormationShape::Line);
+    CHECK(q.shapeBlend[0] == doctest::Approx(0.0f));
+    CHECK(q.formationHold[0] == doctest::Approx(0.0f));
+}
+
+TEST_CASE("missile pressure decays to nothing once fire stops") {
+    SquadHot q = oneTroopSquad(TroopClass::Legionary);
+    q.missilePressure[0] = 1.0f;
+    for (uint32_t t = 0; t < 600; ++t) {
+        decayMissilePressure(q, 0, kFixedTimestep);
+    }
+    CHECK(q.missilePressure[0] == doctest::Approx(0.0f));
 }

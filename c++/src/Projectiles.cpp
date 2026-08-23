@@ -165,7 +165,6 @@ void integrateProjectile(ProjectileHot& p, const SoldierHot& soldiers,
 
 void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, SquadHot& squads,
                          const Rng& rng) {
-    (void)squads;   // written from Task 9 onward, for missile pressure
     for (size_t i = 0; i < p.count; ++i) {
         const uint32_t t = p.intentHitTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
@@ -175,6 +174,14 @@ void applyProjectileHits(ProjectileHot& p, SoldierHot& soldiers, SquadHot& squad
         // the chance is what he is WEARING rather than a global constant. The
         // roll is consumed either way: an arrow that glances off gets no second
         // attempt next tick, which would make the chance meaningless.
+        // Being shot at is what closes a formation up, whether or not the arrow
+        // hurt anyone, so this is counted before either roll. It costs nothing:
+        // this loop already walks every arrow that reached a man.
+        const uint16_t struckSquad = soldiers.squadId[t];
+        if ((size_t)struckSquad < squads.count) {
+            squads.missilePressure[struckSquad] += kMissilePressurePerHit;
+        }
+
         // Stage one: his shield may stop it. The arrow's velocity IS its
         // direction of travel, and impactArc normalizes, so no separate
         // direction vector is needed.
