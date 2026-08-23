@@ -75,8 +75,13 @@
 # before. Discipline scales formation compression (squadCompression in
 # Soldiers.cpp), so every soldier is told to stand somewhere slightly different
 # and the whole battle follows. Deliberate behavioural change, not a bug.
-candidatesExamined=303497213
-cellsVisited=11283096
+# Regenerated 2026-08-22 for the armor model. A melee blow that reaches now
+# rolls against what the target is wearing (kWoundChancePct) instead of wounding
+# automatically, and armor scales movement speed. Fewer men die per tick, so the
+# armies stay near full strength for longer and every position-dependent counter
+# rises with the surviving head count. Deliberate behavioural change.
+candidatesExamined=308281768
+cellsVisited=11288322
 gridInsertions=400000
 jobsDispatched=6000
 squadDecisions=16000
@@ -94,4 +99,4 @@ projectileHitTests=0
 # there the digest was held fixed to prove observation, here the counters are.
 # If a later refactor claims to be shape-preserving while moving a counter, that
 # is a bug, not a regeneration.
-stateDigest=6b6dc43e6c4c89aa
+stateDigest=6c81a4aff2b46ff0

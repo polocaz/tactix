@@ -86,7 +86,12 @@ void steerToward(SoldierHot& soldiers, size_t i, Vec2 target, float dt,
     const float dy = target.y - soldiers.posY[i];
     const float distSq = dx * dx + dy * dy;
 
-    const float speed = kUnitStats[(int)soldiers.unitType[i]].speed * speedScale;
+    // Three scales multiply here and each is owned by the layer that knows
+    // about it: the unit type's base speed, what the man is wearing, and
+    // whatever the caller passed (flight, and from Task 7 the formation).
+    const Loadout& lo = loadoutOf(soldiers.troopClass[i]);
+    const float speed = kUnitStats[(int)soldiers.unitType[i]].speed
+                      * kArmorSpeedScale[(int)lo.armor] * speedScale;
 
     // A deadband stops soldiers vibrating on their slot. Without it, every
     // soldier in a stationary army jitters at full speed across the slot.

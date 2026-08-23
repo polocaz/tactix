@@ -640,7 +640,7 @@ void Simulation::phaseResolution(const Rng& rng) {
     casualties.assign(squads.count, 0u);
     officerDied.assign(squads.count, 0u);
 
-    applyMeleeIntents(soldiers);                            // step 1
+    applyMeleeIntents(soldiers, squads, rng);               // step 1
     applyProjectileHits(projectiles, soldiers, rng);        // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
     for (size_t i = 0; i < soldiers.count; ++i) {

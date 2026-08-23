@@ -1,8 +1,10 @@
 #pragma once
+#include "Rng.hpp"
 #include <cstdint>
 #include <vector>
 
 struct SoldierHot;
+struct SquadHot;
 class SpatialHash;
 
 // Chooses an enemy within kMeleeReach and records it in the soldier's own
@@ -17,7 +19,11 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
 // Resolution step 1 (spec 5.5). Applies every soldier's melee intent in
 // ascending soldier index order. Single-threaded: this is the only place a
 // soldier may write another soldier's health.
-void applyMeleeIntents(SoldierHot& soldiers);
+//
+// A blow that reaches does not automatically wound: it rolls against what the
+// target is wearing (kWoundChancePct). `squads` supplies the formation the
+// attacker is standing in, which scales his swing rate.
+void applyMeleeIntents(SoldierHot& soldiers, const SquadHot& squads, const Rng& rng);
 
 // Resolution step 4 (spec 5.5). Runs BEFORE compaction, because the officer is
 // identified by slotIndex 0 and compaction reassigns slots.

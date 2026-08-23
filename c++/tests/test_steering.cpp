@@ -139,6 +139,11 @@ TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
     // Guards against steering that points the right way but crawls: past
     // the approach-easing zone, velocity magnitude must equal the unit's
     // rated speed exactly, not some fraction of it.
+    //
+    // "Rated speed" now means the unit's base speed times what the man is
+    // wearing. A knight rides in plate, so his rated speed is 0.86 of a
+    // cavalryman's nominal figure, and stating the product here is what makes
+    // this test catch a MISSING armor scale as well as a crawling one.
     SquadHot q;
     q.spawn(Team::A, UnitType::Cavalry);
     q.centroidX[0] = 0.0f; q.centroidY[0] = 0.0f;
@@ -151,7 +156,9 @@ TEST_CASE("steerToSlot moves at the unit's full speed when far away") {
     steerToSlot(s, q, 0, 1.0f / 60.0f);
 
     const float speed = std::sqrt(s.velX[0] * s.velX[0] + s.velY[0] * s.velY[0]);
-    CHECK(speed == doctest::Approx(kUnitStats[(int)UnitType::Cavalry].speed));
+    const float rated = kUnitStats[(int)UnitType::Cavalry].speed
+                      * kArmorSpeedScale[(int)loadoutOf(TroopClass::Knight).armor];
+    CHECK(speed == doctest::Approx(rated));
 }
 
 TEST_CASE("steerToSlot zeroes velocity for a soldier already on its slot") {

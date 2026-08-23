@@ -168,52 +168,86 @@ SoldierHot makeDuel() {
     s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     return s;
 }
+
+// The squad tier the two of them belong to. Melee resolution reads the
+// attacker's formation for his swing rate, so it needs to exist even here.
+SquadHot duelSquads(uint32_t n = 2) {
+    SquadHot q;
+    for (uint32_t k = 0; k < n; ++k) {
+        q.spawn((k == 0) ? Team::A : Team::B, UnitType::Infantry);
+        q.shape[k] = (uint8_t)FormationShape::Line;
+        q.memberCount[k] = 1;
+        q.facingX[k] = (k == 0) ? 1.0f : -1.0f;
+        q.facingY[k] = 0.0f;
+    }
+    return q;
+}
 } // namespace
 
 TEST_CASE("a melee intent costs the target health") {
+    // A blow that reaches now rolls against the target's armor, so this asserts
+    // that blows land EVENTUALLY rather than every time. What is unconditional
+    // is the cooldown: every swing is spent whether or not it wounds.
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     const uint8_t before = s.health[1];
-    s.intentTarget[0] = 1;
 
-    applyMeleeIntents(s);
-
-    CHECK(s.health[1] == before - kMeleeDamage);
-    CHECK(s.attackCooldown[0] > 0.0f);
+    bool wounded = false;
+    for (uint32_t tick = 0; tick < 200 && !wounded; ++tick) {
+        const Rng rng{ 42u, tick };
+        s.intentTarget[0] = 1;
+        s.attackCooldown[0] = 0.0f;
+        applyMeleeIntents(s, q, rng);
+        CHECK(s.attackCooldown[0] > 0.0f);
+        wounded = s.health[1] < before;
+    }
+    CHECK(wounded);
 }
 
 TEST_CASE("overkill is dropped rather than carried over") {
-    // Two attackers, one target with 1 health left. The first kills it; the
-    // second must find health == 0 and waste its swing. Without the guard the
-    // second attack would underflow the uint8_t to 255.
+    // Two attackers, one target with 1 health left. Whichever blow lands first
+    // kills it; any later one must find health == 0 and waste itself. Without
+    // the guard the second attack would underflow the uint8_t to 255, so the
+    // real assertion is that health is never seen above its starting value.
     SoldierHot s;
+    SquadHot q = duelSquads();
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(101.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(102.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.health[2] = 1;
-    s.intentTarget[0] = 2;
-    s.intentTarget[1] = 2;
 
-    applyMeleeIntents(s);
-
-    CHECK(s.health[2] == 0);
+    for (uint32_t tick = 0; tick < 200; ++tick) {
+        const Rng rng{ 42u, tick };
+        s.intentTarget[0] = 2;
+        s.intentTarget[1] = 2;
+        s.attackCooldown[0] = 0.0f;
+        s.attackCooldown[1] = 0.0f;
+        applyMeleeIntents(s, q, rng);
+        CHECK(s.health[2] <= 1);   // never underflowed
+    }
+    CHECK(s.health[2] == 0);       // and it did die
 }
 
 TEST_CASE("a dead attacker does not swing") {
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     s.health[0] = 0;
     s.state[0] = SoldierState::Dead;
     const uint8_t before = s.health[1];
     s.intentTarget[0] = 1;
 
-    applyMeleeIntents(s);
+    const Rng rng{ 42u, 1u };
+    applyMeleeIntents(s, q, rng);
 
     CHECK(s.health[1] == before);
 }
 
 TEST_CASE("an out of range index is ignored rather than read") {
     SoldierHot s = makeDuel();
+    SquadHot q = duelSquads();
     s.intentTarget[0] = 999;
-    applyMeleeIntents(s);  // must not read past the end
+    const Rng rng{ 42u, 1u };
+    applyMeleeIntents(s, q, rng);  // must not read past the end
     CHECK(s.health[1] == loadoutOf(TroopClass::Legionary).maxHealth);
 }
 

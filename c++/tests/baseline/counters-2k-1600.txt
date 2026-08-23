@@ -98,15 +98,19 @@
 # discipline scales formation compression. This file reaches combat, so it also
 # moves projectileHitTests (65187 to 24596) and jobsDispatched: the armies close
 # and break differently once their formations sit at different depths.
-candidatesExamined=1654318698
-cellsVisited=87448311
-gridInsertions=3168969
-jobsDispatched=48512
+# Regenerated 2026-08-22 for the armor model, same cause as the companion
+# 200-tick file. This one reaches combat, so the effect is larger: armored men
+# survive longer, more of them are alive to be queried, and projectileHitTests
+# rises from 24596 to 31900 because there are still targets worth shooting at.
+candidatesExamined=1749435428
+cellsVisited=87464190
+gridInsertions=3182970
+jobsDispatched=48640
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=24596
+projectileHitTests=31900
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=5594e8a96916b37d
+stateDigest=db14cedcd325a169

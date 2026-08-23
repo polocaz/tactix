@@ -39,6 +39,17 @@ enum class RngUse : uint32_t {
     ArrowSpread,
     ArrowHitRoll,
 
+    // Plan 5: armor and shields. Four distinct enumerators, because a melee
+    // blow can reach both of its rolls within one agent-tick and so can a
+    // missile. All four are declared together even though the two shield ones
+    // land in a later commit: appending them separately would move every
+    // enumerator after them twice, and each move shifts the digest for no
+    // behavioural reason.
+    MeleeBlockRoll,
+    MeleeWoundRoll,
+    ShieldBlockRoll,
+    MissileWoundRoll,
+
     // Keep this trailing sentinel last.
     Count
 };

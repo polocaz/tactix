@@ -40,7 +40,8 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
     soldiers.intentTarget[i] = best;
 }
 
-void applyMeleeIntents(SoldierHot& soldiers) {
+void applyMeleeIntents(SoldierHot& soldiers, const SquadHot& squads, const Rng& rng) {
+    (void)squads;   // read from Task 7 onward, for the formation swing rate
     for (size_t i = 0; i < soldiers.count; ++i) {
         const uint32_t t = soldiers.intentTarget[i];
         if (t == UINT32_MAX || (size_t)t >= soldiers.count) continue;
@@ -53,9 +54,25 @@ void applyMeleeIntents(SoldierHot& soldiers) {
         if (soldiers.health[i] == 0) continue;
         if (soldiers.health[t] == 0) continue;
 
-        soldiers.health[t] = (soldiers.health[t] > kMeleeDamage)
-                           ? (uint8_t)(soldiers.health[t] - kMeleeDamage)
-                           : (uint8_t)0;
+        // A blow that reaches still has to get through what the target is
+        // wearing. The SIDEARM, not the weapon: a legionary inside melee range
+        // has already thrown his pilum and is fighting with a sword.
+        const Loadout& attacker = loadoutOf(soldiers.troopClass[i]);
+        const Loadout& defender = loadoutOf(soldiers.troopClass[t]);
+        const uint8_t woundPct =
+            kWoundChancePct[(int)attacker.sidearm][(int)defender.armor];
+
+        if (rng.range((uint32_t)i, RngUse::MeleeWoundRoll, 1, 100) <= woundPct) {
+            soldiers.health[t] = (soldiers.health[t] > kMeleeDamage)
+                               ? (uint8_t)(soldiers.health[t] - kMeleeDamage)
+                               : (uint8_t)0;
+        }
+
+        // The cooldown is spent whether or not the blow landed, and that is a
+        // correctness requirement rather than a detail. If a failed blow left
+        // the cooldown clear, the attacker would re-roll every tick until he
+        // got through, and armor would be a brief delay instead of a defense.
+        // A parried swing costs you the swing.
         soldiers.attackCooldown[i] = kMeleeCooldown;
         soldiers.state[i] = SoldierState::Engaged;
     }
