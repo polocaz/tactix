@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include "Rng.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -115,8 +116,31 @@ inline Vec2 formationSlot(FormationShape shape, uint16_t slotIndex, uint32_t mem
     const uint32_t row = slotIndex / width;
     const uint32_t col = slotIndex % width;
 
-    const float right = ((float)col - (float)(width - 1) * 0.5f) * spacing;
+    float right = ((float)col - (float)(width - 1) * 0.5f) * spacing;
     const float forward = -(float)row * spacing;
+
+    if (shape == FormationShape::Manipular) {
+        // Push each column outward by one interval per maniple boundary it
+        // sits past. Computed from the column index rather than accumulated,
+        // so a slot's position depends on nothing but that slot.
+        right += (float)(col / kManipleWidth) * kManipleInterval;
+        // Recenter. Every push above is rightward, which would walk the
+        // formation's mean off zero, and formationMeanOffset exists precisely
+        // to keep it there: without this the squad chases its own anchor.
+        const uint32_t maniples = (width - 1) / kManipleWidth;
+        right -= (float)maniples * kManipleInterval * 0.5f;
+    }
+
+    if (shape == FormationShape::Mob) {
+        // Deterministic scatter: a pure function of the slot index, drawing no
+        // Rng state at all, so it is identical on every thread and platform
+        // without participating in the random stream.
+        const uint32_t h = pcgHash((uint32_t)slotIndex * 0x9E3779B9u);
+        const float jx = ((float)(h & 0xFFFFu) / 65535.0f - 0.5f) * 2.0f * kMobJitter;
+        const float jy = ((float)((h >> 16) & 0xFFFFu) / 65535.0f - 0.5f) * 2.0f * kMobJitter;
+        return Vec2{ right + jx, forward + jy };
+    }
+
     return Vec2{ right, forward };
 }
 
@@ -142,6 +166,13 @@ inline uint32_t rankOfSlot(FormationShape shape, uint16_t slotIndex, uint32_t me
     // which reads one aspect value out of kFormationTraits. That is what makes
     // the mirror structural: there is one definition of how wide a shape
     // stands, and a change to it moves both functions together.
+    //
+    // Neither of formationSlot's two extra cases needs handling here. Manipular
+    // shifts columns sideways only, so it cannot change which row a slot is in.
+    // Mob perturbs y by at most kMobJitter (4px, a third of a rank), but rank
+    // comes from the slot index rather than from the position, so it stays
+    // exact; what stops being exact for a mob is the reverse mapping, and
+    // nothing performs one.
     const uint32_t width = detail::shapeWidth(shape, memberCount);
     return (uint32_t)slotIndex / width;
 }

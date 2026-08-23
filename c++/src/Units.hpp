@@ -4,7 +4,12 @@
 enum class Team : uint8_t { A = 0, B = 1 };
 enum class UnitType : uint8_t { Infantry = 0, Archer = 1, Cavalry = 2 };
 enum class SoldierState : uint8_t { Forming = 0, Engaged = 1, Routing = 2, Dead = 3 };
-enum class FormationShape : uint8_t { Line = 0, Column = 1, Wedge = 2, Loose = 3 };
+// Appended, never renumbered: shape reaches the state digest through
+// SquadHot::shape. Behavior for each lives in kFormationTraits (Formation.hpp).
+enum class FormationShape : uint8_t {
+    Line = 0, Column = 1, Wedge = 2, Loose = 3,
+    Shieldwall = 4, Phalanx = 5, Testudo = 6, Manipular = 7, Mob = 8
+};
 
 // Appended, never renumbered: order feeds the state digest, so changing an
 // existing value silently invalidates every committed baseline.
@@ -49,6 +54,19 @@ constexpr float kAdvanceLead = 10.0f;
 constexpr float kFacingSlewRate = 2.5f;
 
 struct Vec2 { float x, y; };
+
+// Manipular geometry. The interval is not decoration: it is the corridor a
+// relieved maniple retires through (see the line relief in Army.cpp), and a
+// legion without it is a shieldwall with holes in it.
+constexpr uint32_t kManipleWidth    = 8;      // columns before an interval
+constexpr float    kManipleInterval = 12.0f;  // one kSlotSpacing
+
+// How far a mob's slots scatter from their grid position. MUST stay under
+// kSeparationRadius (10): a scatter at or above it puts two slots close enough
+// that separation shoves their occupants apart, and the formation spends the
+// battle fighting its own avoidance force. Same failure mode kSeparationRadius
+// documents against kSlotSpacing.
+constexpr float kMobJitter = 4.0f;
 
 // Radius of a soldier's own neighbour query. Archer range deliberately
 // exceeds it, which is why target assignment lives on the squad.
