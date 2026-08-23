@@ -1,23 +1,44 @@
 #include "Combat.hpp"
 #include "Shields.hpp"
+#include "Formation.hpp"
+#include "Squads.hpp"
 #include "Simulation.hpp"
 #include "SpatialHash.hpp"
 #include "Units.hpp"
 #include <cmath>
 
-void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
-                       size_t i, std::vector<uint32_t>& scratch) {
+void selectMeleeTarget(SoldierHot& soldiers, const SquadHot& squads,
+                       const SpatialHash& hash, size_t i,
+                       std::vector<uint32_t>& scratch) {
     soldiers.intentTarget[i] = UINT32_MAX;
 
     if (soldiers.state[i] == SoldierState::Dead) return;
     if (soldiers.attackCooldown[i] > 0.0f) return;
 
+    const uint16_t sq = soldiers.squadId[i];
+    if ((size_t)sq >= squads.count) return;
+    const FormationShape shape = (FormationShape)squads.shape[sq];
+    const FormationTraits& tr = traitsOf(shape);
+    const uint32_t rank = rankOfSlot(shape, soldiers.slotIndex[i],
+                                     squads.memberCount[sq]);
+
+    // A rank inside the formation's fighting depth reaches as far as its weapon
+    // allows. Every other rank keeps the base reach it always had, so a squad
+    // that is flanked, or has enemies inside it, can still defend itself.
+    //
+    // This is deliberately NOT the cheaper rule of skipping the query entirely
+    // for ranks past the fighting depth. That would remove roughly 78 percent
+    // of melee queries and would also leave a squad attacked from behind unable
+    // to fight back at all. Correctness first: doing it safely needs a per-squad
+    // "enemy inside our ranks" flag, which is its own piece of work.
+    const bool extended = rank < tr.fightingRanks;
+    const float reach = extended ? kMeleeReach * tr.reach : kMeleeReach;
+
     const float px = soldiers.posX[i];
     const float py = soldiers.posY[i];
-    hash.queryNeighbors(px, py, kMeleeReach, scratch);
+    hash.queryNeighbors(px, py, reach, scratch);
 
-    const float reachSq = kMeleeReach * kMeleeReach;
-    float bestSq = reachSq;
+    float bestSq = reach * reach;
     uint32_t best = UINT32_MAX;
 
     for (uint32_t n : scratch) {
@@ -32,10 +53,24 @@ void selectMeleeTarget(SoldierHot& soldiers, const SpatialHash& hash,
         // Strictly-less keeps the FIRST of any equidistant pair, and
         // queryNeighbors walks cells in a fixed order over insertion-ordered
         // vectors, so the winner is the same on every thread and platform.
-        if (dSq < bestSq) {
-            bestSq = dSq;
-            best = n;
+        if (dSq >= bestSq) continue;
+
+        // A man reaching PAST the rank in front of him may only do so forward.
+        // A spear reaches over your own front rank, never around it. Rank 0 is
+        // unrestricted because he IS the front rank, and so is anything inside
+        // base reach, which is the self-defence case above.
+        if (rank > 0 && dSq > kMeleeReach * kMeleeReach) {
+            // Negated: impactArc takes the direction a blow TRAVELS toward the
+            // man being classified, and the question here is where the enemy
+            // sits relative to our own facing, which is the same test reversed.
+            if (impactArc(-dx, -dy, squads.facingX[sq], squads.facingY[sq])
+                != ImpactArc::Front) {
+                continue;
+            }
         }
+
+        bestSq = dSq;
+        best = n;
     }
 
     soldiers.intentTarget[i] = best;

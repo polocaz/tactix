@@ -867,7 +867,7 @@ void Simulation::phaseSoldierSteerChunk(size_t start, size_t end, float dt, Rng 
 
         // Melee target selection (Task 3). Writes only soldiers.intentTarget[i]
         // and reuses localNeighbors, the buffer separation just filled above.
-        selectMeleeTarget(soldiers, spatialHash, i, localNeighbors);
+        selectMeleeTarget(soldiers, squads, spatialHash, i, localNeighbors);
 
         // Archers fire at whatever their squad handed them, subject to cooldown.
         // Writing only our own flag keeps this parallel-safe; resolution turns

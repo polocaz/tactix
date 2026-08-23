@@ -16,6 +16,22 @@ SpatialHash buildHash(const SoldierHot& s, float w = 1200.0f, float h = 800.0f) 
     }
     return hash;
 }
+
+// The squad tier the soldiers in these tests belong to. Both selection and
+// resolution read it now: selection for the formation's fighting depth and
+// reach, resolution for the attacker's swing rate and the target's shield arc.
+// Squad 0 faces +x and squad 1 faces -x, so the two are looking at each other.
+SquadHot duelSquads(uint32_t n = 2) {
+    SquadHot q;
+    for (uint32_t k = 0; k < n; ++k) {
+        q.spawn((k == 0) ? Team::A : Team::B, UnitType::Infantry);
+        q.shape[k] = (uint8_t)FormationShape::Line;
+        q.memberCount[k] = 1;
+        q.facingX[k] = (k == 0) ? 1.0f : -1.0f;
+        q.facingY[k] = 0.0f;
+    }
+    return q;
+}
 } // namespace
 
 TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
@@ -25,11 +41,12 @@ TEST_CASE("selectMeleeTarget never picks a same-team soldier") {
     s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 2: enemy, in reach
     s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);  // 3: enemy, out of reach
     s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);  // 4: friendly, out of reach
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
     for (size_t i = 0; i < s.count; ++i) {
-        selectMeleeTarget(s, hash, i, scratch);
+        selectMeleeTarget(s, q, hash, i, scratch);
         const uint32_t t = s.intentTarget[i];
         if (t == UINT32_MAX) continue;
         CHECK(s.team[t] != s.team[i]);
@@ -43,11 +60,12 @@ TEST_CASE("selectMeleeTarget never picks a target beyond melee reach") {
     s.spawn(108.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.spawn(300.0f, 300.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.spawn(400.0f, 400.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
     for (size_t i = 0; i < s.count; ++i) {
-        selectMeleeTarget(s, hash, i, scratch);
+        selectMeleeTarget(s, q, hash, i, scratch);
         const uint32_t t = s.intentTarget[i];
         if (t == UINT32_MAX) continue;
         const float dx = s.posX[t] - s.posX[i];
@@ -60,10 +78,11 @@ TEST_CASE("a soldier with an enemy just inside melee reach acquires it") {
     SoldierHot s;
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(100.0f + kMeleeReach - 0.1f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == 1);
 }
@@ -72,10 +91,11 @@ TEST_CASE("a soldier with the nearest enemy just outside melee reach gets no tar
     SoldierHot s;
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(100.0f + kMeleeReach + 0.5f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
@@ -86,10 +106,11 @@ TEST_CASE("a soldier surrounded by friendlies only gets no target") {
     s.spawn(105.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(95.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(100.0f, 105.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
@@ -99,10 +120,11 @@ TEST_CASE("a soldier on cooldown gets no target even with an enemy in reach") {
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     s.attackCooldown[0] = kMeleeCooldown;
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == UINT32_MAX);
 }
@@ -116,10 +138,11 @@ TEST_CASE("of two equidistant enemies the lower soldier index wins the tie") {
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);        // 0: seeker
     s.spawn(100.0f, 105.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 1: enemy, dist 5
     s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);        // 2: enemy, dist 5
+    SquadHot q = duelSquads();
     SpatialHash hash = buildHash(s);
     std::vector<uint32_t> scratch;
 
-    selectMeleeTarget(s, hash, 0, scratch);
+    selectMeleeTarget(s, q, hash, 0, scratch);
 
     CHECK(s.intentTarget[0] == 1);
 }
@@ -167,20 +190,6 @@ SoldierHot makeDuel() {
     s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Legionary, 0);
     s.spawn(105.0f, 100.0f, 0, 0, Team::B, TroopClass::Legionary, 1);
     return s;
-}
-
-// The squad tier the two of them belong to. Melee resolution reads the
-// attacker's formation for his swing rate, so it needs to exist even here.
-SquadHot duelSquads(uint32_t n = 2) {
-    SquadHot q;
-    for (uint32_t k = 0; k < n; ++k) {
-        q.spawn((k == 0) ? Team::A : Team::B, UnitType::Infantry);
-        q.shape[k] = (uint8_t)FormationShape::Line;
-        q.memberCount[k] = 1;
-        q.facingX[k] = (k == 0) ? 1.0f : -1.0f;
-        q.facingY[k] = 0.0f;
-    }
-    return q;
 }
 } // namespace
 
@@ -535,4 +544,61 @@ TEST_CASE("compactDead moves steadyTimer with the rest of the soldier") {
     compactDead(s, prevX, prevY);
     REQUIRE(s.count == 1);
     CHECK(s.steadyTimer[0] == doctest::Approx(1.25f));
+}
+
+TEST_CASE("a phalanx reaches an enemy from the second rank") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Phalanx;
+    q.memberCount[0] = 20;
+
+    // A spearman standing one rank back, with an enemy past normal melee reach
+    // but inside a spear's 1.6x.
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Hoplite, 0);
+    s.slotIndex[0] = 6;
+    s.spawn(100.0f + kMeleeReach * 1.3f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    REQUIRE(rankOfSlot(FormationShape::Phalanx, 6, 20) > 0);
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == 1);
+}
+
+TEST_CASE("a rear rank cannot reach past the front except within its own arc") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Phalanx;
+    q.memberCount[0] = 20;
+
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Hoplite, 0);
+    s.slotIndex[0] = 6;
+    // Same distance as the case above, but BEHIND the squad's facing. Spears
+    // reach past the man in front of you, never around him.
+    s.spawn(100.0f - kMeleeReach * 1.3f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == UINT32_MAX);
+}
+
+TEST_CASE("a rear rank can still defend itself at base reach") {
+    SoldierHot s;
+    SquadHot q = duelSquads();
+    q.shape[0] = (uint8_t)FormationShape::Shieldwall;   // fightingRanks == 1
+    q.memberCount[0] = 20;
+
+    s.spawn(100.0f, 100.0f, 0, 0, Team::A, TroopClass::Huscarl, 0);
+    s.slotIndex[0] = 12;   // deep in the formation
+    // An enemy who has got INSIDE the formation, from behind. A squad that
+    // cannot fight back when flanked would be a far worse bug than a rear rank
+    // that occasionally swings.
+    s.spawn(95.0f, 100.0f, 0, 0, Team::B, TroopClass::Levy, 1);
+
+    REQUIRE(rankOfSlot(FormationShape::Shieldwall, 12, 20) > 0);
+    SpatialHash hash = buildHash(s);
+    std::vector<uint32_t> scratch;
+    selectMeleeTarget(s, q, hash, 0, scratch);
+    CHECK(s.intentTarget[0] == 1);
 }
