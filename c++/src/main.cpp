@@ -296,6 +296,18 @@ int main() {
         BeginDrawing();
         ClearBackground(Color{ 11, 12, 16, 255 });
 
+        // What the camera can see, in world space. Computed here because the
+        // camera lives here; the renderer only reads the rectangle.
+        {
+            const Vector2 tl = GetScreenToWorld2D(Vector2{ 0.0f, 0.0f }, camera);
+            const Vector2 br = GetScreenToWorld2D(
+                Vector2{ viewWidth(sw), (float)sh }, camera);
+            view.viewMinX = std::min(tl.x, br.x);
+            view.viewMaxX = std::max(tl.x, br.x);
+            view.viewMinY = std::min(tl.y, br.y);
+            view.viewMaxY = std::max(tl.y, br.y);
+        }
+
         BeginMode2D(camera);
         drawSimulation(sim, alpha, view);
         EndMode2D();

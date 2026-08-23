@@ -515,7 +515,58 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
                 // should look twice the force, and radius-proportional discs
                 // make a big squad look four times one half its size.
                 const float r = 9.0f + std::sqrt((float)members) * 4.2f;
-                DrawCircleV(Vector2{ cx, cy }, r, alpha(base, 0.14f * overlay));
+
+                // Formation reads at SQUAD scale zoomed out, where individual
+                // men are under two pixels and a per-soldier mark is mud. Two
+                // to six primitives per squad across a couple of hundred
+                // squads, against ten thousand men.
+                //
+                // Mean armour shifts the disc's value the same way it shifts a
+                // soldier's body: an armoured squad reads heavier.
+                const FormationShape shape = (FormationShape)sim.squads.shape[s];
+                const Color armored = shade(base,
+                    1.0f - 0.07f * (float)(int)loadoutOf(sim.squads.troopClass[s]).armor);
+                const float fx = sim.squads.facingX[s];
+                const float fy = sim.squads.facingY[s];
+
+                if (shape == FormationShape::Mob) {
+                    // No hull at all. A mob is not a shape, and drawing one
+                    // around it would say the opposite of what has happened.
+                    DrawCircleV(Vector2{ cx, cy }, r * 0.35f,
+                                alpha(armored, 0.10f * overlay));
+                } else if (shape == FormationShape::Testudo) {
+                    // A closed box, drawn solid and square: nothing gets in.
+                    DrawRectangleV(Vector2{ cx - r * 0.72f, cy - r * 0.72f },
+                                   Vector2{ r * 1.44f, r * 1.44f },
+                                   alpha(armored, 0.30f * overlay));
+                } else {
+                    DrawCircleV(Vector2{ cx, cy }, r, alpha(armored, 0.14f * overlay));
+                }
+
+                if (shape == FormationShape::Shieldwall) {
+                    // A thick arc across the front third: the wall itself.
+                    DrawLineEx(Vector2{ cx + fx * r * 0.8f - fy * r * 0.8f,
+                                        cy + fy * r * 0.8f + fx * r * 0.8f },
+                               Vector2{ cx + fx * r * 0.8f + fy * r * 0.8f,
+                                        cy + fy * r * 0.8f - fx * r * 0.8f },
+                               3.0f, alpha(armored, 0.55f * overlay));
+                } else if (shape == FormationShape::Phalanx) {
+                    // Three spears projecting forward. The hedge is the point.
+                    for (int k = -1; k <= 1; ++k) {
+                        const float lateral = (float)k * r * 0.45f;
+                        const float bx = cx - fy * lateral;
+                        const float by = cy + fx * lateral;
+                        DrawLineEx(Vector2{ bx, by },
+                                   Vector2{ bx + fx * r * 1.35f, by + fy * r * 1.35f },
+                                   1.5f, alpha(armored, 0.5f * overlay));
+                    }
+                } else if (shape == FormationShape::Manipular) {
+                    // Split by a gap, echoing the interval a relief retires
+                    // through.
+                    DrawLineEx(Vector2{ cx - fx * r, cy - fy * r },
+                               Vector2{ cx + fx * r, cy + fy * r },
+                               2.0f, alpha(Color{ 12, 13, 17, 255 }, 0.45f * overlay));
+                }
 
                 // Morale as a dial rather than a number: full green ring at
                 // rest, eaten away counter-clockwise as the squad breaks.
@@ -532,12 +583,14 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
                 }
 
                 // Where the squad is pointing. Short and inside the disc, so it
-                // never reads as a movement order line.
-                const float fx = sim.squads.facingX[s];
-                const float fy = sim.squads.facingY[s];
-                DrawLineEx(Vector2{ cx + fx * r * 0.45f, cy + fy * r * 0.45f },
-                           Vector2{ cx + fx * (r + 6.0f), cy + fy * (r + 6.0f) },
-                           1.5f, alpha(base, 0.75f * overlay));
+                // never reads as a movement order line. Skipped for a testudo,
+                // whose whole statement is that it has no front: a closed box
+                // with a spike on one side would say the opposite.
+                if (shape != FormationShape::Testudo) {
+                    DrawLineEx(Vector2{ cx + fx * r * 0.45f, cy + fy * r * 0.45f },
+                               Vector2{ cx + fx * (r + 6.0f), cy + fy * (r + 6.0f) },
+                               1.5f, alpha(base, 0.75f * overlay));
+                }
 
                 if (view.objectiveLines) {
                     DrawLineEx(Vector2{ cx, cy },
@@ -549,7 +602,26 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
     }
 
     // --- Soldiers -----------------------------------------------------------
+    // Culled against the camera rectangle. This loop used to draw all 10,000
+    // agents whatever the camera was looking at, and raylib still batches a
+    // quad for each one. The cull is a PREREQUISITE for the per-soldier shield
+    // and weapon marks below rather than an optimisation of them: without it,
+    // every extra draw would be paid for the whole army no matter how few men
+    // were on screen.
+    //
+    // The margin covers the largest thing drawn from a soldier's position: the
+    // weapon mark, which reaches further than the body or the shield bar.
+    constexpr float kCullMargin = 24.0f;
+    const float cullMinX = view.viewMinX - kCullMargin;
+    const float cullMaxX = view.viewMaxX + kCullMargin;
+    const float cullMinY = view.viewMinY - kCullMargin;
+    const float cullMaxY = view.viewMaxY + kCullMargin;
+
     for (size_t i = 0; i < sim.soldiers.count; i++) {
+        if (sim.soldiers.posX[i] < cullMinX || sim.soldiers.posX[i] > cullMaxX ||
+            sim.soldiers.posY[i] < cullMinY || sim.soldiers.posY[i] > cullMaxY) {
+            continue;
+        }
         // clampToWorld only clamps and bounces (it has never wrapped a
         // position), so interpolating from the previous tick's position is
         // always safe here -- no large-delta special case needed.
@@ -572,6 +644,13 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
             ? (float)sim.soldiers.health[i] / (float)maxHp
             : 1.0f;
         if (maxHp > 1) c = shade(c, 0.50f + 0.50f * hpFrac);
+
+        // Armor rides on the body colour as brightness, alongside health,
+        // costing no extra draw at all: a mailed man reads heavier than a
+        // padded one without either team drifting toward the other's hue,
+        // exactly as unit type already shifts value rather than colour.
+        const Loadout& lo = loadoutOf(sim.soldiers.troopClass[i]);
+        c = shade(c, 1.0f - 0.07f * (float)(int)lo.armor);
 
         // A broken squad loses its colours. Silhouette and position are
         // unchanged, so you can still see the men -- they just stop reading as
@@ -596,6 +675,45 @@ void drawSimulation(const Simulation& sim, float alpha_, const ViewSettings& vie
                              Color{ 14, 15, 20, 190 });
         }
         drawSoldierShape(type, rx, ry, dx, dy, markScale, c);
+
+        // Tier 2: the shield he is holding, on the side he is facing. Drawn
+        // along the SQUAD's facing rather than his own movement direction,
+        // because that is the direction the shield actually covers and the one
+        // the block roll uses. An unshielded man draws nothing, so archers cost
+        // zero here.
+        if (wantDetail && lo.shield != ShieldClass::None
+            && sq < sim.squads.count) {
+            const float fx = sim.squads.facingX[sq];
+            const float fy = sim.squads.facingY[sq];
+            const float half = 2.0f + 1.1f * (float)(int)lo.shield;   // buckler to tower
+            const float off = kSoldierRadius + 1.0f;
+            const Color shieldCol = shade(teamA ? pal::kTeamA : pal::kTeamB, 1.35f);
+            // Across the facing, not along it: a shield is a wall, not a spike.
+            DrawLineEx(Vector2{ rx + fx * off - fy * half, ry + fy * off + fx * half },
+                       Vector2{ rx + fx * off + fy * half, ry + fy * off - fx * half },
+                       2.0f, alpha(shieldCol, 0.9f));
+        }
+
+        // Tier 3: what he is fighting with. A spear deliberately reaches past
+        // the shield bar, which is the whole point of a spear and the one thing
+        // that should be visible at this range.
+        if (wantPips && sq < sim.squads.count) {
+            float len = 0.0f;
+            switch (lo.weapon) {
+                case WeaponClass::Spear:   len = 18.0f; break;
+                case WeaponClass::Lance:   len = 14.0f; break;
+                case WeaponClass::Sword:   len = 8.0f;  break;
+                case WeaponClass::Javelin: len = 10.0f; break;
+                case WeaponClass::Bow:     len = 0.0f;  break;
+            }
+            if (len > 0.0f) {
+                const float fx = sim.squads.facingX[sq];
+                const float fy = sim.squads.facingY[sq];
+                DrawLineEx(Vector2{ rx, ry },
+                           Vector2{ rx + fx * len, ry + fy * len },
+                           1.0f, alpha(Color{ 226, 222, 210, 255 }, 0.75f));
+            }
+        }
 
         if (wantPips && hpFrac < 0.999f) {
             const float w = 9.0f;
