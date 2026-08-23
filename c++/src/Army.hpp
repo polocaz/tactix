@@ -17,6 +17,13 @@ enum class SquadRole : uint8_t {
 
 enum class ArmyPosture : uint8_t { Press = 0, Hold = 1, Fallback = 2 };
 
+// Which end of a line relief a squad is at. Distinguishing the two halves
+// rather than merely marking one in progress is what lets the Withdraw override
+// and the lateral interval offset each apply to the right squad.
+constexpr uint8_t kReliefIdle      = 0;
+constexpr uint8_t kReliefRetiring  = 1;   // the spent maniple falling back
+constexpr uint8_t kReliefAdvancing = 2;   // the fresh maniple stepping up
+
 // The army tier: exactly two entries, one per team (design 7.1). Two entities
 // make a serial decide phase free, and serial makes bit-reproducibility free.
 struct ArmyHot {
@@ -71,3 +78,16 @@ void updateArmyAggregate(const SquadHot& squads, ArmyHot& armies);
 // 10,000-agent tick, and the reason an O(squads squared) assignment is
 // affordable where an O(soldiers squared) one would not be.
 void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team);
+
+// Legion line relief (design 6). A spent front-line maniple is paired with a
+// fresh reserve behind it; the spent one retires and the fresh one steps up.
+//
+// Serial, called from phaseArmyDecide immediately after assignRoles, and
+// deterministic by construction: squads are walked in ascending index and the
+// nearest eligible reserve wins with ties broken on the lower index.
+//
+// Built entirely from orders and roles that already exist. The one new idea is
+// that the advancing maniple aims at the INTERVAL beside the front line rather
+// than at the front line itself, so the two squads are never walking toward the
+// same point and need no collision logic of their own.
+void updateLineRelief(SquadHot& squads, const ArmyHot& armies, Team team);

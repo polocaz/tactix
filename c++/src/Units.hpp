@@ -61,6 +61,33 @@ struct Vec2 { float x, y; };
 constexpr uint32_t kManipleWidth    = 8;      // columns before an interval
 constexpr float    kManipleInterval = 12.0f;  // one kSlotSpacing
 
+// Legion line relief. A maniple that has been fighting long enough to be spent
+// retires through the interval behind it and a fresh one steps up. Every
+// mechanism this needs already existed: SquadRole::Reserve, SquadOrder::Withdraw
+// (which keeps formation, unlike Rout), and an army decide phase that is
+// already serial.
+constexpr float kReliefLossFraction    = 0.60f;  // survivors below this counts as spent
+constexpr float kReliefMoraleThreshold = 0.55f;
+constexpr float kReliefContactSeconds  = 20.0f;
+constexpr float kReliefSearchRadius    = 260.0f;
+constexpr float kReliefClearDistance   = 70.0f;  // separation at which the swap completes
+constexpr float kReliefCooldownSeconds = 15.0f;
+
+// Two ordering constraints against constants that already exist, stated here
+// rather than left to be discovered:
+//
+// kReliefMoraleThreshold (0.55) MUST stay above kRallyThreshold (0.45), or a
+// maniple routs before it is ever judged spent and the relief never fires.
+//
+// The lateral offset an advancing maniple aims at MUST be about half a maniple
+// wide, so the two squads are never walking at the same point. That is what
+// lets them swap places without any new collision logic.
+//
+// Written in terms of kManipleInterval rather than kSlotSpacing (which they are
+// equal to) because kSlotSpacing lives in Formation.hpp, which includes this
+// header rather than the other way round.
+constexpr float kReliefLateralOffset = (float)kManipleWidth * kManipleInterval * 0.5f;
+
 // The pilum. Thrown once as the lines close, then the swords come out. The
 // javelin row of kWoundChancePct is deliberately the best thing in the game
 // against mail and mediocre against bare flesh, which is what makes the volley

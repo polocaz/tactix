@@ -122,6 +122,12 @@ void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team) {
     foe.reserve(squads.count);
     for (size_t s = 0; s < squads.count; ++s) {
         if (squads.memberCount[s] == 0) continue;
+        // A squad mid-relief is left out of the assignment entirely. It is in
+        // the middle of a maneuver whose two halves have already been given
+        // their roles, and reassigning either one would abandon the swap
+        // halfway through, leaving one maniple retiring from a line nobody is
+        // stepping into.
+        if (squads.team[s] == team && squads.reliefStage[s] != kReliefIdle) continue;
         if (squads.team[s] == team) own.push_back((uint16_t)s);
         else                        foe.push_back((uint16_t)s);
     }
@@ -258,4 +264,106 @@ void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team) {
 
     // Step 6: anything still unassigned stays Reserve, with the default
     // nearest-enemy target step 1 gave it.
+}
+
+void updateLineRelief(SquadHot& squads, const ArmyHot& armies, Team team) {
+    const size_t army = (size_t)team;
+    if (army >= armies.count) return;
+    const float fdx = armies.frontDirX[army];
+    const float fdy = armies.frontDirY[army];
+
+    // Ascending index, first match wins, so the pairing is identical on every
+    // platform and at every worker count.
+    for (size_t s = 0; s < squads.count; ++s) {
+        if (squads.team[s] != team) continue;
+
+        // --- A relief already under way. Only the RETIRING half drives it, so
+        // the completion runs once per pair rather than twice.
+        if (squads.reliefStage[s] == kReliefRetiring) {
+            const uint16_t p = squads.reliefPartner[s];
+            if (p >= squads.count || squads.memberCount[p] == 0) {
+                // Partner annihilated mid-swap. Release rather than waiting
+                // forever for a separation that will never be measured.
+                squads.reliefStage[s] = kReliefIdle;
+                squads.reliefPartner[s] = UINT16_MAX;
+                continue;
+            }
+            const float dx = squads.centroidX[p] - squads.centroidX[s];
+            const float dy = squads.centroidY[p] - squads.centroidY[s];
+            if (dx * dx + dy * dy > kReliefClearDistance * kReliefClearDistance) {
+                squads.reliefStage[s] = kReliefIdle;
+                squads.reliefStage[p] = kReliefIdle;
+                squads.reliefPartner[s] = UINT16_MAX;
+                squads.reliefPartner[p] = UINT16_MAX;
+                squads.role[s] = (uint8_t)SquadRole::Reserve;
+                squads.role[p] = (uint8_t)SquadRole::Line;
+            }
+            continue;
+        }
+        // The advancing half is driven by its partner's entry above.
+        if (squads.reliefStage[s] == kReliefAdvancing) continue;
+
+        // --- Is this maniple spent?
+        if (squads.memberCount[s] == 0) continue;
+        if (squads.reliefCooldown[s] > 0.0f) continue;
+        if (squads.role[s] != (uint8_t)SquadRole::Line) continue;
+        if (squads.shape[s] != (uint8_t)FormationShape::Manipular
+            && squads.shape[s] != (uint8_t)FormationShape::Shieldwall) continue;
+        if (!squads.contact[s]) continue;
+
+        const uint32_t start = squads.initialMemberCount[s];
+        const bool bled   = start > 0 &&
+            (float)squads.memberCount[s] < (float)start * kReliefLossFraction;
+        const bool shaken = squads.morale[s] < kReliefMoraleThreshold;
+        const bool tired  = squads.contactDuration[s] > kReliefContactSeconds;
+        if (!bled && !shaken && !tired) continue;
+
+        // --- Find the nearest FRESH maniple behind us. "Behind" is a dot
+        // product against the army's own front direction, which is the only
+        // expression of "our rear" that a single squad cannot work out alone.
+        //
+        // Deliberately not "a squad holding SquadRole::Reserve". assignRoles
+        // gives every infantry squad a job (Line, Screen or Flank) and leaves
+        // no reserve pool at all, so keying off that role made this rule inert
+        // on a real field while every unit test around it passed. What the
+        // relief actually needs is a maniple that is FRESH and BEHIND, which is
+        // also what a legion's second line was: line troops who had not yet
+        // fought, not a reserve in any organisational sense.
+        //
+        // Screening squads are excluded because they already have a job that
+        // someone else depends on: pulling a screen out of position to plug the
+        // line would leave the archers it was covering uncovered.
+        uint16_t best = UINT16_MAX;
+        float bestSq = kReliefSearchRadius * kReliefSearchRadius;
+        for (size_t r = 0; r < squads.count; ++r) {
+            if (squads.team[r] != team) continue;
+            if (r == s) continue;
+            if (squads.memberCount[r] == 0) continue;
+            if (squads.unitType[r] != UnitType::Infantry) continue;
+            if (squads.role[r] != (uint8_t)SquadRole::Reserve
+                && squads.role[r] != (uint8_t)SquadRole::Line) continue;
+            if (squads.contact[r]) continue;              // already fighting
+            if (squads.reliefStage[r] != kReliefIdle) continue;
+            if (squads.reliefCooldown[r] > 0.0f) continue;
+
+            const float dx = squads.centroidX[r] - squads.centroidX[s];
+            const float dy = squads.centroidY[r] - squads.centroidY[s];
+            if (dx * fdx + dy * fdy > 0.0f) continue;   // in front of us, not behind
+            const float d = dx * dx + dy * dy;
+            if (d < bestSq) { bestSq = d; best = (uint16_t)r; }
+        }
+        if (best == UINT16_MAX) continue;
+
+        // --- Begin the swap. The spent maniple retires (squadDecide turns
+        // kReliefRetiring into a Withdraw order, which keeps its formation);
+        // the fresh one takes the line role and aims at the interval beside it.
+        squads.reliefStage[s]    = kReliefRetiring;
+        squads.reliefStage[best] = kReliefAdvancing;
+        squads.reliefPartner[s]    = best;
+        squads.reliefPartner[best] = (uint16_t)s;
+        squads.reliefCooldown[s]    = kReliefCooldownSeconds;
+        squads.reliefCooldown[best] = kReliefCooldownSeconds;
+        squads.role[best] = (uint8_t)SquadRole::Line;
+        squads.targetSquad[best] = squads.targetSquad[s];
+    }
 }

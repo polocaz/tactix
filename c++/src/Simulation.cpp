@@ -256,6 +256,9 @@ void Simulation::init(size_t soldierCount) {
             // set the field itself so deployment and steering agree by
             // construction, not by coincidence (finding 4).
             squads.memberCount[squadId] = members;
+            // Never changes again. This is what makes "how much of this squad
+            // is left" answerable to the relief tier without a second array.
+            squads.initialMemberCount[squadId] = members;
 
             for (uint32_t k = 0; k < members; ++k) {
                 // Spawn exactly on the slot steerToSlot will target, using the
@@ -591,6 +594,9 @@ void Simulation::phaseArmyDecide() {
         const bool firstTick = (tickNumber == 1u);
         if (firstTick || (tickNumber % kArmyDecideInterval) == a) {
             assignRoles(squads, armies, (Team)a);
+            // After the roles, because relief overrides two of them and would
+            // otherwise be undone the moment it was decided.
+            updateLineRelief(squads, armies, (Team)a);
             workCounters.add(workCounters.armyDecisions, 1);
         }
     }
@@ -1122,6 +1128,11 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.missilePressure[s]);
         d.mix(static_cast<uint32_t>(squads.pilumSpent[s]));
         d.mix(static_cast<uint32_t>(squads.pilumVolley[s]));
+        d.mix(static_cast<uint32_t>(squads.initialMemberCount[s]));
+        d.mix(squads.contactDuration[s]);
+        d.mix(squads.reliefCooldown[s]);
+        d.mix(static_cast<uint32_t>(squads.reliefStage[s]));
+        d.mix(static_cast<uint32_t>(squads.reliefPartner[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);

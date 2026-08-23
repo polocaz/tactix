@@ -202,6 +202,10 @@ public:
     // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
     uint8_t  projectileWeapon(size_t i) const { return projectiles.weapon[i]; }
+    uint8_t  squadReliefStage(size_t s) const { return squads.reliefStage[s]; }
+    uint16_t squadReliefPartner(size_t s) const { return squads.reliefPartner[s]; }
+    uint8_t  squadShape(size_t s) const { return squads.shape[s]; }
+    float    squadMissilePressure(size_t s) const { return squads.missilePressure[s]; }
 
     // Nearest point to p that a soldier can actually stand on: clear of
     // every building and tree by kObstacleStandoff. See TerrainField for the

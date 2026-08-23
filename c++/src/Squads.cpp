@@ -370,10 +370,24 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     // squad itself stood 170px away. See fleeObjective in squadDecide.
 
     switch ((SquadRole)squads.role[s]) {
-        case SquadRole::Line:
+        case SquadRole::Line: {
             // Straight at the assigned enemy. Contact and the anchor latch are
             // what stop this from becoming a walk-through.
-            return Vec2{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+            Vec2 anchor{ C.x + toT.x * kAdvanceLead, C.y + toT.y * kAdvanceLead };
+
+            // A maniple stepping up in a relief aims at the INTERVAL beside the
+            // line rather than at the line itself, so it is never walking at
+            // the same point as the squad retiring through it. That lateral
+            // offset is the whole of the passage: no new collision logic, just
+            // two squads whose objectives do not coincide. It ends when the
+            // relief completes and this becomes an ordinary Line advance.
+            if (squads.reliefStage[s] == kReliefAdvancing) {
+                const Vec2 right{ toT.y, -toT.x };
+                anchor.x += right.x * kReliefLateralOffset;
+                anchor.y += right.y * kReliefLateralOffset;
+            }
+            return anchor;
+        }
 
         case SquadRole::Screen: {
             const uint16_t ward = squads.wardSquad[s];
@@ -494,6 +508,13 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     if (squads.shapeBlend[s]    > 0.0f) squads.shapeBlend[s]    -= dt;
     setSquadShape(squads, s, chooseFormation(squads, s));
 
+    // Relief timers, ticked on the same every-live-squad path for the same
+    // reason. contactDuration is what makes "this maniple has been fighting
+    // long enough" answerable at all.
+    if (squads.contact[s]) squads.contactDuration[s] += dt;
+    else                   squads.contactDuration[s]  = 0.0f;
+    if (squads.reliefCooldown[s] > 0.0f) squads.reliefCooldown[s] -= dt;
+
     // --- Threat survey. One walk over enemy squads feeds everything below.
     // Reading other squads' centroids is safe HERE and only here: phase 2's
     // barrier has made every centroid read-only for the rest of the tick.
@@ -571,7 +592,13 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
         const float meleeDist = (nearestMeleeSq < 1e30f)
                               ? std::sqrt(nearestMeleeSq) : 1e30f;
 
-        if (squads.contact[s]) {
+        if (squads.reliefStage[s] == kReliefRetiring) {
+            // A maniple being relieved retires even though it is in contact,
+            // and this has to outrank the contact halt below or it would stand
+            // and die exactly where the relief was meant to save it. Withdraw
+            // rather than Rout: it keeps its formation and comes back.
+            squads.order[s] = (uint8_t)SquadOrder::Withdraw;
+        } else if (squads.contact[s]) {
             // Contact halt (design 5.2). Overrides every role: a formation
             // that has met the enemy is fighting, whatever it was sent to do.
             squads.order[s] = (uint8_t)SquadOrder::Engaged;

@@ -153,6 +153,7 @@ add_executable(tactix_tests
     tests/test_loadout.cpp
     tests/test_armor.cpp
     tests/test_shields.cpp
+    tests/test_relief.cpp
 )
 target_link_libraries(tactix_tests PRIVATE tactix_sim doctest::doctest tactix_warnings)
 target_compile_definitions(tactix_tests PRIVATE

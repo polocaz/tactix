@@ -121,15 +121,18 @@
 # Regenerated 2026-08-23 for the pilum volley. Team A legionaries throw once as
 # the lines close, and a javelin defeats mail far better than a bow does, so the
 # opening exchange is bloodier and the battle that follows diverges from there.
-candidatesExamined=1788386856
-cellsVisited=88425027
-gridInsertions=3193119
+# Regenerated 2026-08-23 for the legion line relief. Spent Team A maniples now
+# retire and fresh ones step into their place, so the front line is manned by
+# different squads standing in different spots from the first relief onward.
+candidatesExamined=1788565117
+cellsVisited=88428156
+gridInsertions=3193140
 jobsDispatched=48674
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=35973
+projectileHitTests=35708
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=c3d5446c04e02fe4
+stateDigest=3c466c8110052f5a

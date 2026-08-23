@@ -44,6 +44,21 @@ struct SquadHot {
     // twenty seconds ago".
     std::vector<uint8_t>  pilumSpent;
     std::vector<uint8_t>  pilumVolley;
+
+    // Line relief state. initialMemberCount is set at deployment and never
+    // changes, so "how much of this squad is left" is answerable without a
+    // second array of starting sizes.
+    //
+    // reliefStage distinguishes the two halves of a swap rather than merely
+    // marking one in progress: 0 idle, 1 this squad is the spent one falling
+    // back, 2 this squad is the fresh one stepping up. Knowing WHICH end a
+    // squad is at is what lets the order override and the lateral offset apply
+    // to the right one.
+    std::vector<uint32_t> initialMemberCount;
+    std::vector<float>    contactDuration;
+    std::vector<float>    reliefCooldown;
+    std::vector<uint8_t>  reliefStage;
+    std::vector<uint16_t> reliefPartner;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -133,6 +148,11 @@ struct SquadHot {
         missilePressure.push_back(0.0f);
         pilumSpent.push_back(0);
         pilumVolley.push_back(0);
+        initialMemberCount.push_back(0);
+        contactDuration.push_back(0.0f);
+        reliefCooldown.push_back(0.0f);
+        reliefStage.push_back(0);
+        reliefPartner.push_back(UINT16_MAX);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -182,6 +202,11 @@ struct SquadHot {
         missilePressure.clear();
         pilumSpent.clear();
         pilumVolley.clear();
+        initialMemberCount.clear();
+        contactDuration.clear();
+        reliefCooldown.clear();
+        reliefStage.clear();
+        reliefPartner.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();

@@ -116,4 +116,8 @@ projectileHitTests=0
 # pilumVolley enter the hash, and the counters above were held fixed across it,
 # which is the evidence no javelin is thrown within 200 ticks. None should be:
 # the throw needs an enemy inside kPilumRange and the lines are still closing.
-stateDigest=5a8ef899591c2378
+# stateDigest updated 2026-08-23 for the line relief. Case 3 again: five relief
+# fields enter the hash, and the counters above held fixed, which is the
+# evidence no maniple is relieved within 200 ticks. None can be: relief needs a
+# squad that has been in contact, and the lines have not met yet.
+stateDigest=72abe0a6abb8bf68
