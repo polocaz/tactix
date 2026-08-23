@@ -530,6 +530,20 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     squads.nearestEnemyDist[s] = (nearestSq < 1e30f) ? std::sqrt(nearestSq) : 1e30f;
     squads.rearThreat[s] = rear;
 
+    // The pilum, thrown once as the lines close. pilumSpent never clears
+    // mid-battle: a legion that re-armed itself would volley again every time a
+    // fresh enemy squad wandered inside range, which is neither historical nor
+    // interesting. Placed here rather than with the formation block above
+    // because it needs the distance the threat survey just computed.
+    {
+        const Loadout& lo = loadoutOf(squads.troopClass[s]);
+        if (lo.weapon == WeaponClass::Javelin && !squads.pilumSpent[s]
+            && squads.nearestEnemyDist[s] < kPilumRange) {
+            squads.pilumVolley[s] = 1;
+            squads.pilumSpent[s]  = 1;
+        }
+    }
+
     // Every enemy squad is wiped out. Hold rather than advancing on a stale
     // target; keep the last facing.
     if (nearest == UINT16_MAX) {

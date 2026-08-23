@@ -118,15 +118,18 @@
 # the companion file, plus the fighting shapes taking effect once the lines
 # meet: a phalanx fights three ranks deep at 1.6x reach, which is a wider melee
 # query for its front ranks and shows up in candidatesExamined.
-candidatesExamined=1783857072
-cellsVisited=88411668
-gridInsertions=3194288
-jobsDispatched=48664
+# Regenerated 2026-08-23 for the pilum volley. Team A legionaries throw once as
+# the lines close, and a javelin defeats mail far better than a bow does, so the
+# opening exchange is bloodier and the battle that follows diverges from there.
+candidatesExamined=1788386856
+cellsVisited=88425027
+gridInsertions=3193119
+jobsDispatched=48674
 squadDecisions=128000
 armyDecisions=108
-projectileHitTests=36954
+projectileHitTests=35973
 # stateDigest updated again on 2026-08-22 for the formation traits table: the
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=cd8aaee77276ce14
+stateDigest=c3d5446c04e02fe4

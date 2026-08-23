@@ -112,4 +112,8 @@ projectileHitTests=0
 # counters above were held FIXED across this change, which is the evidence no
 # shield blocked anything within 200 ticks, and no shield should: the armies
 # have not met yet at that point in the battle.
-stateDigest=3156a4787077dd58
+# stateDigest updated 2026-08-23 for the pilum. Case 3 once more: pilumSpent and
+# pilumVolley enter the hash, and the counters above were held fixed across it,
+# which is the evidence no javelin is thrown within 200 ticks. None should be:
+# the throw needs an enemy inside kPilumRange and the lines are still closing.
+stateDigest=5a8ef899591c2378

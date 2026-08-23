@@ -61,6 +61,17 @@ struct Vec2 { float x, y; };
 constexpr uint32_t kManipleWidth    = 8;      // columns before an interval
 constexpr float    kManipleInterval = 12.0f;  // one kSlotSpacing
 
+// The pilum. Thrown once as the lines close, then the swords come out. The
+// javelin row of kWoundChancePct is deliberately the best thing in the game
+// against mail and mediocre against bare flesh, which is what makes the volley
+// a decision rather than a free opener.
+//
+// kPilumRange sits above kImminentContactDist so the throw happens while the
+// squad is still closing, not after it has already locked up in melee.
+constexpr float kPilumRange      = 90.0f;   // px
+constexpr float kJavelinSpeed    = 260.0f;  // px/s, flatter and faster than an arrow
+constexpr float kJavelinLifetime = 0.6f;    // s, enough for kPilumRange with margin
+
 // Formation transitions. A squad caught mid-drill takes the worse cover and the
 // slower speed of both shapes, so changing formation under fire is a real
 // decision rather than a free upgrade.

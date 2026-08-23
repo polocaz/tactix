@@ -643,6 +643,12 @@ void Simulation::phaseResolution(const Rng& rng) {
     applyMeleeIntents(soldiers, squads, rng);               // step 1
     applyProjectileHits(projectiles, soldiers, squads, rng); // step 2
     spawnArrows(soldiers, squads, projectiles, rng);         // step 3
+    // pilumVolley is a one-tick request. spawnArrows takes squads by const
+    // reference, so the flag is cleared here, immediately after the one
+    // function that consumes it.
+    for (size_t s = 0; s < squads.count; ++s) {
+        squads.pilumVolley[s] = 0;
+    }
     for (size_t i = 0; i < soldiers.count; ++i) {
         if (soldiers.intentFire[i]) {
             soldiers.attackCooldown[i] = kArcherCooldown;
@@ -1114,6 +1120,8 @@ uint64_t Simulation::stateDigest() const {
         d.mix(squads.shapeBlend[s]);
         d.mix(squads.formationHold[s]);
         d.mix(squads.missilePressure[s]);
+        d.mix(static_cast<uint32_t>(squads.pilumSpent[s]));
+        d.mix(static_cast<uint32_t>(squads.pilumVolley[s]));
         d.mix(static_cast<uint32_t>(squads.order[s]));
         d.mix(static_cast<uint32_t>(squads.targetSquad[s]));
         d.mix(squads.targetSoldier[s]);

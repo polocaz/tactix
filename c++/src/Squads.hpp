@@ -37,6 +37,13 @@ struct SquadHot {
     // in response to arrows that ACTUALLY ARRIVED rather than to arrows that
     // might, which is both correct and legible on screen.
     std::vector<float>    missilePressure;
+
+    // The pilum is a one-shot. pilumSpent is durable state; pilumVolley is a
+    // one-tick request that resolution consumes and clears. Two flags rather
+    // than one, because resolution otherwise cannot tell "just set" from "set
+    // twenty seconds ago".
+    std::vector<uint8_t>  pilumSpent;
+    std::vector<uint8_t>  pilumVolley;
     std::vector<float>    centroidX, centroidY;
     std::vector<float>    facingX, facingY;
     std::vector<uint8_t>  order;          // plan 3 gives this meaning
@@ -124,6 +131,8 @@ struct SquadHot {
         shapeBlend.push_back(0.0f);
         formationHold.push_back(0.0f);
         missilePressure.push_back(0.0f);
+        pilumSpent.push_back(0);
+        pilumVolley.push_back(0);
         centroidX.push_back(0.0f);
         centroidY.push_back(0.0f);
         facingX.push_back(1.0f);
@@ -171,6 +180,8 @@ struct SquadHot {
         shapeBlend.clear();
         formationHold.clear();
         missilePressure.clear();
+        pilumSpent.clear();
+        pilumVolley.clear();
         centroidX.clear();
         centroidY.clear();
         facingX.clear();

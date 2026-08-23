@@ -201,6 +201,7 @@ public:
     // caller reading this between ticks always sees UINT32_MAX, never a
     // stale post-compaction index.
     uint32_t squadTargetSoldier(size_t s) const { return squads.targetSoldier[s]; }
+    uint8_t  projectileWeapon(size_t i) const { return projectiles.weapon[i]; }
 
     // Nearest point to p that a soldier can actually stand on: clear of
     // every building and tree by kObstacleStandoff. See TerrainField for the

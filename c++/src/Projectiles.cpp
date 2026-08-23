@@ -1,6 +1,7 @@
 #include "Projectiles.hpp"
 #include "Shields.hpp"
 #include "DetMath.hpp"
+#include "Formation.hpp"
 #include "Simulation.hpp"
 #include "Squads.hpp"
 #include "Rng.hpp"
@@ -13,6 +14,34 @@
 void spawnArrows(const SoldierHot& soldiers, const SquadHot& squads,
                  ProjectileHot& out, const Rng& rng) {
     for (size_t i = 0; i < soldiers.count; ++i) {
+        // The pilum volley. Thrown along the squad's FACING rather than at a
+        // resolved target: infantry never acquire a targetSoldier (their weapon
+        // range is zero), and a volley into the line in front is what a pilum
+        // volley is. Whoever is standing in the way is found by the same swept
+        // hit test every other projectile uses.
+        {
+            const uint16_t vsq = soldiers.squadId[i];
+            if (vsq < squads.count && squads.pilumVolley[vsq]
+                && soldiers.health[i] != 0) {
+                const FormationShape shape = (FormationShape)squads.shape[vsq];
+                const uint32_t rank = rankOfSlot(shape, soldiers.slotIndex[i],
+                                                 squads.memberCount[vsq]);
+                // Arms only after it has cleared the ranks in front of the
+                // thrower. Without this a man in rank three spears his own
+                // front rank in the back, which the arc model already exists to
+                // prevent for arrows.
+                const float spacing = kSlotSpacing * traitsOf(shape).spacing;
+                const float clearOwnRanks = (float)rank * spacing + kSlotSpacing;
+
+                out.spawn(soldiers.posX[i], soldiers.posY[i],
+                          squads.facingX[vsq] * kJavelinSpeed,
+                          squads.facingY[vsq] * kJavelinSpeed,
+                          soldiers.team[i], kArrowDamage, kJavelinLifetime,
+                          clearOwnRanks, (uint8_t)WeaponClass::Javelin);
+                continue;
+            }
+        }
+
         if (!soldiers.intentFire[i]) continue;
         // Resolution steps 1-2 (melee, then projectile hits) can zero this
         // soldier's health earlier in the SAME tick, but state is not set to

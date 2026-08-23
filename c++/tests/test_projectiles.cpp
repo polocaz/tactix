@@ -523,3 +523,37 @@ TEST_CASE("steadyTimer accumulates while still and resets on movement") {
     CHECK(sawSettled);
     CHECK(sawUnsettled);
 }
+
+TEST_CASE("a javelin flies faster and dies sooner than an arrow") {
+    CHECK(kJavelinSpeed > kArrowSpeed);
+    CHECK(kJavelinLifetime < kArrowLifetime);
+    // Fast enough, and alive long enough, to actually cross the throwing range.
+    CHECK(kJavelinSpeed * kJavelinLifetime > kPilumRange);
+    // Thrown while the squad is still closing rather than after it has locked
+    // up in melee.
+    CHECK(kPilumRange > kImminentContactDist);
+}
+
+TEST_CASE("a legionary squad throws its pilum once and only once") {
+    Simulation sim(1400, 900, 42u, 0u);
+    sim.init(600);
+    sim.setPaused(false);
+    uint32_t javelinTicks = 0;
+    for (uint32_t t = 0; t < 3000; ++t) {
+        sim.tick(kFixedTimestep);
+        bool sawJavelin = false;
+        for (size_t p = 0; p < sim.getProjectileCount(); ++p) {
+            if (sim.projectileWeapon(p) == (uint8_t)WeaponClass::Javelin) {
+                sawJavelin = true;
+                break;
+            }
+        }
+        if (sawJavelin) ++javelinTicks;
+    }
+    // Thrown at all, and not thrown continuously. A squad whose pilumSpent
+    // never latched would show javelins on hundreds of ticks; one whose
+    // pilumVolley was never cleared would show them on every tick after the
+    // first.
+    CHECK(javelinTicks > 0);
+    CHECK(javelinTicks < 300);
+}
