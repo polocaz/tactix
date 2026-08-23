@@ -118,6 +118,16 @@ struct SoldierHot {
     }
 };
 
+// Where and how a man fell. Purely presentational: the renderer turns these
+// into blood decals and impact flashes, and nothing in the simulation reads
+// them back. Recording is opt-in (see Simulation::recordDeaths) so the
+// headless benchmark never pays for a feature only the window uses.
+struct DeathEvent {
+    float    x, y;
+    Team     team;
+    UnitType unit;
+};
+
 class Simulation {
 public:
     Simulation(int worldWidth, int worldHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
@@ -195,7 +205,18 @@ public:
     // (Task 8). Used by tests to check steering converges over time.
     float  meanSlotError() const;
 
-    friend void drawSimulation(const Simulation& sim, float alpha);
+    friend void drawSimulation(const Simulation& sim, float alpha,
+                               const struct ViewSettings& view);
+    friend void drawHud(const Simulation& sim, const struct ViewSettings& view,
+                        float timeScale, bool paused, float battleSeconds);
+    friend void renderInit(const Simulation& sim);
+
+    // Presentation-only death log. Off by default: turning it on costs one
+    // extra pass over the soldier array per tick, which the window can afford
+    // and the benchmark should not be charged for.
+    bool recordDeaths = false;
+    const std::vector<DeathEvent>& deathEvents() const { return deaths; }
+    void clearDeathEvents() { deaths.clear(); }
 
     // Metrics access
     float getLastSpatialHashTime() const { return lastSpatialHashTime; }
@@ -247,6 +268,12 @@ private:
 
     // Projectiles in flight
     ProjectileHot projectiles;
+
+    // Filled during resolution when recordDeaths is set, drained by the
+    // renderer each frame. Bounded so a viewer who never drains it (or a very
+    // long unattended run) cannot grow it without limit.
+    std::vector<DeathEvent> deaths;
+    static constexpr size_t kMaxRecordedDeaths = 4096;
 
     // Previous state for interpolation
     std::vector<float> prevPosX;
