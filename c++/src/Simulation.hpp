@@ -145,12 +145,16 @@ struct DeathEvent {
 
 class Simulation {
 public:
-    Simulation(int worldWidth, int worldHeight, uint32_t seed = 1u, uint32_t workerThreads = 0u);
+    Simulation(int worldWidth, int worldHeight, uint32_t seed = 1u,
+               uint32_t workerThreads = 0u, uint32_t teamCount = 2u);
 
     void init(size_t count);
     void reset(size_t count);  // Tear down and re-init at a new agent count
+    void reset(size_t count, uint32_t teamCount);
     size_t getAgentCount() const { return soldiers.count; }
     uint32_t getSeed() const { return worldSeed; }
+    uint32_t getTeamSlotCount() const { return activeTeamCount; }
+    Team teamAt(uint32_t i) const { return teamFromIndex(i); }
     void tick(float dt);  // Fixed timestep update (Design Doc §4)
 
     // Deployment / squad accessors (Task 5)
@@ -158,6 +162,7 @@ public:
     size_t getProjectileCount() const { return projectiles.count; }
     size_t getTeamCount(Team t) const;
     float  teamCentroidX(Team t) const;
+    float  teamCentroidY(Team t) const;
     float  soldierX(size_t i) const { return soldiers.posX[i]; }
     float  soldierY(size_t i) const { return soldiers.posY[i]; }
     Team   soldierTeam(size_t i) const { return soldiers.team[i]; }
@@ -181,8 +186,8 @@ public:
     uint8_t  squadTroopClass(size_t s) const { return squads.troopClass[s]; }
     uint8_t  squadOrder(size_t s) const { return squads.order[s]; }
     uint8_t  squadRole(size_t s) const { return squads.role[s]; }
-    float    armyCentroidX(Team t) const { return armies.centroidX[(size_t)t]; }
-    float    armyCentroidY(Team t) const { return armies.centroidY[(size_t)t]; }
+    float    armyCentroidX(Team t) const { return armies.centroidX[teamIndex(t)]; }
+    float    armyCentroidY(Team t) const { return armies.centroidY[teamIndex(t)]; }
     uint16_t squadWardSquad(size_t s) const { return squads.wardSquad[s]; }
     float    squadObjectiveX(size_t s) const { return squads.objectiveX[s]; }
     float    squadObjectiveY(size_t s) const { return squads.objectiveY[s]; }
@@ -281,14 +286,15 @@ private:
 
     uint32_t worldSeed = 1u;
     uint32_t tickNumber = 0u;
+    uint32_t activeTeamCount = 2u;
 
     SoldierHot soldiers;  // Hot data (SoA)
 
     // Squad tier: per-squad aggregate data and the per-tick membership index.
     SquadHot squads;
 
-    // The army tier: exactly two entries, one per team. Never destroyed, so
-    // nothing reading an army index needs a liveness check.
+    // The army tier: one entry per active team. Never destroyed during a run,
+    // so nothing reading an army index needs a liveness check.
     ArmyHot armies;
     std::vector<uint32_t> squadMembers;
     // Scratch for rebuildSquadMembers, owned here so the once-a-tick serial

@@ -351,7 +351,7 @@ Vec2 roleAnchorFor(const SquadHot& squads, const ArmyHot& armies, size_t s) {
     const Vec2 F{ squads.facingX[s], squads.facingY[s] };
     const uint16_t tgt = squads.targetSquad[s];
 
-    const size_t army = (size_t)squads.team[s];
+    const size_t army = teamIndex(squads.team[s]);
     const Vec2 front = (army < armies.count)
                      ? Vec2{ armies.frontX[army], armies.frontY[army] } : C;
     const Vec2 frontDir = (army < armies.count)
@@ -661,7 +661,7 @@ void squadDecide(SquadHot& squads, const ArmyHot& armies, size_t s,
     if (squads.order[s] == (uint8_t)SquadOrder::Withdraw ||
         squads.order[s] == (uint8_t)SquadOrder::Rout) {
         const Vec2 C{ squads.centroidX[s], squads.centroidY[s] };
-        const size_t army = (size_t)squads.team[s];
+        const size_t army = teamIndex(squads.team[s]);
         const Vec2 frontDir = (army < armies.count)
                             ? Vec2{ armies.frontDirX[army], armies.frontDirY[army] }
                             : Vec2{ squads.facingX[s], squads.facingY[s] };

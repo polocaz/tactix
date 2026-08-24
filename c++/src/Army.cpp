@@ -2,6 +2,7 @@
 #include "Squads.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 float squadStrength(const SquadHot& squads, size_t s) {
     return (float)squads.memberCount[s] * kStrengthPerMan[(int)squads.unitType[s]];
@@ -16,16 +17,16 @@ void updateArmyAggregate(const SquadHot& squads, ArmyHot& armies) {
 
     // Accumulated in ascending squad order on one thread, so the result does
     // not depend on how anything upstream was chunked.
-    float sumX[2]      = { 0.0f, 0.0f };
-    float sumY[2]      = { 0.0f, 0.0f };
-    float weight[2]    = { 0.0f, 0.0f };
-    float infSumX[2]   = { 0.0f, 0.0f };
-    float infSumY[2]   = { 0.0f, 0.0f };
-    float infWeight[2] = { 0.0f, 0.0f };
+    std::vector<float> sumX(armies.count, 0.0f);
+    std::vector<float> sumY(armies.count, 0.0f);
+    std::vector<float> weight(armies.count, 0.0f);
+    std::vector<float> infSumX(armies.count, 0.0f);
+    std::vector<float> infSumY(armies.count, 0.0f);
+    std::vector<float> infWeight(armies.count, 0.0f);
 
     for (size_t s = 0; s < squads.count; ++s) {
         if (squads.memberCount[s] == 0) continue;
-        const size_t a = (size_t)squads.team[s];
+        const size_t a = teamIndex(squads.team[s]);
         if (a >= armies.count) continue;
 
         const float men = (float)squads.memberCount[s];
@@ -69,13 +70,27 @@ void updateArmyAggregate(const SquadHot& squads, ArmyHot& armies) {
         }
     }
 
-    // Front direction, computed after every front is final so each army can
-    // read the other's.
+    // Primary hostile army and front direction, computed after every centroid
+    // is final. With two teams this is exactly "the other army"; with three,
+    // the front points at the hostile mass with the highest strength/distance
+    // pressure. Ties fall to the lower team index via strict greater-than.
     for (size_t a = 0; a < armies.count; ++a) {
-        const size_t other = (a == 0) ? 1u : 0u;
-        if (other >= armies.count) continue;
-        const float dx = armies.centroidX[other] - armies.centroidX[a];
-        const float dy = armies.centroidY[other] - armies.centroidY[a];
+        size_t enemy = a;
+        float best = -1.0f;
+        for (size_t e = 0; e < armies.count; ++e) {
+            if (e == a) continue;
+            if (weight[e] <= 0.0f) continue;
+            const float dx = armies.centroidX[e] - armies.centroidX[a];
+            const float dy = armies.centroidY[e] - armies.centroidY[a];
+            const float dSq = dx * dx + dy * dy;
+            const float pressure = weight[e] / std::max(dSq, 1.0f);
+            if (pressure > best) { best = pressure; enemy = e; }
+        }
+        armies.primaryEnemy[a] = (uint8_t)enemy;
+        if (enemy == a) continue;
+
+        const float dx = armies.centroidX[enemy] - armies.centroidX[a];
+        const float dy = armies.centroidY[enemy] - armies.centroidY[a];
         const float len = std::sqrt(dx * dx + dy * dy);
         if (len > 1e-6f) {
             armies.frontDirX[a] = dx / len;
@@ -267,7 +282,7 @@ void assignRoles(SquadHot& squads, const ArmyHot& armies, Team team) {
 }
 
 void updateLineRelief(SquadHot& squads, const ArmyHot& armies, Team team) {
-    const size_t army = (size_t)team;
+    const size_t army = teamIndex(team);
     if (army >= armies.count) return;
     const float fdx = armies.frontDirX[army];
     const float fdy = armies.frontDirY[army];

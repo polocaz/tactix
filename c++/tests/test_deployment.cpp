@@ -218,6 +218,43 @@ TEST_CASE("deployment never spawns a soldier inside an obstacle") {
     }
 }
 
+TEST_CASE("three-army deployment divides soldiers across all active teams") {
+    Simulation sim(1280, 720, 42u, 0u, 3u);
+    sim.init(999);
+
+    const size_t a = sim.getTeamCount(Team::A);
+    const size_t b = sim.getTeamCount(Team::B);
+    const size_t c = sim.getTeamCount(Team::C);
+    CHECK(a + b + c == sim.getAgentCount());
+    CHECK(a > 250);
+    CHECK(b > 250);
+    CHECK(c > 250);
+}
+
+TEST_CASE("three armies deploy on distinct sides of the field") {
+    Simulation sim(1280, 720, 42u, 0u, 3u);
+    sim.init(900);
+
+    CHECK(sim.teamCentroidX(Team::A) < 1280.0f / 3.0f);
+    CHECK(sim.teamCentroidX(Team::B) > 1280.0f * 2.0f / 3.0f);
+    CHECK(sim.teamCentroidX(Team::C) > 1280.0f / 3.0f);
+    CHECK(sim.teamCentroidX(Team::C) < 1280.0f * 2.0f / 3.0f);
+    CHECK(sim.teamCentroidY(Team::C) < 720.0f / 3.0f);
+}
+
+TEST_CASE("three-army squads target hostile squads, never their own team") {
+    Simulation sim(1280, 720, 42u, 1u, 3u);
+    sim.init(900);
+    sim.setPaused(false);
+    sim.tick(1.0f / 60.0f);
+
+    for (size_t s = 0; s < sim.getSquadCount(); ++s) {
+        const uint16_t target = sim.squadTargetSquad(s);
+        if (target >= sim.getSquadCount()) continue;
+        CHECK(sim.squadTeam(target) != sim.squadTeam(s));
+    }
+}
+
 TEST_CASE("jittered deployment is obstacle-cleared") {
     // Design §11.1: the final spawned position -- after jitter AND clearing --
     // is outside every obstacle's standoff. Equivalent to the no-inside sweep

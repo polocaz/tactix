@@ -24,8 +24,9 @@ constexpr uint8_t kReliefIdle      = 0;
 constexpr uint8_t kReliefRetiring  = 1;   // the spent maniple falling back
 constexpr uint8_t kReliefAdvancing = 2;   // the fresh maniple stepping up
 
-// The army tier: exactly two entries, one per team (design 7.1). Two entities
-// make a serial decide phase free, and serial makes bit-reproducibility free.
+// The army tier: one entry per active team. The default battle still uses two,
+// but the storage is no longer binary; a three-army field needs each army to
+// know which hostile mass currently defines its front.
 struct ArmyHot {
     std::vector<float> strengthInfantry, strengthArcher, strengthCavalry;
     std::vector<float> centroidX, centroidY;
@@ -37,6 +38,7 @@ struct ArmyHot {
     std::vector<float> frontX, frontY, frontDirX, frontDirY;
 
     std::vector<uint8_t> posture;
+    std::vector<uint8_t> primaryEnemy;  // Team index, or self if no hostile army is alive
 
     size_t count = 0;
 
@@ -51,6 +53,7 @@ struct ArmyHot {
         frontDirX.push_back(1.0f);
         frontDirY.push_back(0.0f);
         posture.push_back((uint8_t)ArmyPosture::Press);
+        primaryEnemy.push_back((uint8_t)count);
         count++;
     }
 };

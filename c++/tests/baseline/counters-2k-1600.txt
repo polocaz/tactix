@@ -150,4 +150,6 @@ projectileHitTests=35708
 # new SquadHot::shape field enters the hash. Counters held fixed across it, which
 # is the evidence the traits refactor changed no geometry. See the companion
 # 200-tick file for the full argument.
-stateDigest=3c466c8110052f5a
+# stateDigest updated for the multi-army foundation. Counters held fixed across
+# the default two-army run; only ArmyHot::primaryEnemy was added to the hash.
+stateDigest=a3a5a29b2e06cb7f
